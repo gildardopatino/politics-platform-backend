@@ -15,38 +15,39 @@ class Meeting extends Model
 
     protected $fillable = [
         'tenant_id',
-        'planned_by_user_id',
-        'meeting_template_id',
-        'titulo',
-        'descripcion',
-        'fecha_programada',
-        'fecha_realizacion',
+        'planner_user_id',
+        'template_id',
+        'title',
+        'description',
+        'starts_at',
+        'ends_at',
+        'lugar_nombre',
         'direccion',
         'department_id',
-        'city_id',
+        'municipality_id',
         'commune_id',
         'barrio_id',
         'corregimiento_id',
         'vereda_id',
-        'latitud',
-        'longitud',
+        'latitude',
+        'longitude',
         'qr_code',
         'status',
         'metadata',
     ];
 
     protected $casts = [
-        'fecha_programada' => 'datetime',
-        'fecha_realizacion' => 'datetime',
-        'latitud' => 'decimal:8',
-        'longitud' => 'decimal:8',
+        'starts_at' => 'datetime',
+        'ends_at' => 'datetime',
+        'latitude' => 'decimal:7',
+        'longitude' => 'decimal:7',
         'metadata' => 'array',
     ];
 
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
-            ->logOnly(['titulo', 'fecha_programada', 'status'])
+            ->logOnly(['title', 'starts_at', 'status'])
             ->logOnlyDirty();
     }
 
@@ -56,14 +57,14 @@ class Meeting extends Model
         return $this->belongsTo(Tenant::class);
     }
 
-    public function plannedBy()
+    public function planner()
     {
-        return $this->belongsTo(User::class, 'planned_by_user_id');
+        return $this->belongsTo(User::class, 'planner_user_id');
     }
 
     public function template()
     {
-        return $this->belongsTo(MeetingTemplate::class, 'meeting_template_id');
+        return $this->belongsTo(MeetingTemplate::class, 'template_id');
     }
 
     public function department()
@@ -71,9 +72,9 @@ class Meeting extends Model
         return $this->belongsTo(Department::class);
     }
 
-    public function city()
+    public function municipality()
     {
-        return $this->belongsTo(City::class);
+        return $this->belongsTo(Municipality::class);
     }
 
     public function commune()
@@ -86,6 +87,16 @@ class Meeting extends Model
         return $this->belongsTo(Barrio::class);
     }
 
+    public function corregimiento()
+    {
+        return $this->belongsTo(Corregimiento::class);
+    }
+
+    public function vereda()
+    {
+        return $this->belongsTo(Vereda::class);
+    }
+
     public function attendees()
     {
         return $this->hasMany(MeetingAttendee::class);
@@ -96,16 +107,11 @@ class Meeting extends Model
         return $this->hasMany(Commitment::class);
     }
 
-    public function resourceAllocations()
-    {
-        return $this->hasMany(ResourceAllocation::class);
-    }
-
     // Scopes
     public function scopeUpcoming($query)
     {
-        return $query->where('fecha_programada', '>', now())
-                     ->where('status', 'planned');
+        return $query->where('starts_at', '>', now())
+                     ->where('status', 'scheduled');
     }
 
     public function scopeCompleted($query)

@@ -11,7 +11,7 @@ class StoreTenantRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return false;
+        return true;
     }
 
     /**
@@ -22,7 +22,11 @@ class StoreTenantRequest extends FormRequest
     public function rules(): array
     {
         return [
-            //
+            'slug' => 'required|string|max:255|unique:tenants,slug',
+            'nombre' => 'required|string|max:255',
+            'tipo_cargo' => 'required|in:alcalde,gobernador,senador,representante,concejal,otro',
+            'identificacion' => 'required|string|max:50|unique:tenants,identificacion',
+            'metadata' => 'nullable|array',
         ];
     }
 }

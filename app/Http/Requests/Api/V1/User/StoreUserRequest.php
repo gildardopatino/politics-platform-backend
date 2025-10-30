@@ -11,7 +11,7 @@ class StoreUserRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return false;
+        return true;
     }
 
     /**
@@ -21,8 +21,21 @@ class StoreUserRequest extends FormRequest
      */
     public function rules(): array
     {
+        $tenantId = app('tenant')->id;
+
         return [
-            //
+            'name' => 'required|string|max:255',
+            'email' => [
+                'required',
+                'email',
+                'unique:users,email,NULL,id,tenant_id,' . $tenantId
+            ],
+            'password' => 'required|string|min:6|confirmed',
+            'telefono' => 'nullable|string|max:20',
+            'is_team_leader' => 'nullable|boolean',
+            'reports_to' => 'nullable|exists:users,id',
+            'roles' => 'nullable|array',
+            'roles.*' => 'exists:roles,name',
         ];
     }
 }

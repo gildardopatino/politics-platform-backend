@@ -15,14 +15,13 @@ class Campaign extends Model
 
     protected $fillable = [
         'tenant_id',
-        'created_by_user_id',
-        'titulo',
-        'mensaje',
+        'created_by',
+        'title',
+        'message',
         'channel',
         'filter_json',
         'scheduled_at',
-        'started_at',
-        'completed_at',
+        'sent_at',
         'status',
         'total_recipients',
         'sent_count',
@@ -32,14 +31,13 @@ class Campaign extends Model
     protected $casts = [
         'filter_json' => 'array',
         'scheduled_at' => 'datetime',
-        'started_at' => 'datetime',
-        'completed_at' => 'datetime',
+        'sent_at' => 'datetime',
     ];
 
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
-            ->logOnly(['titulo', 'channel', 'status', 'sent_count'])
+            ->logOnly(['title', 'channel', 'status', 'sent_count'])
             ->logOnlyDirty();
     }
 
@@ -51,7 +49,7 @@ class Campaign extends Model
 
     public function createdBy()
     {
-        return $this->belongsTo(User::class, 'created_by_user_id');
+        return $this->belongsTo(User::class, 'created_by');
     }
 
     public function recipients()

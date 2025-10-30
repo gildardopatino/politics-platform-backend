@@ -11,7 +11,7 @@ class UpdateCampaignRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return false;
+        return true;
     }
 
     /**
@@ -22,7 +22,11 @@ class UpdateCampaignRequest extends FormRequest
     public function rules(): array
     {
         return [
-            //
+            'titulo' => 'sometimes|string|max:255',
+            'mensaje' => 'sometimes|string',
+            'channel' => 'sometimes|in:sms,email,both',
+            'filter_json' => 'nullable|array',
+            'scheduled_at' => 'nullable|date|after:now',
         ];
     }
 }

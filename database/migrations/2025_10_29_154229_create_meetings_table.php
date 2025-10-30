@@ -25,7 +25,7 @@ return new class extends Migration
             $table->string('qr_code')->nullable()->unique();
             $table->foreignId('planner_user_id')->constrained('users')->onDelete('cascade');
             $table->foreignId('department_id')->nullable()->constrained('departments')->onDelete('set null');
-            $table->foreignId('city_id')->nullable()->constrained('cities')->onDelete('set null');
+            $table->foreignId('municipality_id')->nullable()->constrained('municipalities')->onDelete('set null');
             $table->foreignId('commune_id')->nullable()->constrained('communes')->onDelete('set null');
             $table->foreignId('barrio_id')->nullable()->constrained('barrios')->onDelete('set null');
             $table->foreignId('corregimiento_id')->nullable()->constrained('corregimientos')->onDelete('set null');
@@ -37,7 +37,7 @@ return new class extends Migration
             $table->softDeletes();
 
             $table->index(['tenant_id', 'starts_at', 'status']);
-            $table->index(['city_id', 'starts_at']);
+            $table->index(['municipality_id', 'starts_at']);
             $table->index('qr_code');
         });
     }

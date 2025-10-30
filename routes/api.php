@@ -3,10 +3,12 @@
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\CampaignController;
 use App\Http\Controllers\Api\V1\CommitmentController;
+use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\GeographyController;
 use App\Http\Controllers\Api\V1\MeetingAttendeeController;
 use App\Http\Controllers\Api\V1\MeetingController;
 use App\Http\Controllers\Api\V1\MeetingTemplateController;
+use App\Http\Controllers\Api\V1\PriorityController;
 use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\ResourceAllocationController;
 use App\Http\Controllers\Api\V1\TenantController;
@@ -27,7 +29,7 @@ Route::prefix('v1')->group(function () {
     Route::post('/meetings/check-in/{qr_code}', [MeetingController::class, 'checkIn']);
 
     // Protected routes
-    Route::middleware('auth:api')->group(function () {
+    Route::middleware('jwt.auth')->group(function () {
         
         // Auth routes
         Route::post('/logout', [AuthController::class, 'logout']);
@@ -70,9 +72,17 @@ Route::prefix('v1')->group(function () {
             Route::get('/campaigns/{campaign}/recipients', [CampaignController::class, 'recipients']);
             
             // Commitments
+            Route::get('/meetings/{meeting}/commitments', [CommitmentController::class, 'byMeeting']);
             Route::apiResource('commitments', CommitmentController::class);
             Route::post('/commitments/{commitment}/complete', [CommitmentController::class, 'complete']);
             Route::get('/commitments/overdue', [CommitmentController::class, 'overdue']);
+            
+            // Priorities
+            Route::apiResource('priorities', PriorityController::class);
+            
+            // Dashboard & Calendar
+            Route::get('dashboard', [DashboardController::class, 'index']);
+            Route::get('calendar', [DashboardController::class, 'calendar']);
             
             // Resource Allocations
             Route::apiResource('resource-allocations', ResourceAllocationController::class);
@@ -81,9 +91,13 @@ Route::prefix('v1')->group(function () {
             
             // Geography
             Route::get('/departments', [GeographyController::class, 'departments']);
-            Route::get('/departments/{department}/cities', [GeographyController::class, 'cities']);
-            Route::get('/cities/{city}/communes', [GeographyController::class, 'communes']);
-            Route::get('/communes/{commune}/barrios', [GeographyController::class, 'barrios']);
+            Route::get('/departments/{department}/municipalities', [GeographyController::class, 'municipalities']);
+            Route::get('/municipalities/{municipality}/communes', [GeographyController::class, 'communes']);
+            Route::get('/municipalities/{municipality}/barrios', [GeographyController::class, 'barriosByMunicipality']);
+            Route::get('/communes/{commune}/barrios', [GeographyController::class, 'barriosByCommune']);
+            Route::get('/municipalities/{municipality}/corregimientos', [GeographyController::class, 'corregimientos']);
+            Route::get('/corregimientos/{corregimiento}/veredas', [GeographyController::class, 'veredasByCorregimiento']);
+            Route::get('/municipalities/{municipality}/veredas', [GeographyController::class, 'veredasByMunicipality']);
             
             // Reports
             Route::get('/reports/meetings', [ReportController::class, 'meetings']);

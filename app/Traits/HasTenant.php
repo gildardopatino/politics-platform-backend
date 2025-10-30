@@ -12,11 +12,20 @@ trait HasTenant
         static::addGlobalScope(new TenantScope);
 
         static::creating(function ($model) {
-            if (is_null($model->tenant_id) && !isset($model->is_super_admin)) {
-                $tenant = app('tenant');
-                if ($tenant) {
-                    $model->tenant_id = $tenant->id;
-                }
+            // Si el modelo ya tiene tenant_id, no hacer nada
+            if (!is_null($model->tenant_id)) {
+                return;
+            }
+
+            // No asignar tenant_id a super admins globales
+            if (isset($model->is_super_admin) && $model->is_super_admin && is_null($model->tenant_id)) {
+                return;
+            }
+
+            // Obtener tenant_id del usuario autenticado
+            $user = request()->user();
+            if ($user && $user->tenant_id) {
+                $model->tenant_id = $user->tenant_id;
             }
         });
     }

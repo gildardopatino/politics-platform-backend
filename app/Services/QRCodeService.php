@@ -7,11 +7,21 @@ use Illuminate\Support\Str;
 
 class QRCodeService
 {
-    public function generateForMeeting(int $meetingId, string $tenantSlug): string
+    /**
+     * Genera un código QR para una reunión y lo retorna en base64
+     */
+    public function generateForMeeting(int $meetingId, string $tenantSlug): array
     {
         $uniqueCode = Str::random(32);
         $url = config('app.url') . "/api/v1/meetings/check-in/{$uniqueCode}";
         
+        // Generar QR en SVG (funciona sin imagick)
+        $svgQR = QrCode::format('svg')
+            ->size(300)
+            ->errorCorrection('H')
+            ->generate($url);
+        
+        // Guardar archivo físico como respaldo
         $qrCodePath = "qr-codes/{$tenantSlug}";
         $fileName = "meeting-{$meetingId}-{$uniqueCode}.svg";
         
@@ -19,11 +29,38 @@ class QRCodeService
             mkdir(storage_path("app/public/{$qrCodePath}"), 0755, true);
         }
         
-        QrCode::format('svg')
-            ->size(300)
-            ->generate($url, storage_path("app/public/{$qrCodePath}/{$fileName}"));
+        file_put_contents(
+            storage_path("app/public/{$qrCodePath}/{$fileName}"),
+            $svgQR
+        );
         
-        return $uniqueCode;
+        // Retornar código único y QR en base64
+        return [
+            'code' => $uniqueCode,
+            'svg' => $svgQR,
+            'svg_base64' => base64_encode($svgQR),
+            'url' => $url,
+            'file_path' => "storage/{$qrCodePath}/{$fileName}",
+        ];
+    }
+
+    /**
+     * Obtiene solo el base64 de un QR existente
+     */
+    public function getQRCodeBase64(string $qrCode): ?array
+    {
+        $url = config('app.url') . "/api/v1/meetings/check-in/{$qrCode}";
+        
+        $svgQR = QrCode::format('svg')
+            ->size(300)
+            ->errorCorrection('H')
+            ->generate($url);
+        
+        return [
+            'svg' => $svgQR,
+            'svg_base64' => base64_encode($svgQR),
+            'url' => $url,
+        ];
     }
 
     public function getQRCodePath(string $qrCode, string $tenantSlug): ?string

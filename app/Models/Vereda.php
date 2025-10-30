@@ -5,12 +5,15 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class Commune extends Model
+class Vereda extends Model
 {
     use HasFactory;
 
+    protected $table = 'veredas';
+
     protected $fillable = [
         'municipality_id',
+        'corregimiento_id',
         'codigo',
         'nombre',
         'latitud',
@@ -28,9 +31,9 @@ class Commune extends Model
         return $this->belongsTo(Municipality::class);
     }
 
-    public function barrios()
+    public function corregimiento()
     {
-        return $this->hasMany(Barrio::class);
+        return $this->belongsTo(Corregimiento::class);
     }
 
     public function meetings()

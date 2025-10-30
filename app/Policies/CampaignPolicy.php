@@ -13,7 +13,7 @@ class CampaignPolicy
      */
     public function viewAny(User $user): bool
     {
-        return false;
+        return $user->hasPermissionTo('view_campaigns');
     }
 
     /**
@@ -21,7 +21,7 @@ class CampaignPolicy
      */
     public function view(User $user, Campaign $campaign): bool
     {
-        return false;
+        return $user->tenant_id === $campaign->tenant_id && $user->hasPermissionTo('view_campaigns');
     }
 
     /**
@@ -29,7 +29,7 @@ class CampaignPolicy
      */
     public function create(User $user): bool
     {
-        return false;
+        return $user->hasPermissionTo('create_campaigns');
     }
 
     /**
@@ -37,7 +37,8 @@ class CampaignPolicy
      */
     public function update(User $user, Campaign $campaign): bool
     {
-        return false;
+        return $user->tenant_id === $campaign->tenant_id && 
+               ($user->hasPermissionTo('edit_campaigns') || $campaign->created_by_user_id === $user->id);
     }
 
     /**
@@ -45,7 +46,7 @@ class CampaignPolicy
      */
     public function delete(User $user, Campaign $campaign): bool
     {
-        return false;
+        return $user->tenant_id === $campaign->tenant_id && $user->hasPermissionTo('delete_campaigns');
     }
 
     /**
@@ -53,7 +54,7 @@ class CampaignPolicy
      */
     public function restore(User $user, Campaign $campaign): bool
     {
-        return false;
+        return $user->tenant_id === $campaign->tenant_id && $user->hasPermissionTo('delete_campaigns');
     }
 
     /**
@@ -61,6 +62,6 @@ class CampaignPolicy
      */
     public function forceDelete(User $user, Campaign $campaign): bool
     {
-        return false;
+        return $user->tenant_id === $campaign->tenant_id && $user->hasPermissionTo('delete_campaigns');
     }
 }

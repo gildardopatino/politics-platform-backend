@@ -11,7 +11,7 @@ class UpdateUserRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return false;
+        return true;
     }
 
     /**
@@ -21,8 +21,22 @@ class UpdateUserRequest extends FormRequest
      */
     public function rules(): array
     {
+        $userId = $this->route('user')->id;
+        $tenantId = app('tenant')->id;
+
         return [
-            //
+            'name' => 'sometimes|string|max:255',
+            'email' => [
+                'sometimes',
+                'email',
+                'unique:users,email,' . $userId . ',id,tenant_id,' . $tenantId
+            ],
+            'password' => 'sometimes|string|min:6|confirmed',
+            'telefono' => 'nullable|string|max:20',
+            'is_team_leader' => 'nullable|boolean',
+            'reports_to' => 'nullable|exists:users,id',
+            'roles' => 'nullable|array',
+            'roles.*' => 'exists:roles,name',
         ];
     }
 }

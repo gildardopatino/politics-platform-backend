@@ -25,8 +25,13 @@ class UserResource extends JsonResource
             'reports_to' => $this->reports_to,
             'supervisor' => $this->whenLoaded('supervisor', fn() => new UserResource($this->supervisor)),
             'tenant' => $this->whenLoaded('tenant', fn() => new TenantResource($this->tenant)),
-            'roles' => $this->whenLoaded('roles', fn() => $this->roles->pluck('name')),
-            'permissions' => $this->whenLoaded('permissions', fn() => $this->permissions->pluck('name')),
+            'roles' => $this->whenLoaded('roles', function() {
+                return $this->roles->pluck('name');
+            }, []),
+            'permissions' => $this->whenLoaded('roles', function() {
+                // Obtener todos los permisos del usuario (directos + de roles)
+                return $this->getAllPermissions()->pluck('name')->unique()->values();
+            }, []),
             'created_at' => $this->created_at?->toISOString(),
             'updated_at' => $this->updated_at?->toISOString(),
         ];

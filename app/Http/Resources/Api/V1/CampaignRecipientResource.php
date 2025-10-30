@@ -14,6 +14,16 @@ class CampaignRecipientResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
-        return parent::toArray($request);
+        return [
+            'id' => $this->id,
+            'campaign_id' => $this->campaign_id,
+            'recipient_type' => $this->recipient_type,
+            'recipient_value' => $this->recipient_value,
+            'status' => $this->status,
+            'sent_at' => $this->sent_at?->toISOString(),
+            'error_message' => $this->error_message,
+            'created_at' => $this->created_at?->toISOString(),
+            'updated_at' => $this->updated_at?->toISOString(),
+        ];
     }
 }

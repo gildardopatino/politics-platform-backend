@@ -13,9 +13,11 @@ class MeetingAttendee extends Model
 
     protected $fillable = [
         'meeting_id',
+        'created_by',
         'cedula',
         'nombres',
         'apellidos',
+        'direccion',
         'telefono',
         'email',
         'extra_fields',
@@ -40,6 +42,11 @@ class MeetingAttendee extends Model
     public function meeting()
     {
         return $this->belongsTo(Meeting::class);
+    }
+
+    public function createdBy()
+    {
+        return $this->belongsTo(User::class, 'created_by');
     }
 
     // Scopes

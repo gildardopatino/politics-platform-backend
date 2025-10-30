@@ -33,6 +33,16 @@ class City extends Model
         return $this->hasMany(Commune::class);
     }
 
+    public function corregimientos()
+    {
+        return $this->hasMany(Corregimiento::class);
+    }
+
+    public function veredas()
+    {
+        return $this->hasMany(Vereda::class);
+    }
+
     public function meetings()
     {
         return $this->hasMany(Meeting::class);

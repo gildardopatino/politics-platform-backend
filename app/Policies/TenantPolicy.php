@@ -13,7 +13,7 @@ class TenantPolicy
      */
     public function viewAny(User $user): bool
     {
-        return false;
+        return $user->is_super_admin;
     }
 
     /**
@@ -21,7 +21,7 @@ class TenantPolicy
      */
     public function view(User $user, Tenant $tenant): bool
     {
-        return false;
+        return $user->is_super_admin || $user->tenant_id === $tenant->id;
     }
 
     /**
@@ -29,7 +29,7 @@ class TenantPolicy
      */
     public function create(User $user): bool
     {
-        return false;
+        return $user->is_super_admin;
     }
 
     /**
@@ -37,7 +37,7 @@ class TenantPolicy
      */
     public function update(User $user, Tenant $tenant): bool
     {
-        return false;
+        return $user->is_super_admin;
     }
 
     /**
@@ -45,7 +45,7 @@ class TenantPolicy
      */
     public function delete(User $user, Tenant $tenant): bool
     {
-        return false;
+        return $user->is_super_admin;
     }
 
     /**
@@ -53,7 +53,7 @@ class TenantPolicy
      */
     public function restore(User $user, Tenant $tenant): bool
     {
-        return false;
+        return $user->is_super_admin;
     }
 
     /**
@@ -61,6 +61,6 @@ class TenantPolicy
      */
     public function forceDelete(User $user, Tenant $tenant): bool
     {
-        return false;
+        return $user->is_super_admin;
     }
 }

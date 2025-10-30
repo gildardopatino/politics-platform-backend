@@ -11,7 +11,7 @@ class UpdateMeetingRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return false;
+        return true;
     }
 
     /**
@@ -22,7 +22,21 @@ class UpdateMeetingRequest extends FormRequest
     public function rules(): array
     {
         return [
-            //
+            'template_id' => 'sometimes|exists:meeting_templates,id',
+            'title' => 'sometimes|string|max:255',
+            'description' => 'nullable|string',
+            'starts_at' => 'sometimes|date',
+            'lugar_nombre' => 'nullable|string',
+            'department_id' => 'nullable|exists:departments,id',
+            'municipality_id' => 'nullable|exists:municipalities,id',
+            'commune_id' => 'nullable|exists:communes,id',
+            'barrio_id' => 'nullable|exists:barrios,id',
+            'corregimiento_id' => 'nullable|exists:corregimientos,id',
+            'vereda_id' => 'nullable|exists:veredas,id',
+            'latitude' => 'nullable|numeric|between:-90,90',
+            'longitude' => 'nullable|numeric|between:-180,180',
+            'status' => 'sometimes|in:scheduled,in_progress,completed,cancelled',
+            'metadata' => 'nullable|array',
         ];
     }
 }

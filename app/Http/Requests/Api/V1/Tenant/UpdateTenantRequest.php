@@ -11,7 +11,7 @@ class UpdateTenantRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return false;
+        return true;
     }
 
     /**
@@ -21,8 +21,14 @@ class UpdateTenantRequest extends FormRequest
      */
     public function rules(): array
     {
+        $tenantId = $this->route('tenant')->id;
+
         return [
-            //
+            'slug' => 'sometimes|string|max:255|unique:tenants,slug,' . $tenantId,
+            'nombre' => 'sometimes|string|max:255',
+            'tipo_cargo' => 'sometimes|in:alcalde,gobernador,senador,representante,concejal,otro',
+            'identificacion' => 'sometimes|string|max:50|unique:tenants,identificacion,' . $tenantId,
+            'metadata' => 'nullable|array',
         ];
     }
 }

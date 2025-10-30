@@ -11,7 +11,7 @@ class UpdateResourceAllocationRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return false;
+        return true;
     }
 
     /**
@@ -22,7 +22,12 @@ class UpdateResourceAllocationRequest extends FormRequest
     public function rules(): array
     {
         return [
-            //
+            'meeting_id' => 'sometimes|exists:meetings,id',
+            'leader_user_id' => 'sometimes|exists:users,id',
+            'type' => 'sometimes|in:cash,material,service',
+            'descripcion' => 'sometimes|string',
+            'amount' => 'sometimes|numeric|min:0',
+            'fecha_asignacion' => 'sometimes|date',
         ];
     }
 }

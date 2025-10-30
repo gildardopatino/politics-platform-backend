@@ -13,7 +13,7 @@ class MeetingPolicy
      */
     public function viewAny(User $user): bool
     {
-        return false;
+        return $user->hasPermissionTo('view_meetings');
     }
 
     /**
@@ -21,7 +21,7 @@ class MeetingPolicy
      */
     public function view(User $user, Meeting $meeting): bool
     {
-        return false;
+        return $user->tenant_id === $meeting->tenant_id && $user->hasPermissionTo('view_meetings');
     }
 
     /**
@@ -29,7 +29,7 @@ class MeetingPolicy
      */
     public function create(User $user): bool
     {
-        return false;
+        return $user->hasPermissionTo('create_meetings');
     }
 
     /**
@@ -37,7 +37,8 @@ class MeetingPolicy
      */
     public function update(User $user, Meeting $meeting): bool
     {
-        return false;
+        return $user->tenant_id === $meeting->tenant_id && 
+               ($user->hasPermissionTo('edit_meetings') || $meeting->planned_by_user_id === $user->id);
     }
 
     /**
@@ -45,7 +46,8 @@ class MeetingPolicy
      */
     public function delete(User $user, Meeting $meeting): bool
     {
-        return false;
+        return $user->tenant_id === $meeting->tenant_id && 
+               ($user->hasPermissionTo('delete_meetings') || $meeting->planned_by_user_id === $user->id);
     }
 
     /**
@@ -53,7 +55,7 @@ class MeetingPolicy
      */
     public function restore(User $user, Meeting $meeting): bool
     {
-        return false;
+        return $user->tenant_id === $meeting->tenant_id && $user->hasPermissionTo('delete_meetings');
     }
 
     /**
@@ -61,6 +63,6 @@ class MeetingPolicy
      */
     public function forceDelete(User $user, Meeting $meeting): bool
     {
-        return false;
+        return $user->tenant_id === $meeting->tenant_id && $user->hasPermissionTo('delete_meetings');
     }
 }

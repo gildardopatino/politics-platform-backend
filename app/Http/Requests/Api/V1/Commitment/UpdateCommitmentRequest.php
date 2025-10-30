@@ -11,7 +11,7 @@ class UpdateCommitmentRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return false;
+        return true;
     }
 
     /**
@@ -22,7 +22,26 @@ class UpdateCommitmentRequest extends FormRequest
     public function rules(): array
     {
         return [
-            //
+            'meeting_id' => 'sometimes|exists:meetings,id',
+            'assigned_user_id' => 'sometimes|exists:users,id',
+            'priority_id' => 'sometimes|exists:priorities,id',
+            'description' => 'sometimes|string',
+            'due_date' => 'sometimes|date',
+            'status' => 'sometimes|in:pending,in_progress,completed,cancelled',
+            'notes' => 'nullable|string',
+        ];
+    }
+
+    /**
+     * Get custom messages for validator errors.
+     */
+    public function messages(): array
+    {
+        return [
+            'meeting_id.exists' => 'La reunión seleccionada no existe',
+            'assigned_user_id.exists' => 'El usuario seleccionado no existe',
+            'priority_id.exists' => 'La prioridad seleccionada no existe',
+            'due_date.date' => 'La fecha de vencimiento debe ser una fecha válida',
         ];
     }
 }

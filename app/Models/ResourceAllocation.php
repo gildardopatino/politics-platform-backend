@@ -15,24 +15,27 @@ class ResourceAllocation extends Model
 
     protected $fillable = [
         'tenant_id',
-        'meeting_id',
-        'allocated_by_user_id',
+        'assigned_to_user_id',
+        'assigned_by_user_id',
         'leader_user_id',
         'type',
-        'descripcion',
         'amount',
-        'fecha_asignacion',
+        'details',
+        'allocation_date',
+        'notes',
+        'status',
     ];
 
     protected $casts = [
         'amount' => 'decimal:2',
-        'fecha_asignacion' => 'date',
+        'allocation_date' => 'date',
+        'details' => 'array',
     ];
 
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
-            ->logOnly(['type', 'descripcion', 'amount'])
+            ->logOnly(['type', 'amount', 'allocation_date', 'status'])
             ->logOnlyDirty();
     }
 
@@ -47,9 +50,14 @@ class ResourceAllocation extends Model
         return $this->belongsTo(Meeting::class);
     }
 
-    public function allocatedBy()
+    public function assignedBy()
     {
-        return $this->belongsTo(User::class, 'allocated_by_user_id');
+        return $this->belongsTo(User::class, 'assigned_by_user_id');
+    }
+
+    public function assignedTo()
+    {
+        return $this->belongsTo(User::class, 'assigned_to_user_id');
     }
 
     public function leader()

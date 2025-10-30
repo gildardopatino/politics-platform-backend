@@ -23,9 +23,10 @@ class EnsureTenant
             ], 401);
         }
 
-        // Super admins don't need tenant
-        if ($user->is_super_admin) {
+        // Super admins without tenant can see everything
+        if ($user->is_super_admin && is_null($user->tenant_id)) {
             app()->instance('tenant', null);
+            app()->instance('current_tenant_id', null); // No filtering for super admin
             return $next($request);
         }
 
@@ -35,7 +36,7 @@ class EnsureTenant
             ], 403);
         }
 
-        $tenant = \App\Models\Tenant::find($user->tenant_id);
+        $tenant = \App\Models\Tenant::withoutGlobalScope(\App\Scopes\TenantScope::class)->find($user->tenant_id);
 
         if (!$tenant) {
             return response()->json([
@@ -45,6 +46,7 @@ class EnsureTenant
 
         // Bind tenant to container
         app()->instance('tenant', $tenant);
+        app()->instance('current_tenant_id', $user->tenant_id); // For TenantScope filtering
 
         return $next($request);
     }

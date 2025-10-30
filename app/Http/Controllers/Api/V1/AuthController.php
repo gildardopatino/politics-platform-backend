@@ -58,8 +58,11 @@ class AuthController extends Controller
      */
     public function me(): JsonResponse
     {
+        $user = auth()->user();
+        $user->load(['roles', 'permissions', 'tenant']);
+        
         return response()->json([
-            'data' => new UserResource(auth()->user())
+            'data' => new UserResource($user)
         ]);
     }
 
@@ -68,7 +71,18 @@ class AuthController extends Controller
      */
     public function refresh(): JsonResponse
     {
-        return $this->respondWithToken(auth()->refresh());
+        try {
+            $newToken = auth()->refresh();
+            
+            return $this->respondWithToken($newToken);
+            
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'refresh_failed',
+                'message' => 'Could not refresh token. Please login again.',
+                'requires_login' => true
+            ], 401);
+        }
     }
 
     /**
@@ -76,11 +90,17 @@ class AuthController extends Controller
      */
     public function logout(): JsonResponse
     {
-        auth()->logout();
+        try {
+            auth()->logout();
 
-        return response()->json([
-            'message' => 'Successfully logged out'
-        ]);
+            return response()->json([
+                'message' => 'Successfully logged out'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Logout successful (token already invalid)'
+            ]);
+        }
     }
 
     /**
@@ -88,11 +108,20 @@ class AuthController extends Controller
      */
     protected function respondWithToken(string $token, int $statusCode = 200): JsonResponse
     {
+        $ttl = (int) config('jwt.ttl');
+        $refreshTtl = (int) config('jwt.refresh_ttl');
+        
+        $user = auth()->user();
+        $user->load(['roles', 'permissions', 'tenant']);
+        
         return response()->json([
             'access_token' => $token,
             'token_type' => 'bearer',
-            'expires_in' => auth()->factory()->getTTL() * 60,
-            'user' => new UserResource(auth()->user())
+            'expires_in' => $ttl * 60, // En segundos
+            'expires_at' => now()->addMinutes($ttl)->toISOString(),
+            'refresh_expires_in' => $refreshTtl * 60, // En segundos
+            'refresh_expires_at' => now()->addMinutes($refreshTtl)->toISOString(),
+            'user' => new UserResource($user)
         ], $statusCode);
     }
 }

@@ -11,7 +11,7 @@ class StoreCampaignRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return false;
+        return true;
     }
 
     /**
@@ -22,7 +22,11 @@ class StoreCampaignRequest extends FormRequest
     public function rules(): array
     {
         return [
-            //
+            'titulo' => 'required|string|max:255',
+            'mensaje' => 'required|string',
+            'channel' => 'required|in:sms,email,both',
+            'filter_json' => 'nullable|array',
+            'scheduled_at' => 'nullable|date|after:now',
         ];
     }
 }

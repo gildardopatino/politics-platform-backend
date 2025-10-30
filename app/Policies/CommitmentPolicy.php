@@ -13,7 +13,7 @@ class CommitmentPolicy
      */
     public function viewAny(User $user): bool
     {
-        return false;
+        return $user->hasPermissionTo('view_commitments');
     }
 
     /**
@@ -21,7 +21,7 @@ class CommitmentPolicy
      */
     public function view(User $user, Commitment $commitment): bool
     {
-        return false;
+        return $user->tenant_id === $commitment->tenant_id && $user->hasPermissionTo('view_commitments');
     }
 
     /**
@@ -29,7 +29,7 @@ class CommitmentPolicy
      */
     public function create(User $user): bool
     {
-        return false;
+        return $user->hasPermissionTo('create_commitments');
     }
 
     /**
@@ -37,7 +37,8 @@ class CommitmentPolicy
      */
     public function update(User $user, Commitment $commitment): bool
     {
-        return false;
+        return $user->tenant_id === $commitment->tenant_id && 
+               ($user->hasPermissionTo('edit_commitments') || $commitment->assigned_user_id === $user->id);
     }
 
     /**
@@ -45,7 +46,7 @@ class CommitmentPolicy
      */
     public function delete(User $user, Commitment $commitment): bool
     {
-        return false;
+        return $user->tenant_id === $commitment->tenant_id && $user->hasPermissionTo('delete_commitments');
     }
 
     /**
@@ -53,7 +54,7 @@ class CommitmentPolicy
      */
     public function restore(User $user, Commitment $commitment): bool
     {
-        return false;
+        return $user->tenant_id === $commitment->tenant_id && $user->hasPermissionTo('delete_commitments');
     }
 
     /**
@@ -61,6 +62,6 @@ class CommitmentPolicy
      */
     public function forceDelete(User $user, Commitment $commitment): bool
     {
-        return false;
+        return $user->tenant_id === $commitment->tenant_id && $user->hasPermissionTo('delete_commitments');
     }
 }

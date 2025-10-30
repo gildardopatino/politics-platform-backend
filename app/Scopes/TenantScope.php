@@ -10,10 +10,19 @@ class TenantScope implements Scope
 {
     public function apply(Builder $builder, Model $model): void
     {
-        $tenant = app('tenant');
-        
-        if ($tenant && $model->getTable() !== 'users') {
-            $builder->where($model->getTable() . '.tenant_id', $tenant->id);
+        // Check if there's a current tenant context
+        if (!app()->bound('current_tenant_id')) {
+            return;
         }
+
+        $tenantId = app('current_tenant_id');
+        
+        // If tenant_id is null, it means super admin - no filtering
+        if ($tenantId === null) {
+            return;
+        }
+
+        // Apply tenant filter
+        $builder->where($model->getTable() . '.tenant_id', $tenantId);
     }
 }

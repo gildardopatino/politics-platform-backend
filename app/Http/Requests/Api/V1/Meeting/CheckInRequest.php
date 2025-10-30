@@ -11,7 +11,7 @@ class CheckInRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return false;
+        return true;
     }
 
     /**
@@ -22,7 +22,12 @@ class CheckInRequest extends FormRequest
     public function rules(): array
     {
         return [
-            //
+            'cedula' => 'required|string|max:20',
+            'nombres' => 'required|string|max:255',
+            'apellidos' => 'required|string|max:255',
+            'telefono' => 'nullable|string|max:20',
+            'email' => 'nullable|email',
+            'extra_fields' => 'nullable|array',
         ];
     }
 }

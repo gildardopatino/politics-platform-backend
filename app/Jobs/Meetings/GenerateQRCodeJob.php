@@ -33,11 +33,11 @@ class GenerateQRCodeJob implements ShouldQueue
             return; // QR code already generated
         }
 
-        $qrCode = $qrCodeService->generateForMeeting(
+        $qrData = $qrCodeService->generateForMeeting(
             $this->meeting->id,
             $this->meeting->tenant->slug
         );
 
-        $this->meeting->update(['qr_code' => $qrCode]);
+        $this->meeting->update(['qr_code' => $qrData['code']]);
     }
 }

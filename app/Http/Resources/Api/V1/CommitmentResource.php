@@ -16,20 +16,31 @@ class CommitmentResource extends JsonResource
     {
         return [
             'id' => $this->id,
-            'descripcion' => $this->descripcion,
-            'fecha_compromiso' => $this->fecha_compromiso?->toDateString(),
-            'fecha_cumplimiento' => $this->fecha_cumplimiento?->toDateString(),
+            'tenant_id' => $this->tenant_id,
+            'meeting_id' => $this->meeting_id,
+            'description' => $this->description,
+            'due_date' => $this->due_date?->toDateString(),
             'status' => $this->status,
-            'notas' => $this->notas,
-            'meeting' => $this->whenLoaded('meeting', fn() => new MeetingResource($this->meeting)),
+            'notes' => $this->notes,
+            
+            // Relaciones con usuarios
+            'assigned_user_id' => $this->assigned_user_id,
             'assigned_user' => $this->whenLoaded('assignedUser', fn() => new UserResource($this->assignedUser)),
-            'priority' => $this->whenLoaded('priority', fn() => [
-                'id' => $this->priority->id,
-                'name' => $this->priority->name,
-                'color' => $this->priority->color,
-            ]),
+            
+            'created_by' => $this->created_by,
+            'creator' => $this->whenLoaded('createdBy', fn() => new UserResource($this->createdBy)),
+            
+            // Relación con reunión
+            'meeting' => $this->whenLoaded('meeting', fn() => new MeetingResource($this->meeting)),
+            
+            // Relación con prioridad
+            'priority_id' => $this->priority_id,
+            'priority' => $this->whenLoaded('priority', fn() => new PriorityResource($this->priority)),
+            
+            // Timestamps
             'created_at' => $this->created_at?->toISOString(),
             'updated_at' => $this->updated_at?->toISOString(),
+            'deleted_at' => $this->deleted_at?->toISOString(),
         ];
     }
 }

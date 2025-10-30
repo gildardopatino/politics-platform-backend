@@ -20,7 +20,7 @@ class DatabaseSeeder extends Seeder
             RolesAndPermissionsSeeder::class,
             GeographySeeder::class,
             PrioritySeeder::class,
-            // DemoDataSeeder::class, // Uncomment for demo data
+            DemoDataSeeder::class, // Demo data enabled
         ]);
     }
 }

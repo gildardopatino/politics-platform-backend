@@ -11,7 +11,7 @@ class StoreResourceAllocationRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return false;
+        return true;
     }
 
     /**
@@ -22,7 +22,12 @@ class StoreResourceAllocationRequest extends FormRequest
     public function rules(): array
     {
         return [
-            //
+            'meeting_id' => 'required|exists:meetings,id',
+            'leader_user_id' => 'required|exists:users,id',
+            'type' => 'required|in:cash,material,service',
+            'descripcion' => 'required|string',
+            'amount' => 'required|numeric|min:0',
+            'fecha_asignacion' => 'required|date',
         ];
     }
 }

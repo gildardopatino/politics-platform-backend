@@ -22,9 +22,9 @@ class Department extends Model
     ];
 
     // Relationships
-    public function cities()
+    public function municipalities()
     {
-        return $this->hasMany(City::class);
+        return $this->hasMany(Municipality::class);
     }
 
     public function meetings()

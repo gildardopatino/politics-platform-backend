@@ -18,22 +18,21 @@ class Commitment extends Model
         'meeting_id',
         'assigned_user_id',
         'priority_id',
-        'descripcion',
-        'fecha_compromiso',
-        'fecha_cumplimiento',
+        'description',
+        'due_date',
         'status',
-        'notas',
+        'notes',
+        'created_by',
     ];
 
     protected $casts = [
-        'fecha_compromiso' => 'date',
-        'fecha_cumplimiento' => 'date',
+        'due_date' => 'date',
     ];
 
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
-            ->logOnly(['descripcion', 'status', 'fecha_cumplimiento'])
+            ->logOnly(['description', 'status', 'due_date'])
             ->logOnlyDirty();
     }
 
@@ -58,6 +57,11 @@ class Commitment extends Model
         return $this->belongsTo(Priority::class);
     }
 
+    public function createdBy()
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
     // Scopes
     public function scopePending($query)
     {
@@ -76,7 +80,7 @@ class Commitment extends Model
 
     public function scopeOverdue($query)
     {
-        return $query->where('fecha_compromiso', '<', now())
+        return $query->where('due_date', '<', now())
                      ->whereIn('status', ['pending', 'in_progress']);
     }
 }

@@ -2,27 +2,21 @@
 
 namespace App\Models;
 
-use App\Traits\HasTenant;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class Priority extends Model
 {
-    use HasFactory, HasTenant;
+    use HasFactory;
 
     protected $fillable = [
-        'tenant_id',
         'name',
+        'description',
         'color',
         'order',
     ];
 
     // Relationships
-    public function tenant()
-    {
-        return $this->belongsTo(Tenant::class);
-    }
-
     public function commitments()
     {
         return $this->hasMany(Commitment::class);

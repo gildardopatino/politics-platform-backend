@@ -5,7 +5,7 @@ namespace App\Http\Resources\Api\V1;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
-class MeetingTemplateResource extends JsonResource
+class PriorityResource extends JsonResource
 {
     /**
      * Transform the resource into an array.
@@ -16,13 +16,9 @@ class MeetingTemplateResource extends JsonResource
     {
         return [
             'id' => $this->id,
-            'tenant_id' => $this->tenant_id,
-            'created_by' => $this->created_by,
             'name' => $this->name,
-            'description' => $this->description,
-            'fields' => $this->fields,
-            'is_active' => $this->is_active,
-            'meetings_count' => $this->whenCounted('meetings'),
+            'color' => $this->color,
+            'order' => $this->order,
             'created_at' => $this->created_at?->toISOString(),
             'updated_at' => $this->updated_at?->toISOString(),
         ];

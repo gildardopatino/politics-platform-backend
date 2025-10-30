@@ -12,13 +12,16 @@ class MeetingTemplate extends Model
 
     protected $fillable = [
         'tenant_id',
+        'created_by',
         'name',
         'description',
-        'default_fields',
+        'fields',
+        'is_active',
     ];
 
     protected $casts = [
-        'default_fields' => 'array',
+        'fields' => 'array',
+        'is_active' => 'boolean',
     ];
 
     // Relationships
@@ -27,8 +30,13 @@ class MeetingTemplate extends Model
         return $this->belongsTo(Tenant::class);
     }
 
+    public function createdBy()
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
     public function meetings()
     {
-        return $this->hasMany(Meeting::class);
+        return $this->hasMany(Meeting::class, 'template_id');
     }
 }
