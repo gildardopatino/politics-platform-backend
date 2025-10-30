@@ -16,7 +16,7 @@ return new class extends Migration
             $table->foreignId('tenant_id')->constrained('tenants')->onDelete('cascade');
             $table->string('title');
             $table->text('message');
-            $table->enum('channel', ['sms', 'email', 'both'])->default('email');
+            $table->enum('channel', ['whatsapp', 'email', 'both'])->default('email');
             $table->timestamp('scheduled_at')->nullable();
             $table->json('filter_json')->nullable();
             $table->enum('status', ['draft', 'scheduled', 'sending', 'sent', 'failed'])->default('draft');

@@ -19,8 +19,9 @@ class CommitmentController extends Controller
     {
         $commitments = QueryBuilder::for(Commitment::class)
             ->allowedFilters(['status', 'meeting_id', 'assigned_user_id', 'priority_id'])
-            ->allowedIncludes(['meeting', 'assignedUser', 'priority'])
-            ->allowedSorts(['fecha_compromiso', 'created_at', 'status'])
+            ->allowedIncludes(['meeting', 'assignedUser', 'priority', 'createdBy'])
+            ->allowedSorts(['due_date', 'created_at', 'status'])
+            ->with(['meeting', 'assignedUser', 'priority'])
             ->paginate(request('per_page', 15));
 
         return response()->json([
@@ -59,7 +60,7 @@ class CommitmentController extends Controller
      */
     public function show(Commitment $commitment): JsonResponse
     {
-        $commitment->load(['meeting', 'assignedUser', 'priority']);
+        $commitment->load(['meeting', 'assignedUser', 'priority', 'createdBy']);
 
         return response()->json([
             'data' => new CommitmentResource($commitment)
