@@ -41,4 +41,10 @@ return [
         'from' => env('TWILIO_FROM'),
     ],
 
+    'n8n' => [
+        'webhook_url' => env('N8N_WEBHOOK_URL', 'https://n8n.appcoresas.cloud/webhook/notification/emails'),
+        'whatsapp_webhook_url' => env('N8N_WHATSAPP_WEBHOOK_URL', 'https://n8n.appcoresas.cloud/webhook/notifications/whatsapp'),
+        'auth_token' => env('N8N_AUTH_TOKEN'),
+    ],
+
 ];

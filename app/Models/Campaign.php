@@ -16,6 +16,7 @@ class Campaign extends Model
     protected $fillable = [
         'tenant_id',
         'created_by',
+        'creator_token',
         'title',
         'message',
         'channel',

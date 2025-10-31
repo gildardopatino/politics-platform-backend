@@ -30,8 +30,9 @@ class StoreUserRequest extends FormRequest
                 'email',
                 'unique:users,email,NULL,id,tenant_id,' . $tenantId
             ],
-            'password' => 'required|string|min:6|confirmed',
-            'telefono' => 'nullable|string|max:20',
+            // Password is optional - will be auto-generated if not provided
+            'phone' => 'nullable|string|max:20',
+            'cedula' => 'nullable|string|max:20',
             'is_team_leader' => 'nullable|boolean',
             'reports_to' => 'nullable|exists:users,id',
             'roles' => 'nullable|array',

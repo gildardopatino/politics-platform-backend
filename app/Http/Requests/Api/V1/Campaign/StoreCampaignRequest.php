@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Api\V1\Campaign;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Carbon\Carbon;
 
 class StoreCampaignRequest extends FormRequest
 {
@@ -12,6 +13,20 @@ class StoreCampaignRequest extends FormRequest
     public function authorize(): bool
     {
         return true;
+    }
+    
+    /**
+     * Prepare the data for validation.
+     */
+    protected function prepareForValidation(): void
+    {
+        // If scheduled_at is provided, ensure it's treated as Colombia time
+        if ($this->has('scheduled_at') && $this->scheduled_at) {
+            $scheduledDate = Carbon::parse($this->scheduled_at, config('app.timezone'));
+            $this->merge([
+                'scheduled_at_for_validation' => $scheduledDate->setTimezone('UTC')->toDateTimeString()
+            ]);
+        }
     }
 
     /**
@@ -32,7 +47,26 @@ class StoreCampaignRequest extends FormRequest
             'filter_json.custom_recipients' => 'nullable|array',
             'filter_json.custom_recipients.*.type' => 'required_with:filter_json.custom_recipients|in:email,phone',
             'filter_json.custom_recipients.*.value' => 'required_with:filter_json.custom_recipients|string',
-            'scheduled_at' => 'nullable|date|after:now',
+            'scheduled_at' => 'nullable|date',
         ];
+    }
+    
+    /**
+     * Configure the validator instance.
+     */
+    public function withValidator($validator): void
+    {
+        $validator->after(function ($validator) {
+            if ($this->has('scheduled_at') && $this->scheduled_at) {
+                // Parse scheduled date in Colombia timezone
+                $scheduledDate = Carbon::parse($this->scheduled_at, config('app.timezone'));
+                $now = Carbon::now(config('app.timezone'));
+                
+                // Validate that scheduled date is in the future
+                if ($scheduledDate->lte($now)) {
+                    $validator->errors()->add('scheduled_at', 'La fecha programada debe ser posterior a la fecha actual.');
+                }
+            }
+        });
     }
 }

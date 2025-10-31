@@ -30,13 +30,14 @@ class SendCampaignJob implements ShouldQueue
      */
     public function handle(CampaignService $campaignService): void
     {
-        if ($this->campaign->status !== 'pending') {
+        // Allow processing of pending and scheduled campaigns
+        if (!in_array($this->campaign->status, ['pending', 'scheduled'])) {
             return;
         }
 
         $this->campaign->update([
-            'status' => 'in_progress',
-            'started_at' => now(),
+            'status' => 'sending',
+            'sent_at' => now(),
         ]);
 
         $batchSize = config('campaign.batch_size', 100);
@@ -66,8 +67,7 @@ class SendCampaignJob implements ShouldQueue
             });
 
         $this->campaign->update([
-            'status' => 'completed',
-            'completed_at' => now(),
+            'status' => 'sent',
         ]);
     }
 

@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\V1\GeographyController;
 use App\Http\Controllers\Api\V1\MeetingAttendeeController;
 use App\Http\Controllers\Api\V1\MeetingController;
 use App\Http\Controllers\Api\V1\MeetingTemplateController;
+use App\Http\Controllers\Api\V1\OrganizationController;
 use App\Http\Controllers\Api\V1\PriorityController;
 use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\ResourceAllocationController;
@@ -83,6 +84,13 @@ Route::prefix('v1')->group(function () {
             // Dashboard & Calendar
             Route::get('dashboard', [DashboardController::class, 'index']);
             Route::get('calendar', [DashboardController::class, 'calendar']);
+            
+            // Organization Structure
+            Route::get('organization/tree', [OrganizationController::class, 'tree']);
+            Route::get('organization/list', [OrganizationController::class, 'list']);
+            Route::get('organization/my-team', [OrganizationController::class, 'myTeam']);
+            Route::get('organization/chain-of-command', [OrganizationController::class, 'chainOfCommand']);
+            Route::get('organization/potential-supervisors', [OrganizationController::class, 'potentialSupervisors']);
             
             // Resource Allocations
             Route::apiResource('resource-allocations', ResourceAllocationController::class);

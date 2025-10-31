@@ -27,7 +27,7 @@ class StoreCommitmentRequest extends FormRequest
             'priority_id' => 'required|exists:priorities,id',
             'description' => 'required|string',
             'due_date' => 'required|date',
-            'status' => 'sometimes|in:pending,in_progress,completed,cancelled',
+            'status' => 'sometimes|in:scheduled,pending,in_progress,completed,cancelled',
             'notes' => 'nullable|string',
         ];
     }

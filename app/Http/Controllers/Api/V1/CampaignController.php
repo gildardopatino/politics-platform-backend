@@ -7,6 +7,7 @@ use App\Http\Requests\Api\V1\Campaign\StoreCampaignRequest;
 use App\Http\Requests\Api\V1\Campaign\UpdateCampaignRequest;
 use App\Http\Resources\Api\V1\CampaignRecipientResource;
 use App\Http\Resources\Api\V1\CampaignResource;
+use App\Jobs\Campaigns\SendCampaignJob;
 use App\Models\Campaign;
 use App\Services\CampaignService;
 use Illuminate\Http\JsonResponse;
@@ -113,7 +114,7 @@ class CampaignController extends Controller
             ], 422);
         }
 
-        \App\Jobs\Campaigns\SendCampaignJob::dispatch($campaign);
+        SendCampaignJob::dispatch($campaign);
 
         return response()->json([
             'message' => 'Campaign queued for sending'

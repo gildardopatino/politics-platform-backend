@@ -27,7 +27,7 @@ class UpdateCommitmentRequest extends FormRequest
             'priority_id' => 'sometimes|exists:priorities,id',
             'description' => 'sometimes|string',
             'due_date' => 'sometimes|date',
-            'status' => 'sometimes|in:pending,in_progress,completed,cancelled',
+            'status' => 'sometimes|in:scheduled,pending,in_progress,completed,cancelled,no_conmpleted',
             'notes' => 'nullable|string',
         ];
     }
