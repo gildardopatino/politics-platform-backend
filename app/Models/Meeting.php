@@ -16,6 +16,7 @@ class Meeting extends Model
     protected $fillable = [
         'tenant_id',
         'planner_user_id',
+        'assigned_to_cedula',
         'template_id',
         'title',
         'description',

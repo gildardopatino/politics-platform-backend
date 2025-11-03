@@ -35,8 +35,34 @@ class StoreUserRequest extends FormRequest
             'cedula' => 'nullable|string|max:20',
             'is_team_leader' => 'nullable|boolean',
             'reports_to' => 'nullable|exists:users,id',
-            'roles' => 'nullable|array',
-            'roles.*' => 'exists:roles,name',
+            'department_id' => 'nullable|exists:departments,id',
+            'municipality_id' => 'nullable|exists:municipalities,id',
+            'commune_id' => 'nullable|exists:communes,id',
+            'barrio_id' => 'nullable|exists:barrios,id',
+            'corregimiento_id' => 'nullable|exists:corregimientos,id',
+            'vereda_id' => 'nullable|exists:veredas,id',
+            'role_id' => 'nullable|integer|exists:roles,id',
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'name.required' => 'El nombre es obligatorio.',
+            'email.required' => 'El correo electrónico es obligatorio.',
+            'email.email' => 'El correo electrónico debe ser válido.',
+            'email.unique' => 'Este correo electrónico ya está registrado.',
+            'phone.max' => 'El teléfono no puede exceder 20 caracteres.',
+            'cedula.max' => 'La cédula no puede exceder 20 caracteres.',
+            'reports_to.exists' => 'El supervisor seleccionado no existe.',
+            'department_id.exists' => 'El departamento seleccionado no existe.',
+            'municipality_id.exists' => 'El municipio seleccionado no existe.',
+            'commune_id.exists' => 'La comuna seleccionada no existe.',
+            'barrio_id.exists' => 'El barrio seleccionado no existe.',
+            'corregimiento_id.exists' => 'El corregimiento seleccionado no existe.',
+            'vereda_id.exists' => 'La vereda seleccionada no existe.',
+            'role_id.exists' => 'El rol seleccionado no existe.',
+            'role_id.integer' => 'El rol debe ser un número válido.',
         ];
     }
 }

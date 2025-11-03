@@ -59,10 +59,16 @@ class UserController extends Controller
             'is_team_leader' => $request->is_team_leader ?? false,
             'reports_to' => $request->reports_to,
             'created_by_user_id' => $authUser->id,
+            'department_id' => $request->department_id,
+            'municipality_id' => $request->municipality_id,
+            'commune_id' => $request->commune_id,
+            'barrio_id' => $request->barrio_id,
+            'corregimiento_id' => $request->corregimiento_id,
+            'vereda_id' => $request->vereda_id,
         ]);
 
-        if ($request->roles) {
-            $user->assignRole($request->roles);
+        if ($request->filled('role_id')) {
+            $user->syncRoles([$request->role_id]);
         }
 
         // Get JWT token from Authorization header
@@ -108,8 +114,8 @@ class UserController extends Controller
 
         $user->update($data);
 
-        if ($request->has('roles')) {
-            $user->syncRoles($request->roles);
+        if ($request->filled('role_id')) {
+            $user->syncRoles([$request->role_id]);
         }
 
         return response()->json([

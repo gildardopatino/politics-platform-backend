@@ -16,13 +16,13 @@ class Vereda extends Model
         'corregimiento_id',
         'codigo',
         'nombre',
-        'latitud',
-        'longitud',
+        'latitude',
+        'longitude',
     ];
 
     protected $casts = [
-        'latitud' => 'decimal:8',
-        'longitud' => 'decimal:8',
+        'latitude' => 'decimal:7',
+        'longitude' => 'decimal:7',
     ];
 
     // Relationships

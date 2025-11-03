@@ -11,7 +11,7 @@ class EmailNotificationService
 
     public function __construct()
     {
-        $this->webhookUrl = config('services.n8n.webhook_url', 'https://n8n.appcoresas.cloud/webhook-test/notification/emails');
+        $this->webhookUrl = config('services.n8n.webhook_url', 'https://n8n.appcoresas.cloud/webhook/notifications/emails');
     }
 
     /**
@@ -42,6 +42,12 @@ class EmailNotificationService
     public function sendEmail(string $email, string $message, string $userToken): bool
     {
         try {
+            Log::info('Attempting to send email via webhook', [
+                'email' => $email,
+                'webhook_url' => $this->webhookUrl,
+                'token_length' => strlen($userToken)
+            ]);
+            
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . $userToken,
                 'Content-Type' => 'application/json',
@@ -51,14 +57,22 @@ class EmailNotificationService
                 'message' => $message,
             ]);
 
+            Log::info('Email webhook response received', [
+                'email' => $email,
+                'status' => $response->status(),
+                'successful' => $response->successful(),
+                'body_preview' => substr($response->body(), 0, 200)
+            ]);
+
             if ($response->successful()) {
                 Log::info('Email sent successfully', ['email' => $email]);
                 return true;
             }
 
-            Log::warning('Email webhook returned non-success status', [
+            Log::error('Email webhook returned non-success status', [
                 'email' => $email,
                 'status' => $response->status(),
+                'headers' => $response->headers(),
                 'body' => $response->body()
             ]);
             
@@ -66,7 +80,8 @@ class EmailNotificationService
         } catch (\Exception $e) {
             Log::error('Failed to send email via webhook', [
                 'email' => $email,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
             ]);
             return false;
         }
@@ -100,12 +115,12 @@ class EmailNotificationService
             <body>
                 <div class='container'>
                     <div class='header'>
-                        <h1>🎉 Bienvenido a Politic Platform</h1>
+                        <h1>🎉 Bienvenido a Campaign Manager</h1>
                     </div>
                     <div class='content'>
                         <p>Hola <strong>{$name}</strong>,</p>
                         
-                        <p>Tu cuenta en <strong>Politic Platform</strong> ha sido creada exitosamente. Ya puedes acceder a la plataforma con las siguientes credenciales:</p>
+                        <p>Tu cuenta en <strong>Campaign Manager</strong> ha sido creada exitosamente. Ya puedes acceder a la plataforma con las siguientes credenciales:</p>
                         
                         <div class='credentials'>
                             <div class='credential-item'>
@@ -128,11 +143,11 @@ class EmailNotificationService
                         
                         <p>Si tienes alguna pregunta o necesitas ayuda, no dudes en contactar a tu supervisor o al equipo de soporte.</p>
                         
-                        <p>Saludos,<br><strong>Equipo de Politic Platform</strong></p>
+                        <p>Saludos,<br><strong>Equipo de Campaign Manager</strong></p>
                     </div>
                     <div class='footer'>
                         <p>Este es un correo automático, por favor no respondas a este mensaje.</p>
-                        <p>&copy; " . date('Y') . " Politic Platform. Todos los derechos reservados.</p>
+                        <p>&copy; " . date('Y') . " Campaign Manager. Todos los derechos reservados.</p>
                     </div>
                 </div>
             </body>

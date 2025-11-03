@@ -9,9 +9,11 @@ use App\Http\Requests\Api\V1\Meeting\UpdateMeetingRequest;
 use App\Http\Resources\Api\V1\MeetingResource;
 use App\Jobs\Meetings\GenerateQRCodeJob;
 use App\Models\Meeting;
+use App\Services\AttendeeHierarchyService;
 use App\Services\QRCodeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Spatie\QueryBuilder\QueryBuilder;
 
 class MeetingController extends Controller
@@ -43,30 +45,47 @@ class MeetingController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    public function store(StoreMeetingRequest $request, QRCodeService $qrCodeService): JsonResponse
+    public function store(StoreMeetingRequest $request, QRCodeService $qrCodeService, AttendeeHierarchyService $hierarchyService): JsonResponse
     {
-        /** @var \App\Models\User $user */
-        $user = $request->user();
-        
-        $meeting = Meeting::create([
-            'tenant_id' => $user->tenant_id,
-            'planner_user_id' => $user->id,
-            ...$request->validated()
-        ]);
+        try {
+            /** @var \App\Models\User $user */
+            $user = $request->user();
+            
+            Log::info('Creating meeting', [
+                'tenant_id' => $user->tenant_id,
+                'validated_data' => $request->validated()
+            ]);
+            
+            $meeting = Meeting::create([
+                'tenant_id' => $user->tenant_id,
+                ...$request->validated()
+            ]);
 
-        // Generate QR code synchronously
-        $qrData = $qrCodeService->generateForMeeting(
-            $meeting->id,
-            $meeting->tenant->slug
-        );
+            Log::info('Meeting created', ['meeting_id' => $meeting->id]);
 
-        $meeting->update(['qr_code' => $qrData['code']]);
-        $meeting->qr_data = $qrData; // Attach QR data temporarily for response
+            // Generate QR code synchronously
+            $qrData = $qrCodeService->generateForMeeting(
+                $meeting->id,
+                $meeting->tenant->slug
+            );
 
-        return response()->json([
-            'data' => new MeetingResource($meeting->load(['planner', 'department', 'municipality', 'commune', 'barrio', 'template'])),
-            'message' => 'Meeting created successfully'
-        ], 201);
+            $meeting->update(['qr_code' => $qrData['code']]);
+            $meeting->qr_data = $qrData; // Attach QR data temporarily for response
+
+            return response()->json([
+                'data' => new MeetingResource($meeting->load(['planner', 'department', 'municipality', 'commune', 'barrio', 'template'])),
+                'message' => 'Meeting created successfully'
+            ], 201);
+        } catch (\Exception $e) {
+            Log::error('Error creating meeting', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'message' => 'Error creating meeting: ' . $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
@@ -109,12 +128,15 @@ class MeetingController extends Controller
     /**
      * Complete a meeting
      */
-    public function complete(Meeting $meeting): JsonResponse
+    public function complete(Meeting $meeting, AttendeeHierarchyService $hierarchyService): JsonResponse
     {
         $meeting->update([
             'status' => 'completed',
             'ends_at' => now()
         ]);
+
+        // Procesar jerarquías de asistentes si está configurado
+        $hierarchyService->processHierarchyForMeeting($meeting);
 
         return response()->json([
             'data' => new MeetingResource($meeting->load(['planner', 'department', 'municipality', 'commune', 'barrio', 'template'])),

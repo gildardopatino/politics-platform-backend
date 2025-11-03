@@ -1,19 +1,28 @@
 <?php
 
+use App\Http\Controllers\Api\V1\AttendeeHierarchyController;
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\BarrioController;
 use App\Http\Controllers\Api\V1\CampaignController;
 use App\Http\Controllers\Api\V1\CommitmentController;
+use App\Http\Controllers\Api\V1\CommuneController;
+use App\Http\Controllers\Api\V1\CorregimientoController;
 use App\Http\Controllers\Api\V1\DashboardController;
+use App\Http\Controllers\Api\V1\GeocodeController;
 use App\Http\Controllers\Api\V1\GeographyController;
 use App\Http\Controllers\Api\V1\MeetingAttendeeController;
 use App\Http\Controllers\Api\V1\MeetingController;
 use App\Http\Controllers\Api\V1\MeetingTemplateController;
+use App\Http\Controllers\Api\V1\MunicipalityController;
 use App\Http\Controllers\Api\V1\OrganizationController;
 use App\Http\Controllers\Api\V1\PriorityController;
 use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\ResourceAllocationController;
+use App\Http\Controllers\Api\V1\RoleController;
 use App\Http\Controllers\Api\V1\TenantController;
+use App\Http\Controllers\Api\V1\TenantSettingsController;
 use App\Http\Controllers\Api\V1\UserController;
+use App\Http\Controllers\Api\V1\VeredaController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -45,6 +54,17 @@ Route::prefix('v1')->group(function () {
 
         // Tenant-scoped routes
         Route::middleware('tenant')->group(function () {
+            
+            // Tenant Settings (for current tenant to update their own settings)
+            Route::get('/tenant/settings', [TenantSettingsController::class, 'show']);
+            Route::put('/tenant/settings', [TenantSettingsController::class, 'update']);
+            Route::get('/tenant/hierarchy-config/check', [TenantSettingsController::class, 'checkHierarchyConfig']);
+            
+            // Geocoding
+            Route::post('/geocode', [GeocodeController::class, 'geocode']);
+            
+            // Roles
+            Route::get('/roles', [RoleController::class, 'index']);
             
             // Users
             Route::apiResource('users', UserController::class);
@@ -92,6 +112,13 @@ Route::prefix('v1')->group(function () {
             Route::get('organization/chain-of-command', [OrganizationController::class, 'chainOfCommand']);
             Route::get('organization/potential-supervisors', [OrganizationController::class, 'potentialSupervisors']);
             
+            // Attendee Hierarchies
+            Route::get('attendee-hierarchies/tree', [AttendeeHierarchyController::class, 'tree']);
+            Route::get('attendee-hierarchies/relationships', [AttendeeHierarchyController::class, 'relationships']);
+            Route::get('attendee-hierarchies/stats', [AttendeeHierarchyController::class, 'stats']);
+            Route::put('attendee-hierarchies/{attendeeHierarchy}', [AttendeeHierarchyController::class, 'update']);
+            Route::delete('attendee-hierarchies/{attendeeHierarchy}', [AttendeeHierarchyController::class, 'destroy']);
+            
             // Resource Allocations
             Route::apiResource('resource-allocations', ResourceAllocationController::class);
             Route::get('/resource-allocations/by-meeting/{meeting}', [ResourceAllocationController::class, 'byMeeting']);
@@ -106,6 +133,13 @@ Route::prefix('v1')->group(function () {
             Route::get('/municipalities/{municipality}/corregimientos', [GeographyController::class, 'corregimientos']);
             Route::get('/corregimientos/{corregimiento}/veredas', [GeographyController::class, 'veredasByCorregimiento']);
             Route::get('/municipalities/{municipality}/veredas', [GeographyController::class, 'veredasByMunicipality']);
+            
+            // Geography CRUD
+            Route::apiResource('municipalities', MunicipalityController::class);
+            Route::apiResource('communes', CommuneController::class);
+            Route::apiResource('barrios', BarrioController::class);
+            Route::apiResource('corregimientos', CorregimientoController::class);
+            Route::apiResource('veredas', VeredaController::class);
             
             // Reports
             Route::get('/reports/meetings', [ReportController::class, 'meetings']);

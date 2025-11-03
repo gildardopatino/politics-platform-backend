@@ -42,9 +42,13 @@ return [
     ],
 
     'n8n' => [
-        'webhook_url' => env('N8N_WEBHOOK_URL', 'https://n8n.appcoresas.cloud/webhook/notification/emails'),
+        'webhook_url' => env('N8N_WEBHOOK_URL', 'https://n8n.appcoresas.cloud/webhook/notifications/emails'),
         'whatsapp_webhook_url' => env('N8N_WHATSAPP_WEBHOOK_URL', 'https://n8n.appcoresas.cloud/webhook/notifications/whatsapp'),
         'auth_token' => env('N8N_AUTH_TOKEN'),
+    ],
+
+    'google_maps' => [
+        'api_key' => env('GOOGLE_MAPS_API_KEY'),
     ],
 
 ];

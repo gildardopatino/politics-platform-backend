@@ -18,10 +18,23 @@ class Tenant extends Model
         'tipo_cargo',
         'identificacion',
         'metadata',
+        'logo',
+        'sidebar_bg_color',
+        'sidebar_text_color',
+        'header_bg_color',
+        'header_text_color',
+        'content_bg_color',
+        'content_text_color',
+        'hierarchy_mode',
+        'auto_assign_hierarchy',
+        'hierarchy_conflict_resolution',
+        'require_hierarchy_config',
     ];
 
     protected $casts = [
         'metadata' => 'array',
+        'auto_assign_hierarchy' => 'boolean',
+        'require_hierarchy_config' => 'boolean',
     ];
 
     public function getRouteKeyName(): string

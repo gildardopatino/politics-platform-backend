@@ -30,6 +30,12 @@ class User extends Authenticatable implements JWTSubject
         'is_super_admin',
         'created_by_user_id',
         'reports_to',
+        'department_id',
+        'municipality_id',
+        'commune_id',
+        'barrio_id',
+        'corregimiento_id',
+        'vereda_id',
     ];
 
     protected $hidden = [
@@ -107,6 +113,36 @@ class User extends Authenticatable implements JWTSubject
     public function resourceAllocations(): HasMany
     {
         return $this->hasMany(ResourceAllocation::class, 'assigned_to_user_id');
+    }
+
+    public function department(): BelongsTo
+    {
+        return $this->belongsTo(Department::class);
+    }
+
+    public function municipality(): BelongsTo
+    {
+        return $this->belongsTo(Municipality::class);
+    }
+
+    public function commune(): BelongsTo
+    {
+        return $this->belongsTo(Commune::class);
+    }
+
+    public function barrio(): BelongsTo
+    {
+        return $this->belongsTo(Barrio::class);
+    }
+
+    public function corregimiento(): BelongsTo
+    {
+        return $this->belongsTo(Corregimiento::class);
+    }
+
+    public function vereda(): BelongsTo
+    {
+        return $this->belongsTo(Vereda::class);
     }
 
     // Scopes
