@@ -78,6 +78,7 @@ Route::prefix('v1')->group(function () {
             
             // Meetings
             Route::apiResource('meetings', MeetingController::class);
+            Route::get('/meetings/hierarchy/tree', [MeetingController::class, 'getHierarchyTree']);
             Route::post('/meetings/{meeting}/complete', [MeetingController::class, 'complete']);
             Route::post('/meetings/{meeting}/cancel', [MeetingController::class, 'cancel']);
             Route::get('/meetings/{meeting}/qr-code', [MeetingController::class, 'getQRCode']);

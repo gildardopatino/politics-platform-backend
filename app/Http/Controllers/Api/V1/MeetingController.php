@@ -265,4 +265,186 @@ class MeetingController extends Controller
             'message' => 'Check-in successful'
         ], 201);
     }
+
+    /**
+     * Get meetings hierarchy tree based on attendees requesting meetings
+     * Returns a tree structure of people and their requested meetings
+     */
+    public function getHierarchyTree(Request $request): JsonResponse
+    {
+        // Obtener el parámetro include_attendees (por defecto false)
+        $includeAttendees = $request->boolean('include_attendees', false);
+
+        // Obtener todas las reuniones con sus relaciones
+        $meetings = Meeting::with([
+            'planner:id,name,cedula',
+            'attendees:id,meeting_id,cedula,nombres,apellidos,telefono,email',
+            'barrio:id,nombre',
+            'commune:id,nombre'
+        ])->get();
+
+        // Construir un mapa de cédulas a reuniones solicitadas
+        $cedulaToMeetings = [];
+        foreach ($meetings as $meeting) {
+            if ($meeting->assigned_to_cedula) {
+                if (!isset($cedulaToMeetings[$meeting->assigned_to_cedula])) {
+                    $cedulaToMeetings[$meeting->assigned_to_cedula] = [];
+                }
+                $cedulaToMeetings[$meeting->assigned_to_cedula][] = $meeting;
+            }
+        }
+
+        // Función recursiva para construir el árbol
+        $buildTree = function($cedula, $depth = 0) use (&$buildTree, $cedulaToMeetings, $meetings, $includeAttendees) {
+            if ($depth > 10) return []; // Prevenir recursión infinita
+
+            $result = [];
+
+            // Encontrar reuniones solicitadas por esta cédula
+            if (isset($cedulaToMeetings[$cedula])) {
+                foreach ($cedulaToMeetings[$cedula] as $meeting) {
+                    // Buscar información del solicitante en los asistentes
+                    $requester = null;
+                    foreach ($meetings as $m) {
+                        $attendee = $m->attendees->firstWhere('cedula', $cedula);
+                        if ($attendee) {
+                            $requester = [
+                                'cedula' => $attendee->cedula,
+                                'nombres' => $attendee->nombres,
+                                'apellidos' => $attendee->apellidos,
+                                'full_name' => $attendee->nombres . ' ' . $attendee->apellidos,
+                                'telefono' => $attendee->telefono,
+                                'email' => $attendee->email,
+                            ];
+                            break;
+                        }
+                    }
+
+                    $meetingData = [
+                        'meeting' => [
+                            'id' => $meeting->id,
+                            'titulo' => $meeting->title,
+                            'descripcion' => $meeting->description,
+                            'starts_at' => $meeting->starts_at,
+                            'status' => $meeting->status,
+                            'lugar_nombre' => $meeting->lugar_nombre,
+                            'location' => [
+                                'barrio' => $meeting->barrio?->nombre,
+                                'comuna' => $meeting->commune?->nombre,
+                            ],
+                            'attendees_count' => $meeting->attendees->count(),
+                        ],
+                        'requester' => $requester,
+                        'children' => []
+                    ];
+
+                    // Agregar lista de asistentes si el flag está activado
+                    if ($includeAttendees) {
+                        $meetingData['meeting']['attendees'] = $meeting->attendees->map(function($attendee) {
+                            return [
+                                'id' => $attendee->id,
+                                'cedula' => $attendee->cedula,
+                                'nombres' => $attendee->nombres,
+                                'apellidos' => $attendee->apellidos,
+                                'full_name' => $attendee->nombres . ' ' . $attendee->apellidos,
+                                'telefono' => $attendee->telefono,
+                                'email' => $attendee->email,
+                            ];
+                        })->toArray();
+                    }
+
+                    // Buscar reuniones solicitadas por los asistentes de esta reunión
+                    foreach ($meeting->attendees as $attendee) {
+                        $childrenMeetings = $buildTree($attendee->cedula, $depth + 1);
+                        if (!empty($childrenMeetings)) {
+                            $meetingData['children'] = array_merge(
+                                $meetingData['children'], 
+                                $childrenMeetings
+                            );
+                        }
+                    }
+
+                    $result[] = $meetingData;
+                }
+            }
+
+            return $result;
+        };
+
+        // Encontrar reuniones raíz (las que no tienen assigned_to_cedula o fueron creadas por el planner)
+        $rootMeetings = Meeting::whereNull('assigned_to_cedula')
+            ->orWhere('assigned_to_cedula', '')
+            ->with([
+                'planner:id,name,cedula',
+                'attendees:id,meeting_id,cedula,nombres,apellidos,telefono,email',
+                'barrio:id,nombre',
+                'commune:id,nombre'
+            ])
+            ->get();
+
+        $tree = [];
+        foreach ($rootMeetings as $meeting) {
+            $meetingNode = [
+                'meeting' => [
+                    'id' => $meeting->id,
+                    'titulo' => $meeting->title,
+                    'descripcion' => $meeting->description,
+                    'starts_at' => $meeting->starts_at,
+                    'status' => $meeting->status,
+                    'lugar_nombre' => $meeting->lugar_nombre,
+                    'location' => [
+                        'barrio' => $meeting->barrio?->nombre,
+                        'comuna' => $meeting->commune?->nombre,
+                    ],
+                    'attendees_count' => $meeting->attendees->count(),
+                ],
+                'requester' => $meeting->planner ? [
+                    'cedula' => $meeting->planner->cedula,
+                    'nombres' => $meeting->planner->name,
+                    'apellidos' => '',
+                    'full_name' => $meeting->planner->name,
+                    'type' => 'planner'
+                ] : null,
+                'children' => []
+            ];
+
+            // Agregar lista de asistentes si el flag está activado
+            if ($includeAttendees) {
+                $meetingNode['meeting']['attendees'] = $meeting->attendees->map(function($attendee) {
+                    return [
+                        'id' => $attendee->id,
+                        'cedula' => $attendee->cedula,
+                        'nombres' => $attendee->nombres,
+                        'apellidos' => $attendee->apellidos,
+                        'full_name' => $attendee->nombres . ' ' . $attendee->apellidos,
+                        'telefono' => $attendee->telefono,
+                        'email' => $attendee->email,
+                    ];
+                })->toArray();
+            }
+
+            // Buscar reuniones solicitadas por los asistentes
+            foreach ($meeting->attendees as $attendee) {
+                $childrenMeetings = $buildTree($attendee->cedula);
+                if (!empty($childrenMeetings)) {
+                    $meetingNode['children'] = array_merge(
+                        $meetingNode['children'], 
+                        $childrenMeetings
+                    );
+                }
+            }
+
+            $tree[] = $meetingNode;
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $tree,
+            'meta' => [
+                'total_meetings' => $meetings->count(),
+                'root_meetings' => $rootMeetings->count(),
+                'include_attendees' => $includeAttendees,
+            ]
+        ]);
+    }
 }
