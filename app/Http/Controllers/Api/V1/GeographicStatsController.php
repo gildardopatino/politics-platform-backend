@@ -120,7 +120,7 @@ class GeographicStatsController extends Controller
             $totalCommitments += $count;
 
             // Azul pastel si tiene compromisos, rojo si no tiene
-            $color = $count > 0 ? '#13db2dff' : '#FF0000';
+            $color = $count > 0 ? '#13db2dff' : '#F54927';
 
             $json[] = [
                 'id' => "id{$location->id}",
@@ -209,7 +209,7 @@ class GeographicStatsController extends Controller
             $totalMeetings += $meetingsCount;
 
             // Azul pastel si tiene reuniones, rojo si no tiene
-            $color = $meetingsCount > 0 ? '#13db2dff' : '#FF0000';
+            $color = $meetingsCount > 0 ? '#13db2dff' : '#F54927';
 
             $json[] = [
                 'id' => "id{$location->id}",
