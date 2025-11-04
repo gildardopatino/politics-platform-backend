@@ -19,6 +19,7 @@ class MeetingAttendee extends Model
         'cedula',
         'nombres',
         'apellidos',
+        'barrio_id',
         'direccion',
         'telefono',
         'email',
@@ -71,6 +72,11 @@ class MeetingAttendee extends Model
     public function createdBy()
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function barrio()
+    {
+        return $this->belongsTo(Barrio::class);
     }
 
     // Scopes

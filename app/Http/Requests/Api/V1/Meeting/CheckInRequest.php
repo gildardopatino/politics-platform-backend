@@ -25,6 +25,7 @@ class CheckInRequest extends FormRequest
             'cedula' => 'required|string|max:20',
             'nombres' => 'required|string|max:255',
             'apellidos' => 'required|string|max:255',
+            'barrio_id' => 'nullable|exists:barrios,id',
             'telefono' => 'nullable|string|max:20',
             'email' => 'nullable|email',
             'extra_fields' => 'nullable|array',

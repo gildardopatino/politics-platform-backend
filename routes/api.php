@@ -36,8 +36,10 @@ Route::prefix('v1')->group(function () {
     
     // Public routes
     Route::post('/login', [AuthController::class, 'login']);
+    Route::get('/meetings/public/{qr_code}', [MeetingController::class, 'getPublicInfo']);
     Route::get('/meetings/check-in/{qr_code}', [MeetingController::class, 'showByQR']);
     Route::post('/meetings/check-in/{qr_code}', [MeetingController::class, 'checkIn']);
+    Route::get('/barrios/search/by-name', [BarrioController::class, 'search']);
 
     // Protected routes
     Route::middleware('jwt.auth')->group(function () {

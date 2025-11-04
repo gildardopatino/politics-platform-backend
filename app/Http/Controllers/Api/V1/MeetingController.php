@@ -194,6 +194,59 @@ class MeetingController extends Controller
     }
 
     /**
+     * Get public meeting information for check-in page
+     * Returns simplified meeting data for frontend display
+     */
+    public function getPublicInfo(string $qrCode): JsonResponse
+    {
+        $meeting = Meeting::where('qr_code', $qrCode)
+            ->with([
+                'planner:id,name,email,phone',
+                'department:id,nombre',
+                'municipality:id,nombre', 
+                'commune:id,nombre',
+                'barrio:id,nombre',
+                'template:id,nombre'
+            ])
+            ->firstOrFail();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'id' => $meeting->id,
+                'titulo' => $meeting->titulo,
+                'descripcion' => $meeting->descripcion,
+                'objetivo' => $meeting->objetivo,
+                'starts_at' => $meeting->starts_at,
+                'ends_at' => $meeting->ends_at,
+                'status' => $meeting->status,
+                'lugar_tipo' => $meeting->lugar_tipo,
+                'lugar_nombre' => $meeting->lugar_nombre,
+                'lugar_direccion' => $meeting->lugar_direccion,
+                'lugar_url' => $meeting->lugar_url,
+                'planner' => $meeting->planner ? [
+                    'id' => $meeting->planner->id,
+                    'name' => $meeting->planner->name,
+                    'email' => $meeting->planner->email,
+                    'phone' => $meeting->planner->phone,
+                ] : null,
+                'location' => [
+                    'department' => $meeting->department?->nombre,
+                    'municipality' => $meeting->municipality?->nombre,
+                    'commune' => $meeting->commune?->nombre,
+                    'barrio' => $meeting->barrio?->nombre,
+                ],
+                'template' => $meeting->template ? [
+                    'id' => $meeting->template->id,
+                    'nombre' => $meeting->template->nombre,
+                ] : null,
+                'attendees_count' => $meeting->attendees()->count(),
+                'checked_in_count' => $meeting->attendees()->where('checked_in', true)->count(),
+            ]
+        ]);
+    }
+
+    /**
      * Check in to meeting via QR code (public)
      */
     public function checkIn(string $qrCode, CheckInRequest $request): JsonResponse

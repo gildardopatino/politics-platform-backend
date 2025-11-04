@@ -38,4 +38,45 @@ class BarrioController extends Controller
         $barrio->delete();
         return response()->json(['message' => 'Barrio deleted successfully']);
     }
+
+    /**
+     * Search barrios by name
+     * Returns barrio with its comuna information
+     */
+    public function search(): JsonResponse
+    {
+        request()->validate([
+            'search' => 'required|string|min:2',
+            'limit' => 'nullable|integer|min:1|max:50'
+        ]);
+
+        $search = request()->input('search');
+        $limit = request()->input('limit', 20);
+
+        $barrios = Barrio::with(['commune:id,nombre'])
+            ->where('nombre', 'ilike', "%{$search}%")
+            ->orderBy('nombre')
+            ->limit($limit)
+            ->get()
+            ->map(function ($barrio) {
+                return [
+                    'id' => $barrio->id,
+                    'nombre' => $barrio->nombre,
+                    'comuna' => [
+                        'id' => $barrio->commune->id ?? null,
+                        'nombre' => $barrio->commune->nombre ?? null,
+                    ],
+                    'display_name' => $barrio->nombre . ' - ' . ($barrio->commune->nombre ?? 'Sin comuna'),
+                ];
+            });
+
+        return response()->json([
+            'success' => true,
+            'data' => $barrios,
+            'meta' => [
+                'total' => $barrios->count(),
+                'search' => $search,
+            ]
+        ]);
+    }
 }

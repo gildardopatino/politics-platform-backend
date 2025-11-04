@@ -13,7 +13,9 @@ class QRCodeService
     public function generateForMeeting(int $meetingId, string $tenantSlug): array
     {
         $uniqueCode = Str::random(32);
-        $url = config('app.url') . "/api/v1/meetings/check-in/{$uniqueCode}";
+        // URL directa al frontend
+        $frontendUrl = config('app.frontend_url', 'http://localhost:3000');
+        $url = "{$frontendUrl}/meetings/check-in/{$uniqueCode}";
         
         // Generar QR en SVG (funciona sin imagick)
         $svgQR = QrCode::format('svg')
@@ -49,7 +51,9 @@ class QRCodeService
      */
     public function getQRCodeBase64(string $qrCode): ?array
     {
-        $url = config('app.url') . "/api/v1/meetings/check-in/{$qrCode}";
+        // URL directa al frontend
+        $frontendUrl = config('app.frontend_url', 'http://localhost:3000');
+        $url = "{$frontendUrl}/meetings/check-in/{$qrCode}";
         
         $svgQR = QrCode::format('svg')
             ->size(300)
