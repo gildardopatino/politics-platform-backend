@@ -17,6 +17,7 @@ class Corregimiento extends Model
         'nombre',
         'latitude',
         'longitude',
+        'path',
     ];
 
     protected $casts = [

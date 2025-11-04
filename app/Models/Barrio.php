@@ -16,6 +16,7 @@ class Barrio extends Model
         'nombre',
         'latitude',
         'longitude',
+        'path',
     ];
 
     protected $casts = [

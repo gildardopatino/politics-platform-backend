@@ -208,13 +208,18 @@ class DashboardController extends Controller
      */
     public function calendar(): JsonResponse
     {
-        $start = request('start', now()->startOfMonth()->toDateString());
-        $end = request('end', now()->endOfMonth()->toDateString());
+        $start = request('start');
+        $end = request('end');
         
-        // Obtener reuniones en el rango de fechas
-        $meetings = Meeting::whereBetween('starts_at', [$start, $end])
-            ->with(['planner:id,name', 'municipality:id,nombre'])
-            ->get()
+        // Query base para reuniones
+        $meetingsQuery = Meeting::with(['planner:id,name', 'municipality:id,nombre']);
+        
+        // Si se proporciona rango de fechas, filtrar reuniones
+        if ($start && $end) {
+            $meetingsQuery->whereBetween('starts_at', [$start, $end]);
+        }
+        
+        $meetings = $meetingsQuery->get()
             ->map(function ($meeting) {
                 return [
                     'type' => 'meeting',
@@ -234,10 +239,15 @@ class DashboardController extends Controller
                 ];
             });
         
-        // Obtener compromisos en el rango de fechas
-        $commitments = Commitment::whereBetween('due_date', [$start, $end])
-            ->with(['meeting:id,title', 'assignedUser:id,name', 'priority:id,name,color'])
-            ->get()
+        // Query base para compromisos - TODOS los del tenant
+        $commitmentsQuery = Commitment::with(['meeting:id,title', 'assignedUser:id,name', 'priority:id,name,color']);
+        
+        // Si se proporciona rango de fechas, filtrar compromisos (OPCIONAL)
+        if ($start && $end) {
+            $commitmentsQuery->whereBetween('due_date', [$start, $end]);
+        }
+        
+        $commitments = $commitmentsQuery->get()
             ->map(function ($commitment) {
                 return [
                     'type' => 'commitment',

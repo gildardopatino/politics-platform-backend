@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\V1\CommuneController;
 use App\Http\Controllers\Api\V1\CorregimientoController;
 use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\GeocodeController;
+use App\Http\Controllers\Api\V1\GeographicStatsController;
 use App\Http\Controllers\Api\V1\GeographyController;
 use App\Http\Controllers\Api\V1\MeetingAttendeeController;
 use App\Http\Controllers\Api\V1\MeetingController;
@@ -140,6 +141,9 @@ Route::prefix('v1')->group(function () {
             Route::apiResource('barrios', BarrioController::class);
             Route::apiResource('corregimientos', CorregimientoController::class);
             Route::apiResource('veredas', VeredaController::class);
+            
+            // Geographic Statistics
+            Route::get('/geographic-stats', [GeographicStatsController::class, 'index']);
             
             // Reports
             Route::get('/reports/meetings', [ReportController::class, 'meetings']);

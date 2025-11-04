@@ -18,6 +18,7 @@ class Vereda extends Model
         'nombre',
         'latitude',
         'longitude',
+        'path',
     ];
 
     protected $casts = [
