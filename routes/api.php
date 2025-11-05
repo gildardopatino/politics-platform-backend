@@ -154,6 +154,28 @@ Route::prefix('v1')->group(function () {
             Route::get('/reports/commitments', [ReportController::class, 'commitments']);
             Route::get('/reports/resources', [ReportController::class, 'resources']);
             Route::get('/reports/team-performance', [ReportController::class, 'teamPerformance']);
+            
+            // Voters
+            Route::apiResource('voters', \App\Http\Controllers\Api\V1\VoterController::class);
+            Route::get('/voters/search/by-cedula', [\App\Http\Controllers\Api\V1\VoterController::class, 'searchByCedula']);
+            Route::get('/voters-stats', [\App\Http\Controllers\Api\V1\VoterController::class, 'stats']);
+            
+            // Surveys
+            Route::apiResource('surveys', \App\Http\Controllers\Api\V1\SurveyController::class);
+            Route::post('/surveys/{survey}/activate', [\App\Http\Controllers\Api\V1\SurveyController::class, 'activate']);
+            Route::post('/surveys/{survey}/deactivate', [\App\Http\Controllers\Api\V1\SurveyController::class, 'deactivate']);
+            Route::post('/surveys/{survey}/clone', [\App\Http\Controllers\Api\V1\SurveyController::class, 'cloneSurvey']);
+            Route::get('/surveys-active', [\App\Http\Controllers\Api\V1\SurveyController::class, 'active']);
+            
+            // Survey Questions (nested resource)
+            Route::apiResource('surveys.questions', \App\Http\Controllers\Api\V1\SurveyQuestionController::class)
+                ->shallow()
+                ->except(['index']);
+            
+            // Calls
+            Route::apiResource('calls', \App\Http\Controllers\Api\V1\CallController::class);
+            Route::get('/voters/{voter}/calls', [\App\Http\Controllers\Api\V1\CallController::class, 'byVoter']);
+            Route::get('/calls-stats', [\App\Http\Controllers\Api\V1\CallController::class, 'stats']);
         });
     });
 });
