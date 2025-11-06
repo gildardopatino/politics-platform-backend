@@ -206,7 +206,7 @@ class MeetingController extends Controller
                 'municipality:id,nombre', 
                 'commune:id,nombre',
                 'barrio:id,nombre',
-                'template:id,nombre'
+                'template:id,name,description,fields'
             ])
             ->firstOrFail();
 
@@ -238,7 +238,9 @@ class MeetingController extends Controller
                 ],
                 'template' => $meeting->template ? [
                     'id' => $meeting->template->id,
-                    'nombre' => $meeting->template->nombre,
+                    'nombre' => $meeting->template->name,
+                    'descripcion' => $meeting->template->description,
+                    'fields' => $meeting->template->fields,
                 ] : null,
                 'attendees_count' => $meeting->attendees()->count(),
                 'checked_in_count' => $meeting->attendees()->where('checked_in', true)->count(),
