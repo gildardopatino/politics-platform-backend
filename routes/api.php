@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\AttendeeHierarchyController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\BarrioController;
+use App\Http\Controllers\Api\V1\CallController;
 use App\Http\Controllers\Api\V1\CampaignController;
 use App\Http\Controllers\Api\V1\CommitmentController;
 use App\Http\Controllers\Api\V1\CommuneController;
@@ -19,11 +20,15 @@ use App\Http\Controllers\Api\V1\OrganizationController;
 use App\Http\Controllers\Api\V1\PriorityController;
 use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\ResourceAllocationController;
+use App\Http\Controllers\Api\V1\PermissionController;
 use App\Http\Controllers\Api\V1\RoleController;
+use App\Http\Controllers\Api\V1\SurveyController;
+use App\Http\Controllers\Api\V1\SurveyQuestionController;
 use App\Http\Controllers\Api\V1\TenantController;
 use App\Http\Controllers\Api\V1\TenantSettingsController;
 use App\Http\Controllers\Api\V1\UserController;
 use App\Http\Controllers\Api\V1\VeredaController;
+use App\Http\Controllers\Api\V1\VoterController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -40,6 +45,7 @@ Route::prefix('v1')->group(function () {
     Route::get('/meetings/check-in/{qr_code}', [MeetingController::class, 'showByQR']);
     Route::post('/meetings/check-in/{qr_code}', [MeetingController::class, 'checkIn']);
     Route::get('/barrios/search/by-name', [BarrioController::class, 'search']);
+    Route::get('/verify-document', [VoterController::class, 'verifyDocument']);
 
     // Protected routes
     Route::middleware('jwt.auth')->group(function () {
@@ -66,8 +72,10 @@ Route::prefix('v1')->group(function () {
             // Geocoding
             Route::post('/geocode', [GeocodeController::class, 'geocode']);
             
-            // Roles
-            Route::get('/roles', [RoleController::class, 'index']);
+            // Roles & Permissions
+            Route::apiResource('roles', RoleController::class);
+            Route::post('/roles/{role}/assign-permissions', [RoleController::class, 'assignPermissions']);
+            Route::get('/permissions', [PermissionController::class, 'index']);
             
             // Users
             Route::apiResource('users', UserController::class);
@@ -156,26 +164,26 @@ Route::prefix('v1')->group(function () {
             Route::get('/reports/team-performance', [ReportController::class, 'teamPerformance']);
             
             // Voters
-            Route::apiResource('voters', \App\Http\Controllers\Api\V1\VoterController::class);
-            Route::get('/voters/search/by-cedula', [\App\Http\Controllers\Api\V1\VoterController::class, 'searchByCedula']);
-            Route::get('/voters-stats', [\App\Http\Controllers\Api\V1\VoterController::class, 'stats']);
+            Route::apiResource('voters', VoterController::class);
+            Route::get('/voters/search/by-cedula', [VoterController::class, 'searchByCedula']);
+            Route::get('/voters-stats', [VoterController::class, 'stats']);
             
             // Surveys
-            Route::apiResource('surveys', \App\Http\Controllers\Api\V1\SurveyController::class);
-            Route::post('/surveys/{survey}/activate', [\App\Http\Controllers\Api\V1\SurveyController::class, 'activate']);
-            Route::post('/surveys/{survey}/deactivate', [\App\Http\Controllers\Api\V1\SurveyController::class, 'deactivate']);
-            Route::post('/surveys/{survey}/clone', [\App\Http\Controllers\Api\V1\SurveyController::class, 'cloneSurvey']);
-            Route::get('/surveys-active', [\App\Http\Controllers\Api\V1\SurveyController::class, 'active']);
-            
+            Route::apiResource('surveys', SurveyController::class);
+            Route::post('/surveys/{survey}/activate', [SurveyController::class, 'activate']);
+            Route::post('/surveys/{survey}/deactivate', [SurveyController::class, 'deactivate']);
+            Route::post('/surveys/{survey}/clone', [SurveyController::class, 'cloneSurvey']);
+            Route::get('/surveys-active', [SurveyController::class, 'active']);
+
             // Survey Questions (nested resource)
-            Route::apiResource('surveys.questions', \App\Http\Controllers\Api\V1\SurveyQuestionController::class)
+            Route::apiResource('surveys.questions', SurveyQuestionController::class)
                 ->shallow()
                 ->except(['index']);
             
             // Calls
-            Route::apiResource('calls', \App\Http\Controllers\Api\V1\CallController::class);
-            Route::get('/voters/{voter}/calls', [\App\Http\Controllers\Api\V1\CallController::class, 'byVoter']);
-            Route::get('/calls-stats', [\App\Http\Controllers\Api\V1\CallController::class, 'stats']);
+            Route::apiResource('calls', CallController::class);
+            Route::get('/voters/{voter}/calls', [CallController::class, 'byVoter']);
+            Route::get('/calls-stats', [CallController::class, 'stats']);
         });
     });
 });

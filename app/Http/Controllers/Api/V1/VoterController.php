@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\Voter;
+use App\Services\PisamiService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -221,6 +222,41 @@ class VoterController extends Controller
         return response()->json([
             'success' => true,
             'data' => $voter,
+        ]);
+    }
+
+    /**
+     * Verify document from external PISAMI API
+     * This endpoint is public (no authentication required)
+     */
+    public function verifyDocument(Request $request, PisamiService $pisamiService): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'cedula' => 'required|string|max:20',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $cedula = $request->cedula;
+
+        // Consumir API externa de PISAMI
+        $data = $pisamiService->verifyDocument($cedula);
+
+        if (!$data) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No se encontró información para la cédula proporcionada',
+            ], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $data,
         ]);
     }
 }
