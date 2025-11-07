@@ -15,13 +15,16 @@ class Municipality extends Model
         'department_id',
         'codigo',
         'nombre',
-        'latitude',
-        'longitude',
+        'latitud',
+        'longitud',
+        'path',
+        'metadata',
     ];
 
     protected $casts = [
-        'latitude' => 'decimal:7',
-        'longitude' => 'decimal:7',
+        'latitud' => 'decimal:7',
+        'longitud' => 'decimal:7',
+        'metadata' => 'array',
     ];
 
     // Relationships

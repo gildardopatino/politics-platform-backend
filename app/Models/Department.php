@@ -14,11 +14,14 @@ class Department extends Model
         'nombre',
         'latitud',
         'longitud',
+        'path',
+        'metadata',
     ];
 
     protected $casts = [
         'latitud' => 'decimal:8',
         'longitud' => 'decimal:8',
+        'metadata' => 'array',
     ];
 
     // Relationships

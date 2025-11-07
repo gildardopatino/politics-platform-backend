@@ -20,9 +20,12 @@ class GeographyResource extends JsonResource
             'nombre' => $this->nombre,
             'latitud' => $this->latitud,
             'longitud' => $this->longitud,
+            'path' => $this->path ?? null,
+            'metadata' => $this->metadata ?? null,
             'department_id' => $this->department_id ?? null,
-            'city_id' => $this->city_id ?? null,
+            'municipality_id' => $this->municipality_id ?? null,
             'commune_id' => $this->commune_id ?? null,
+            'corregimiento_id' => $this->corregimiento_id ?? null,
             'created_at' => $this->created_at?->toISOString(),
             'updated_at' => $this->updated_at?->toISOString(),
         ];

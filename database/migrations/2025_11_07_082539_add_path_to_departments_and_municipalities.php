@@ -20,21 +20,6 @@ return new class extends Migration
         Schema::table('municipalities', function (Blueprint $table) {
             $table->text('path')->nullable()->after('longitud');
         });
-
-        // Agregar campo path a barrios
-        Schema::table('barrios', function (Blueprint $table) {
-            $table->text('path')->nullable()->after('longitud');
-        });
-
-        // Agregar campo path a corregimientos
-        Schema::table('corregimientos', function (Blueprint $table) {
-            $table->text('path')->nullable()->after('longitud');
-        });
-
-        // Agregar campo path a veredas
-        Schema::table('veredas', function (Blueprint $table) {
-            $table->text('path')->nullable()->after('longitud');
-        });
     }
 
     /**
@@ -47,18 +32,6 @@ return new class extends Migration
         });
 
         Schema::table('municipalities', function (Blueprint $table) {
-            $table->dropColumn('path');
-        });
-
-        Schema::table('barrios', function (Blueprint $table) {
-            $table->dropColumn('path');
-        });
-
-        Schema::table('corregimientos', function (Blueprint $table) {
-            $table->dropColumn('path');
-        });
-
-        Schema::table('veredas', function (Blueprint $table) {
             $table->dropColumn('path');
         });
     }

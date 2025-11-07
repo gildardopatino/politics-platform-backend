@@ -22,8 +22,10 @@ class UpdateMunicipalityRequest extends FormRequest
             'department_id' => 'sometimes|exists:departments,id',
             'codigo' => 'sometimes|string|max:20|unique:municipalities,codigo,' . $municipalityId,
             'nombre' => 'sometimes|string|max:255',
-            'latitude' => 'nullable|numeric|between:-90,90',
-            'longitude' => 'nullable|numeric|between:-180,180',
+            'latitud' => 'nullable|numeric|between:-90,90',
+            'longitud' => 'nullable|numeric|between:-180,180',
+            'path' => 'nullable|string',
+            'metadata' => 'nullable|array',
         ];
     }
 
@@ -32,8 +34,10 @@ class UpdateMunicipalityRequest extends FormRequest
         return [
             'department_id.exists' => 'El departamento seleccionado no existe.',
             'codigo.unique' => 'Este código ya está registrado.',
-            'latitude.between' => 'La latitud debe estar entre -90 y 90.',
-            'longitude.between' => 'La longitud debe estar entre -180 y 180.',
+            'latitud.between' => 'La latitud debe estar entre -90 y 90.',
+            'longitud.between' => 'La longitud debe estar entre -180 y 180.',
+            'path.string' => 'El path debe ser una cadena de texto válida.',
+            'metadata.array' => 'La metadata debe ser un objeto JSON válido.',
         ];
     }
 }

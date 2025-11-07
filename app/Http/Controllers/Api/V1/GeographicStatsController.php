@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Barrio;
 use App\Models\Corregimiento;
 use App\Models\Vereda;
+use App\Models\Municipality;
 use App\Models\Meeting;
 use App\Models\Commitment;
 use Illuminate\Http\Request;
@@ -23,12 +24,12 @@ class GeographicStatsController extends Controller
     {
         $request->validate([
             'type' => 'required|in:compromisos,reuniones',
-            'geographic_type' => 'required|in:barrio,corregimiento,vereda',
+            'geographic_type' => 'required|in:municipio,barrio,corregimiento,vereda',
         ], [
             'type.required' => 'El tipo de estadística es obligatorio.',
             'type.in' => 'El tipo debe ser: compromisos o reuniones.',
             'geographic_type.required' => 'El tipo geográfico es obligatorio.',
-            'geographic_type.in' => 'El tipo geográfico debe ser: barrio, corregimiento o vereda.',
+            'geographic_type.in' => 'El tipo geográfico debe ser: municipio, barrio, corregimiento o vereda.',
         ]);
 
         $type = $request->input('type');
@@ -52,6 +53,18 @@ class GeographicStatsController extends Controller
         $json = [];
 
         switch ($geographicType) {
+            case 'municipio':
+                $locations = Municipality::whereNotNull('path')
+                    ->with(['meetings' => function($query) {
+                        $query->whereNull('deleted_at')
+                              ->with(['commitments' => function($q) {
+                                  $q->whereNull('deleted_at')
+                                    ->with(['assignedUser:id,name', 'priority:id,name']);
+                              }]);
+                    }])
+                    ->get();
+                break;
+
             case 'barrio':
                 $locations = Barrio::whereNotNull('path')
                     ->with(['meetings' => function($query) {
@@ -155,6 +168,15 @@ class GeographicStatsController extends Controller
         $json = [];
 
         switch ($geographicType) {
+            case 'municipio':
+                $locations = Municipality::whereNotNull('path')
+                    ->with(['meetings' => function($query) {
+                        $query->whereNull('deleted_at')
+                              ->with(['planner:id,name', 'attendees']);
+                    }])
+                    ->get();
+                break;
+
             case 'barrio':
                 $locations = Barrio::whereNotNull('path')
                     ->with(['meetings' => function($query) {
