@@ -101,7 +101,7 @@ class MeetingController extends Controller
      */
     public function show(Meeting $meeting): JsonResponse
     {
-        $meeting->load(['planner', 'template', 'attendees', 'commitments', 'department', 'municipality', 'commune', 'barrio', 'corregimiento', 'vereda']);
+        $meeting->load(['planner', 'template', 'attendees', 'commitments', 'department', 'municipality', 'commune', 'barrio', 'corregimiento', 'vereda', 'activeReminder']);
         
         return response()->json([
             'data' => new MeetingResource($meeting)

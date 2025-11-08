@@ -78,6 +78,9 @@ class MeetingResource extends JsonResource
             'commitments' => $this->whenLoaded('commitments', fn() => CommitmentResource::collection($this->commitments)),
             'commitments_count' => $this->whenCounted('commitments'),
             
+            // Recordatorio activo
+            'active_reminder' => $this->whenLoaded('activeReminder', fn() => new MeetingReminderResource($this->activeReminder)),
+            
             // Timestamps
             'created_at' => $this->created_at?->toISOString(),
             'updated_at' => $this->updated_at?->toISOString(),
