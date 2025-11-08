@@ -485,7 +485,7 @@ class MeetingController extends Controller
     {
         try {
             $reminderDatetime = Carbon::parse($reminderData['datetime']);
-            $recipients = $reminderData['recipients'] ?? [];
+            $recipientsInput = $reminderData['recipients'] ?? [];
 
             // Validate reminder datetime
             $meetingStart = Carbon::parse($meeting->starts_at);
@@ -503,6 +503,46 @@ class MeetingController extends Controller
                     'reminder_datetime' => $reminderDatetime,
                     'meeting_start' => $meetingStart,
                     'minimum_time' => $meetingStart->copy()->subHours(5),
+                ]);
+                return null;
+            }
+
+            // Enrich recipients with phone and name from database
+            $recipients = [];
+            $userIds = collect($recipientsInput)->pluck('user_id')->toArray();
+            $users = \App\Models\User::whereIn('id', $userIds)->get()->keyBy('id');
+
+            foreach ($recipientsInput as $recipientInput) {
+                $userId = $recipientInput['user_id'];
+                $dbUser = $users->get($userId);
+
+                if (!$dbUser) {
+                    Log::warning('User not found for reminder recipient', [
+                        'user_id' => $userId,
+                    ]);
+                    continue;
+                }
+
+                // Skip if user doesn't have phone
+                if (empty($dbUser->phone)) {
+                    Log::warning('User does not have phone number', [
+                        'user_id' => $userId,
+                        'user_name' => $dbUser->name,
+                    ]);
+                    continue;
+                }
+
+                $recipients[] = [
+                    'user_id' => $userId,
+                    'phone' => $dbUser->phone,
+                    'name' => $dbUser->name,
+                ];
+            }
+
+            // Verify we have at least one valid recipient
+            if (empty($recipients)) {
+                Log::warning('No valid recipients with phone numbers', [
+                    'meeting_id' => $meeting->id,
                 ]);
                 return null;
             }

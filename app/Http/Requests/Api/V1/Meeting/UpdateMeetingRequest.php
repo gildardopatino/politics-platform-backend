@@ -41,7 +41,9 @@ class UpdateMeetingRequest extends FormRequest
             'title' => 'sometimes|string|max:255',
             'description' => 'nullable|string',
             'starts_at' => 'sometimes|date',
+            'ends_at' => 'nullable|date|after:starts_at',
             'lugar_nombre' => 'nullable|string',
+            'direccion' => 'nullable|string',
             'department_id' => 'nullable|exists:departments,id',
             'municipality_id' => 'nullable|exists:municipalities,id',
             'commune_id' => 'nullable|exists:communes,id',
@@ -81,8 +83,6 @@ class UpdateMeetingRequest extends FormRequest
             ],
             'reminder.recipients' => 'required_with:reminder|array|min:1',
             'reminder.recipients.*.user_id' => 'required|exists:users,id',
-            'reminder.recipients.*.phone' => 'required|string',
-            'reminder.recipients.*.name' => 'required|string',
             'reminder.message' => 'nullable|string|max:500',
             'reminder.metadata' => 'nullable|array',
         ];
@@ -94,6 +94,8 @@ class UpdateMeetingRequest extends FormRequest
             'template_id.exists' => 'La plantilla seleccionada no existe.',
             'title.max' => 'El título no puede exceder 255 caracteres.',
             'starts_at.date' => 'La fecha de inicio no es válida.',
+            'ends_at.date' => 'La fecha de finalización no es válida.',
+            'ends_at.after' => 'La fecha de finalización debe ser posterior a la fecha de inicio.',
             'department_id.exists' => 'El departamento seleccionado no existe.',
             'municipality_id.exists' => 'El municipio seleccionado no existe.',
             'commune_id.exists' => 'La comuna seleccionada no existe.',
@@ -117,8 +119,6 @@ class UpdateMeetingRequest extends FormRequest
             'reminder.recipients.min' => 'Debe seleccionar al menos un destinatario.',
             'reminder.recipients.*.user_id.required' => 'El ID del usuario es obligatorio.',
             'reminder.recipients.*.user_id.exists' => 'El usuario seleccionado no existe.',
-            'reminder.recipients.*.phone.required' => 'El teléfono es obligatorio.',
-            'reminder.recipients.*.name.required' => 'El nombre es obligatorio.',
             'reminder.message.max' => 'El mensaje no puede exceder 500 caracteres.',
         ];
     }

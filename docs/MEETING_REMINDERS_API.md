@@ -139,6 +139,8 @@ Usuario Crea Reunión + Reminder
 ]
 ```
 
+**NOTA:** Aunque el array en la base de datos contiene `phone` y `name`, el frontend **solo debe enviar `user_id`**. El backend enriquece automáticamente el array con los datos del usuario desde la base de datos.
+
 ### Estados Posibles
 
 | Estado       | Descripción                                     |
@@ -182,25 +184,21 @@ Content-Type: application/json
     "datetime": "2025-11-15 09:00:00",
     "recipients": [
       {
-        "user_id": 3,
-        "phone": "3001234567",
-        "name": "Juan Pérez"
+        "user_id": 3
       },
       {
-        "user_id": 5,
-        "phone": "3009876543",
-        "name": "María González"
+        "user_id": 5
       },
       {
-        "user_id": 7,
-        "phone": "3015556789",
-        "name": "Carlos Ruiz"
+        "user_id": 7
       }
     ],
     "message": "Recordatorio: Reunión importante mañana a las 2 PM. No olvides asistir."
   }
 }
 ```
+
+**NOTA IMPORTANTE:** Solo necesitas enviar `user_id` en el array de recipients. El sistema obtiene automáticamente `phone` y `name` de la base de datos del usuario.
 
 **Response (201 Created):**
 
@@ -446,10 +444,10 @@ Content-Type: application/json
 | `reminder.datetime` (custom)    | debe ser >= (starts_at - 5 horas)                                |
 | `reminder.recipients`           | requerido si reminder existe, array, min:1                       |
 | `reminder.recipients.*.user_id` | requerido, exists:users,id                                       |
-| `reminder.recipients.*.phone`   | requerido, string                                                |
-| `reminder.recipients.*.name`    | requerido, string                                                |
 | `reminder.message`              | opcional, string, max:500 caracteres                             |
 | `reminder.metadata`             | opcional, array/objeto                                           |
+
+**NOTA:** Ya NO se validan `phone` ni `name` porque se obtienen automáticamente de la base de datos.
 
 ### Ejemplos de Validación Fallida
 
@@ -543,13 +541,49 @@ Content-Type: application/json
     "datetime": "2025-11-15 09:00:00",
     "recipients": [
       {
-        "user_id": 9999,
-        "phone": "3001234567",
-        "name": "Usuario Inexistente"
+        "user_id": 9999
       }
     ]
   }
 }
+```
+
+**Response (422):**
+
+```json
+{
+  "message": "Validation failed",
+  "errors": {
+    "reminder.recipients.0.user_id": [
+      "El usuario seleccionado no existe."
+    ]
+  }
+}
+```
+
+#### Error 5: Usuario sin teléfono
+
+**Comportamiento:** El sistema omite automáticamente usuarios sin teléfono y loggea una advertencia.
+
+**Request:**
+
+```json
+{
+  "reminder": {
+    "datetime": "2025-11-15 09:00:00",
+    "recipients": [
+      {
+        "user_id": 10
+      }
+    ]
+  }
+}
+```
+
+**Comportamiento:** Si el usuario 10 existe pero no tiene `phone` en la base de datos:
+- El recordatorio NO se crea
+- Se registra en logs: `"No valid recipients with phone numbers"`
+- La reunión se crea exitosamente (sin recordatorio)
 ```
 
 **Response (422):**

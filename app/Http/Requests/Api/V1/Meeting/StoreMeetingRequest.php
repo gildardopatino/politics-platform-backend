@@ -63,9 +63,11 @@ class StoreMeetingRequest extends FormRequest
             'title' => 'required|string|max:255',
             'description' => 'nullable|string',
             'starts_at' => 'required|date',
+            'ends_at' => 'nullable|date|after:starts_at',
             'planner_user_id' => 'required|exists:users,id',
             'assigned_to_cedula' => 'nullable|string|max:20',
             'lugar_nombre' => 'nullable|string',
+            'direccion' => 'nullable|string',
             'department_id' => 'nullable|exists:departments,id',
             'municipality_id' => 'nullable|exists:municipalities,id',
             'commune_id' => 'nullable|exists:communes,id',
@@ -104,8 +106,6 @@ class StoreMeetingRequest extends FormRequest
             ],
             'reminder.recipients' => 'required_with:reminder|array|min:1',
             'reminder.recipients.*.user_id' => 'required|exists:users,id',
-            'reminder.recipients.*.phone' => 'required|string',
-            'reminder.recipients.*.name' => 'required|string',
             'reminder.message' => 'nullable|string|max:500',
             'reminder.metadata' => 'nullable|array',
         ];
@@ -119,6 +119,8 @@ class StoreMeetingRequest extends FormRequest
             'title.max' => 'El título no puede exceder 255 caracteres.',
             'starts_at.required' => 'La fecha de inicio es obligatoria.',
             'starts_at.date' => 'La fecha de inicio no es válida.',
+            'ends_at.date' => 'La fecha de finalización no es válida.',
+            'ends_at.after' => 'La fecha de finalización debe ser posterior a la fecha de inicio.',
             'planner_user_id.required' => 'El organizador de la reunión es obligatorio.',
             'planner_user_id.exists' => 'El organizador seleccionado no existe.',
             'assigned_to_cedula.max' => 'La cédula no puede exceder 20 caracteres.',
@@ -144,8 +146,6 @@ class StoreMeetingRequest extends FormRequest
             'reminder.recipients.min' => 'Debe seleccionar al menos un destinatario.',
             'reminder.recipients.*.user_id.required' => 'El ID del usuario es obligatorio.',
             'reminder.recipients.*.user_id.exists' => 'El usuario seleccionado no existe.',
-            'reminder.recipients.*.phone.required' => 'El teléfono es obligatorio.',
-            'reminder.recipients.*.name.required' => 'El nombre es obligatorio.',
             'reminder.message.max' => 'El mensaje no puede exceder 500 caracteres.',
         ];
     }

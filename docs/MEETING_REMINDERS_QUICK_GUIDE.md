@@ -19,20 +19,18 @@ POST /api/v1/meetings
     "datetime": "2025-11-15 09:00:00",  // Al menos 5 horas antes
     "recipients": [
       {
-        "user_id": 3,
-        "phone": "3001234567",
-        "name": "Juan Pérez"
+        "user_id": 3
       },
       {
-        "user_id": 5,
-        "phone": "3009876543",
-        "name": "María González"
+        "user_id": 5
       }
     ],
     "message": "Texto personalizado (opcional, máx 500 caracteres)"
   }
 }
 ```
+
+**NOTA IMPORTANTE:** Solo necesitas enviar el `user_id`. El sistema obtiene automáticamente el `phone` y `name` de la base de datos.
 
 ---
 
@@ -48,10 +46,11 @@ interface Reminder {
 
 interface Recipient {
   user_id: number;           // ID del usuario (debe existir)
-  phone: string;             // Teléfono (10 dígitos sin +57)
-  name: string;              // Nombre completo
+  // phone y name se obtienen automáticamente de la BD
 }
 ```
+
+**IMPORTANTE:** Ya NO es necesario enviar `phone` ni `name`. El backend los obtiene automáticamente del usuario en la base de datos.
 
 ---
 
@@ -107,9 +106,8 @@ const handleAddRecipient = (user) => {
   setReminderData(prev => ({
     ...prev,
     recipients: [...prev.recipients, {
-      user_id: user.id,
-      phone: user.phone,
-      name: user.name
+      user_id: user.id
+      // Ya NO enviar phone ni name - el backend los obtiene automáticamente
     }]
   }));
 };
@@ -315,9 +313,7 @@ const ReminderBadge = ({ reminder }) => {
     "datetime": "2025-11-15 09:00:00",
     "recipients": [
       {
-        "user_id": 5,
-        "phone": "3001234567",
-        "name": "Juan Pérez"
+        "user_id": 5
       }
     ]
   }
@@ -334,10 +330,10 @@ const ReminderBadge = ({ reminder }) => {
   "reminder": {
     "datetime": "2025-11-19 18:00:00",  // 1 día antes
     "recipients": [
-      { "user_id": 3, "phone": "3001111111", "name": "Ana Torres" },
-      { "user_id": 5, "phone": "3002222222", "name": "Carlos Ruiz" },
-      { "user_id": 7, "phone": "3003333333", "name": "María López" },
-      { "user_id": 9, "phone": "3004444444", "name": "Pedro Gómez" }
+      { "user_id": 3 },
+      { "user_id": 5 },
+      { "user_id": 7 },
+      { "user_id": 9 }
     ],
     "message": "Reunión general mañana. Asistencia obligatoria."
   }
@@ -376,9 +372,7 @@ curl -X POST http://localhost:8000/api/v1/meetings \
       "datetime": "2025-11-15 09:00:00",
       "recipients": [
         {
-          "user_id": 3,
-          "phone": "3001234567",
-          "name": "Test User"
+          "user_id": 3
         }
       ]
     }
