@@ -18,6 +18,8 @@ class Tenant extends Model
         'tipo_cargo',
         'identificacion',
         'metadata',
+        'biografia_data',
+        's3_bucket',
         'logo',
         'sidebar_bg_color',
         'sidebar_text_color',
@@ -33,6 +35,7 @@ class Tenant extends Model
 
     protected $casts = [
         'metadata' => 'array',
+        'biografia_data' => 'array',
         'auto_assign_hierarchy' => 'boolean',
         'require_hierarchy_config' => 'boolean',
     ];

@@ -12,6 +12,14 @@ use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\GeocodeController;
 use App\Http\Controllers\Api\V1\GeographicStatsController;
 use App\Http\Controllers\Api\V1\GeographyController;
+use App\Http\Controllers\Api\V1\LandingPageController;
+use App\Http\Controllers\Api\V1\Landing\LandingBannerAdminController;
+use App\Http\Controllers\Api\V1\Landing\LandingPropuestaAdminController;
+use App\Http\Controllers\Api\V1\Landing\LandingEventoAdminController;
+use App\Http\Controllers\Api\V1\Landing\LandingGaleriaAdminController;
+use App\Http\Controllers\Api\V1\Landing\LandingTestimonioAdminController;
+use App\Http\Controllers\Api\V1\Landing\LandingSocialFeedAdminController;
+use App\Http\Controllers\Api\V1\Landing\BiografiaAdminController;
 use App\Http\Controllers\Api\V1\MeetingAttendeeController;
 use App\Http\Controllers\Api\V1\MeetingController;
 use App\Http\Controllers\Api\V1\MeetingTemplateController;
@@ -48,6 +56,19 @@ Route::prefix('v1')->group(function () {
     Route::post('/meetings/check-in/{qr_code}', [MeetingController::class, 'checkIn']);
     Route::get('/barrios/search/by-name', [BarrioController::class, 'search']);
     Route::get('/verify-document', [VoterController::class, 'verifyDocument']);
+    
+    // Landing Page Public Routes
+    Route::prefix('landingpage')->group(function () {
+        Route::get('/banners', [LandingPageController::class, 'getBanners']);
+        Route::get('/biografia', [LandingPageController::class, 'getBiografia']);
+        Route::get('/propuestas', [LandingPageController::class, 'getPropuestas']);
+        Route::get('/eventos', [LandingPageController::class, 'getEventos']);
+        Route::get('/galeria', [LandingPageController::class, 'getGaleria']);
+        Route::get('/testimonios', [LandingPageController::class, 'getTestimonios']);
+        Route::get('/social-feed', [LandingPageController::class, 'getSocialFeed']);
+        Route::post('/voluntarios', [LandingPageController::class, 'storeVoluntario']);
+        Route::post('/contacto', [LandingPageController::class, 'storeContacto']);
+    });
 
     // Protected routes
     Route::middleware('jwt.auth')->group(function () {
@@ -195,6 +216,21 @@ Route::prefix('v1')->group(function () {
             Route::apiResource('calls', CallController::class);
             Route::get('/voters/{voter}/calls', [CallController::class, 'byVoter']);
             Route::get('/calls-stats', [CallController::class, 'stats']);
+            
+            // Landing Page Admin Routes (Protected)
+            Route::prefix('landingpage/admin')->group(function () {
+                Route::apiResource('banners', LandingBannerAdminController::class);
+                Route::apiResource('propuestas', LandingPropuestaAdminController::class);
+                Route::apiResource('eventos', LandingEventoAdminController::class);
+                Route::apiResource('galeria', LandingGaleriaAdminController::class);
+                Route::apiResource('testimonios', LandingTestimonioAdminController::class);
+                Route::apiResource('social-feed', LandingSocialFeedAdminController::class);
+                
+                // Biografia - special routes (updates JSON field in tenants table)
+                Route::get('biografia', [BiografiaAdminController::class, 'show']);
+                Route::put('biografia', [BiografiaAdminController::class, 'update']);
+                Route::delete('biografia/imagen', [BiografiaAdminController::class, 'deleteImage']);
+            });
         });
     });
 });
