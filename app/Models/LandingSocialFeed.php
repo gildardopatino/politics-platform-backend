@@ -23,6 +23,10 @@ class LandingSocialFeed extends Model
         'compartidos',
         'comentarios',
         'imagen',
+        'external_id',
+        'external_url',
+        'last_synced_at',
+        'is_synced',
         'is_active',
     ];
 
@@ -31,6 +35,8 @@ class LandingSocialFeed extends Model
         'likes' => 'integer',
         'compartidos' => 'integer',
         'comentarios' => 'integer',
+        'last_synced_at' => 'datetime',
+        'is_synced' => 'boolean',
         'is_active' => 'boolean',
     ];
 

@@ -31,6 +31,24 @@ class Tenant extends Model
         'auto_assign_hierarchy',
         'hierarchy_conflict_resolution',
         'require_hierarchy_config',
+        // Social media credentials
+        'twitter_enabled',
+        'twitter_bearer_token',
+        'twitter_user_id',
+        'twitter_username',
+        'facebook_enabled',
+        'facebook_access_token',
+        'facebook_page_id',
+        'instagram_enabled',
+        'instagram_access_token',
+        'instagram_user_id',
+        'instagram_username',
+        'youtube_enabled',
+        'youtube_api_key',
+        'youtube_channel_id',
+        'social_auto_sync_enabled',
+        'social_sync_interval_minutes',
+        'social_last_synced_at',
     ];
 
     protected $casts = [
@@ -38,6 +56,12 @@ class Tenant extends Model
         'biografia_data' => 'array',
         'auto_assign_hierarchy' => 'boolean',
         'require_hierarchy_config' => 'boolean',
+        'twitter_enabled' => 'boolean',
+        'facebook_enabled' => 'boolean',
+        'instagram_enabled' => 'boolean',
+        'youtube_enabled' => 'boolean',
+        'social_auto_sync_enabled' => 'boolean',
+        'social_last_synced_at' => 'datetime',
     ];
 
     public function getRouteKeyName(): string

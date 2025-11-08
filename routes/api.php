@@ -22,6 +22,7 @@ use App\Http\Controllers\Api\V1\Landing\LandingSocialFeedAdminController;
 use App\Http\Controllers\Api\V1\Landing\BiografiaAdminController;
 use App\Http\Controllers\Api\V1\MeetingAttendeeController;
 use App\Http\Controllers\Api\V1\MeetingController;
+use App\Http\Controllers\Api\V1\Settings\SocialMediaSettingsController;
 use App\Http\Controllers\Api\V1\MeetingTemplateController;
 use App\Http\Controllers\Api\V1\MunicipalityController;
 use App\Http\Controllers\Api\V1\OrganizationController;
@@ -230,6 +231,18 @@ Route::prefix('v1')->group(function () {
                 Route::get('biografia', [BiografiaAdminController::class, 'show']);
                 Route::put('biografia', [BiografiaAdminController::class, 'update']);
                 Route::delete('biografia/imagen', [BiografiaAdminController::class, 'deleteImage']);
+            });
+            
+            // Social Media Settings
+            Route::prefix('settings/social-media')->group(function () {
+                Route::get('/', [SocialMediaSettingsController::class, 'show']);
+                Route::put('/twitter', [SocialMediaSettingsController::class, 'updateTwitter']);
+                Route::put('/facebook', [SocialMediaSettingsController::class, 'updateFacebook']);
+                Route::put('/instagram', [SocialMediaSettingsController::class, 'updateInstagram']);
+                Route::put('/youtube', [SocialMediaSettingsController::class, 'updateYouTube']);
+                Route::put('/auto-sync', [SocialMediaSettingsController::class, 'updateAutoSync']);
+                Route::post('/sync', [SocialMediaSettingsController::class, 'syncAll']);
+                Route::post('/sync/{platform}', [SocialMediaSettingsController::class, 'syncPlatform']);
             });
         });
     });

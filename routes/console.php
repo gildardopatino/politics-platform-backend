@@ -1,5 +1,7 @@
 <?php
 
+use App\Jobs\SyncSocialMediaJob;
+use App\Models\Tenant;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -15,3 +17,22 @@ Schedule::command('voters:sync')
     ->withoutOverlapping()
     ->onOneServer()
     ->emailOutputOnFailure(config('mail.from.address'));
+
+// Sincronizar redes sociales - cada 15 minutos para tenants con auto-sync habilitado
+Schedule::call(function () {
+    $tenants = Tenant::where('social_auto_sync_enabled', true)->get();
+    
+    foreach ($tenants as $tenant) {
+        // Check if enough time has passed based on tenant's interval setting
+        $interval = $tenant->social_sync_interval_minutes ?? 15;
+        $lastSync = $tenant->social_last_synced_at;
+        
+        if (!$lastSync || $lastSync->addMinutes($interval)->isPast()) {
+            SyncSocialMediaJob::dispatch($tenant->id);
+        }
+    }
+})
+    ->everyFifteenMinutes()
+    ->timezone('America/Bogota')
+    ->withoutOverlapping()
+    ->onOneServer();

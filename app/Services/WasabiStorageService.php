@@ -11,7 +11,7 @@ class WasabiStorageService
     /**
      * Get S3 Client instance
      */
-    protected function getS3Client(): S3Client
+    public function getS3Client(): S3Client
     {
         return new S3Client([
             'version' => 'latest',
