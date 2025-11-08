@@ -8,6 +8,7 @@ use App\Models\LandingBanner;
 use App\Services\WasabiStorageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
 class LandingBannerAdminController extends Controller
@@ -92,6 +93,13 @@ class LandingBannerAdminController extends Controller
      */
     public function update(Request $request, LandingBanner $banner): JsonResponse
     {
+        Log::info('Update banner request', [
+            'banner_id' => $banner->id,
+            'has_file' => $request->hasFile('image'),
+            'all_input' => $request->except(['image']),
+            'files' => $request->allFiles(),
+        ]);
+
         $validator = Validator::make($request->all(), [
             'title' => 'sometimes|required|string|max:255',
             'subtitle' => 'nullable|string|max:255',
@@ -104,23 +112,51 @@ class LandingBannerAdminController extends Controller
         ]);
 
         if ($validator->fails()) {
+            Log::error('Validation failed', ['errors' => $validator->errors()]);
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
         $data = $validator->validated();
+        $oldImage = $banner->image;
 
         // Upload new image if provided
         if ($request->hasFile('image')) {
-            // Delete old image
-            if ($banner->image) {
-                $this->wasabi->deleteFile($banner->image, $banner->tenant);
+            Log::info('Processing image upload', [
+                'old_image' => $oldImage,
+                'file_size' => $request->file('image')->getSize(),
+                'file_name' => $request->file('image')->getClientOriginalName(),
+            ]);
+
+            try {
+                // Upload new image first
+                $upload = $this->wasabi->uploadFile($request->file('image'), 'landing/banners', $banner->tenant);
+                $data['image'] = $upload['key'];
+                
+                Log::info('Image uploaded successfully', [
+                    'new_key' => $upload['key'],
+                ]);
+
+                // Delete old image after successful upload
+                if ($oldImage) {
+                    $this->wasabi->deleteFile($oldImage, $banner->tenant);
+                    Log::info('Old image deleted', ['old_key' => $oldImage]);
+                }
+            } catch (\Exception $e) {
+                Log::error('Error uploading image', [
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
+                return response()->json(['error' => 'Error al subir la imagen: ' . $e->getMessage()], 500);
             }
-            
-            $upload = $this->wasabi->uploadFile($request->file('image'), 'landing/banners', $banner->tenant);
-            $data['image'] = $upload['key'];
         }
 
         $banner->update($data);
+        $banner->refresh(); // Refresh to get updated data
+
+        Log::info('Banner updated', [
+            'banner_id' => $banner->id,
+            'new_image' => $banner->image,
+        ]);
 
         return response()->json([
             'data' => new LandingBannerResource($banner),

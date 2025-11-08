@@ -32,6 +32,7 @@ Schedule::call(function () {
         }
     }
 })
+    ->name('sync-social-media')
     ->everyFifteenMinutes()
     ->timezone('America/Bogota')
     ->withoutOverlapping()
