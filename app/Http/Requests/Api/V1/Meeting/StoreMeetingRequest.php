@@ -75,6 +75,39 @@ class StoreMeetingRequest extends FormRequest
             'latitude' => 'nullable|numeric|between:-90,90',
             'longitude' => 'nullable|numeric|between:-180,180',
             'metadata' => 'nullable|array',
+            
+            // Reminder validation
+            'reminder' => 'nullable|array',
+            'reminder.datetime' => [
+                'required_with:reminder',
+                'date',
+                'after:now',
+                function ($attribute, $value, $fail) {
+                    $startsAt = $this->input('starts_at');
+                    if (!$startsAt) {
+                        return;
+                    }
+
+                    $reminderTime = \Carbon\Carbon::parse($value);
+                    $meetingTime = \Carbon\Carbon::parse($startsAt);
+
+                    // Reminder must be before meeting
+                    if ($reminderTime >= $meetingTime) {
+                        $fail('El recordatorio debe ser antes de la reunión.');
+                    }
+
+                    // Reminder must be at least 5 hours before meeting
+                    if ($reminderTime > $meetingTime->copy()->subHours(5)) {
+                        $fail('El recordatorio debe ser al menos 5 horas antes de la reunión.');
+                    }
+                }
+            ],
+            'reminder.recipients' => 'required_with:reminder|array|min:1',
+            'reminder.recipients.*.user_id' => 'required|exists:users,id',
+            'reminder.recipients.*.phone' => 'required|string',
+            'reminder.recipients.*.name' => 'required|string',
+            'reminder.message' => 'nullable|string|max:500',
+            'reminder.metadata' => 'nullable|array',
         ];
     }
 
@@ -100,6 +133,20 @@ class StoreMeetingRequest extends FormRequest
             'longitude.numeric' => 'La longitud debe ser un número.',
             'longitude.between' => 'La longitud debe estar entre -180 y 180.',
             'metadata.array' => 'Los metadatos deben ser un objeto válido.',
+            
+            // Reminder messages
+            'reminder.array' => 'El recordatorio debe ser un objeto válido.',
+            'reminder.datetime.required_with' => 'La fecha del recordatorio es obligatoria.',
+            'reminder.datetime.date' => 'La fecha del recordatorio no es válida.',
+            'reminder.datetime.after' => 'El recordatorio debe ser en el futuro.',
+            'reminder.recipients.required_with' => 'Debe seleccionar al menos un destinatario.',
+            'reminder.recipients.array' => 'Los destinatarios deben ser un arreglo válido.',
+            'reminder.recipients.min' => 'Debe seleccionar al menos un destinatario.',
+            'reminder.recipients.*.user_id.required' => 'El ID del usuario es obligatorio.',
+            'reminder.recipients.*.user_id.exists' => 'El usuario seleccionado no existe.',
+            'reminder.recipients.*.phone.required' => 'El teléfono es obligatorio.',
+            'reminder.recipients.*.name.required' => 'El nombre es obligatorio.',
+            'reminder.message.max' => 'El mensaje no puede exceder 500 caracteres.',
         ];
     }
 }

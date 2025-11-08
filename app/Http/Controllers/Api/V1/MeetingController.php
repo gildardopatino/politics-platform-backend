@@ -8,9 +8,12 @@ use App\Http\Requests\Api\V1\Meeting\StoreMeetingRequest;
 use App\Http\Requests\Api\V1\Meeting\UpdateMeetingRequest;
 use App\Http\Resources\Api\V1\MeetingResource;
 use App\Jobs\Meetings\GenerateQRCodeJob;
+use App\Jobs\SendMeetingReminderJob;
 use App\Models\Meeting;
+use App\Models\MeetingReminder;
 use App\Services\AttendeeHierarchyService;
 use App\Services\QRCodeService;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -72,8 +75,13 @@ class MeetingController extends Controller
             $meeting->update(['qr_code' => $qrData['code']]);
             $meeting->qr_data = $qrData; // Attach QR data temporarily for response
 
+            // Handle reminder if provided
+            if ($request->has('reminder')) {
+                $this->createReminder($meeting, $request->input('reminder'), $user);
+            }
+
             return response()->json([
-                'data' => new MeetingResource($meeting->load(['planner', 'department', 'municipality', 'commune', 'barrio', 'template'])),
+                'data' => new MeetingResource($meeting->load(['planner', 'department', 'municipality', 'commune', 'barrio', 'template', 'activeReminder'])),
                 'message' => 'Meeting created successfully'
             ], 201);
         } catch (\Exception $e) {
@@ -105,10 +113,25 @@ class MeetingController extends Controller
      */
     public function update(UpdateMeetingRequest $request, Meeting $meeting): JsonResponse
     {
+        /** @var \App\Models\User $user */
+        $user = $request->user();
+        
         $meeting->update($request->validated());
 
+        // Handle reminder updates
+        if ($request->has('reminder')) {
+            // Cancel existing active reminder if any
+            $existingReminder = $meeting->activeReminder;
+            if ($existingReminder && $existingReminder->canBeCancelled()) {
+                $existingReminder->cancel();
+            }
+
+            // Create new reminder
+            $this->createReminder($meeting, $request->input('reminder'), $user);
+        }
+
         return response()->json([
-            'data' => new MeetingResource($meeting->load(['planner', 'department', 'municipality', 'commune', 'barrio', 'template'])),
+            'data' => new MeetingResource($meeting->load(['planner', 'department', 'municipality', 'commune', 'barrio', 'template', 'activeReminder'])),
             'message' => 'Meeting updated successfully'
         ]);
     }
@@ -118,6 +141,11 @@ class MeetingController extends Controller
      */
     public function destroy(Meeting $meeting): JsonResponse
     {
+        // Cancel any active reminders
+        $meeting->reminders()->whereIn('status', ['pending', 'processing'])->each(function ($reminder) {
+            $reminder->cancel();
+        });
+
         $meeting->delete();
 
         return response()->json([
@@ -448,5 +476,75 @@ class MeetingController extends Controller
                 'include_attendees' => $includeAttendees,
             ]
         ]);
+    }
+
+    /**
+     * Create and schedule a meeting reminder
+     */
+    protected function createReminder(Meeting $meeting, array $reminderData, $user): ?MeetingReminder
+    {
+        try {
+            $reminderDatetime = Carbon::parse($reminderData['datetime']);
+            $recipients = $reminderData['recipients'] ?? [];
+
+            // Validate reminder datetime
+            $meetingStart = Carbon::parse($meeting->starts_at);
+            
+            if ($reminderDatetime >= $meetingStart) {
+                Log::warning('Reminder datetime must be before meeting start', [
+                    'reminder_datetime' => $reminderDatetime,
+                    'meeting_start' => $meetingStart,
+                ]);
+                return null;
+            }
+
+            if ($reminderDatetime > $meetingStart->copy()->subHours(5)) {
+                Log::warning('Reminder must be at least 5 hours before meeting', [
+                    'reminder_datetime' => $reminderDatetime,
+                    'meeting_start' => $meetingStart,
+                    'minimum_time' => $meetingStart->copy()->subHours(5),
+                ]);
+                return null;
+            }
+
+            // Create reminder
+            $reminder = MeetingReminder::create([
+                'tenant_id' => $meeting->tenant_id,
+                'meeting_id' => $meeting->id,
+                'created_by_user_id' => $user->id,
+                'reminder_datetime' => $reminderDatetime,
+                'recipients' => $recipients,
+                'status' => 'pending',
+                'message' => $reminderData['message'] ?? null,
+                'metadata' => $reminderData['metadata'] ?? null,
+                'total_recipients' => count($recipients),
+            ]);
+
+            // Calculate delay for job
+            $delay = $reminderDatetime->diffInSeconds(now());
+
+            // Schedule the job
+            $job = SendMeetingReminderJob::dispatch($reminder)
+                ->delay(now()->addSeconds($delay));
+
+            // Store job ID for potential cancellation
+            $reminder->update(['job_id' => $job->id ?? null]);
+
+            Log::info('Meeting reminder scheduled', [
+                'reminder_id' => $reminder->id,
+                'meeting_id' => $meeting->id,
+                'scheduled_for' => $reminderDatetime,
+                'delay_seconds' => $delay,
+                'recipients_count' => count($recipients),
+            ]);
+
+            return $reminder;
+        } catch (\Exception $e) {
+            Log::error('Error creating meeting reminder', [
+                'meeting_id' => $meeting->id,
+                'error' => $e->getMessage(),
+            ]);
+            return null;
+        }
     }
 }

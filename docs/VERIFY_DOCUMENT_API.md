@@ -1,6 +1,6 @@
-# API de Verificación de Documento - PISAMI
+# API de Verificación de Documento - PISAMI + LEADS
 
-Este endpoint permite verificar un documento (cédula) consumiendo la API externa de PISAMI y obtener los datos básicos del ciudadano.
+Este endpoint permite verificar un documento (cédula) consumiendo primero la API externa de PISAMI. Si no encuentra información, busca en la tabla local de leads como respaldo.
 
 ---
 
@@ -11,6 +11,16 @@ GET /api/v1/verify-document
 ```
 
 **Este es un endpoint PÚBLICO** - No requiere autenticación.
+
+---
+
+## 🔄 FLUJO DE BÚSQUEDA
+
+El endpoint implementa un sistema de búsqueda en cascada:
+
+1. **PISAMI (API Externa)**: Primero intenta obtener datos de la API de PISAMI
+2. **LEADS (Base de datos local)**: Si no encuentra en PISAMI, busca en la tabla `leads`
+3. **No encontrado**: Si no existe en ninguna fuente, retorna error 404
 
 ---
 
@@ -32,11 +42,12 @@ GET /api/v1/verify-document?cedula=14398676
 
 ## 📤 RESPONSE
 
-### Response 200 OK - Documento Encontrado
+### Response 200 OK - Documento Encontrado en PISAMI
 
 ```json
 {
   "success": true,
+  "source": "pisami",
   "data": {
     "nombres": "GILDARDO",
     "apellidos": "PATIÑO TRILLOS",
@@ -47,12 +58,41 @@ GET /api/v1/verify-document?cedula=14398676
 }
 ```
 
+### Response 200 OK - Documento Encontrado en LEADS
+
+```json
+{
+  "success": true,
+  "source": "leads",
+  "data": {
+    "cedula": "123456789",
+    "nombres": "Juan Carlos",
+    "apellidos": "Pérez López",
+    "nombre_completo": "Juan Carlos Pérez López",
+    "fecha_nacimiento": "1990-05-15",
+    "telefono": "3001234567",
+    "email": "juan@example.com",
+    "direccion": "Calle 123 #45-67",
+    "barrio": "Centro",
+    "departamento_votacion": "Tolima",
+    "municipio_votacion": "Ibague",
+    "puesto_votacion": "Puesto 001",
+    "zona_votacion": "Zona 1",
+    "mesa_votacion": "001",
+    "direccion_votacion": "Colegio XYZ",
+    "locality_name": "Ibague",
+    "latitud": "4.4389",
+    "longitud": "-75.2322"
+  }
+}
+```
+
 ### Response 404 Not Found - No se encontró información
 
 ```json
 {
   "success": false,
-  "message": "No se encontró información para la cédula proporcionada"
+  "message": "No se encontró información para la cédula proporcionada en PISAMI ni en la base de datos local"
 }
 ```
 
@@ -73,6 +113,8 @@ GET /api/v1/verify-document?cedula=14398676
 
 ## 🔍 CAMPOS DE RESPUESTA
 
+### Cuando `source = "pisami"`
+
 | Campo     | Tipo   | Nullable | Descripción                                         |
 |-----------|--------|----------|-----------------------------------------------------|
 | nombres   | string | ✅ Sí    | Primer y segundo nombre combinados                  |
@@ -81,18 +123,49 @@ GET /api/v1/verify-document?cedula=14398676
 | telefono  | string | ✅ Sí    | Teléfono móvil                                      |
 | email     | string | ✅ Sí    | Correo electrónico                                  |
 
+### Cuando `source = "leads"`
+
+| Campo                  | Tipo    | Nullable | Descripción                                    |
+|------------------------|---------|----------|------------------------------------------------|
+| cedula                 | string  | ✅ Sí    | Número de cédula                               |
+| nombres                | string  | ✅ Sí    | Nombres (nombre1 + nombre2)                    |
+| apellidos              | string  | ✅ Sí    | Apellidos (apellido1 + apellido2)              |
+| nombre_completo        | string  | ✅ Sí    | Nombre completo                                |
+| fecha_nacimiento       | date    | ✅ Sí    | Fecha de nacimiento (formato: YYYY-MM-DD)      |
+| telefono               | string  | ✅ Sí    | Teléfono de contacto                           |
+| email                  | string  | ✅ Sí    | Correo electrónico                             |
+| direccion              | string  | ✅ Sí    | Dirección de residencia                        |
+| barrio                 | string  | ✅ Sí    | Nombre del barrio                              |
+| departamento_votacion  | string  | ✅ Sí    | Departamento donde vota                        |
+| municipio_votacion     | string  | ✅ Sí    | Municipio donde vota                           |
+| puesto_votacion        | string  | ✅ Sí    | Nombre del puesto de votación                  |
+| zona_votacion          | string  | ✅ Sí    | Zona electoral                                 |
+| mesa_votacion          | string  | ✅ Sí    | Número de mesa de votación                     |
+| direccion_votacion     | string  | ✅ Sí    | Dirección del puesto de votación               |
+| locality_name          | string  | ✅ Sí    | Nombre de la localidad                         |
+| latitud                | decimal | ✅ Sí    | Coordenada de latitud                          |
+| longitud               | decimal | ✅ Sí    | Coordenada de longitud                         |
+| email     | string | ✅ Sí    | Correo electrónico                                  |
+
 **Nota:** Todos los campos pueden ser `null` si la información no está disponible en la fuente.
 
 ---
 
 ## 📝 NOTAS TÉCNICAS
 
-### API Externa
+### Búsqueda en Cascada
 
-Este endpoint consume la API externa de PISAMI:
-```
-https://pisami.ibague.gov.co/app/PISAMI/modulos/administrativa/gestiondocumental/maestros/radicacion_pqr_publica/verifica_documento.php?doc={cedula}
-```
+El endpoint implementa un sistema de búsqueda secuencial:
+
+1. **Primera Fuente - PISAMI (API Externa)**
+   - URL: `https://pisami.ibague.gov.co/app/PISAMI/modulos/administrativa/gestiondocumental/maestros/radicacion_pqr_publica/verifica_documento.php?doc={cedula}`
+   - Si encuentra datos → Retorna con `source: "pisami"`
+   - Si no encuentra → Continúa a la segunda fuente
+
+2. **Segunda Fuente - LEADS (Base de datos local)**
+   - Busca en la tabla `leads` por campo `cedula`
+   - Si encuentra → Retorna con `source: "leads"`
+   - Si no encuentra → Retorna error 404
 
 ### Formato de Respuesta de PISAMI
 
@@ -124,6 +197,19 @@ El servicio `PisamiService` realiza lo siguiente:
    - `EMAIL` → `email`
 4. **Normalización:** Los espacios extras se eliminan, valores vacíos se convierten a `null`
 
+Para datos de **LEADS**, el controlador formatea los campos del modelo Lead para mantener consistencia con la estructura de PISAMI.
+
+### Campo `source`
+
+El campo `source` en la respuesta indica la fuente de los datos:
+- `"pisami"`: Datos obtenidos de la API externa de PISAMI
+- `"leads"`: Datos obtenidos de la tabla local `leads`
+
+Esto permite al frontend:
+- Identificar la procedencia de los datos
+- Aplicar lógica diferencial según la fuente
+- Mostrar indicadores visuales al usuario
+
 ### Timeout
 
 El request a la API externa tiene un timeout de **30 segundos**.
@@ -144,15 +230,33 @@ const verificarCedula = async (cedula) => {
     const result = await response.json();
     
     if (result.success) {
+      // Identificar fuente de datos
+      const esDePisami = result.source === 'pisami';
+      const esDeLeads = result.source === 'leads';
+      
       // Prellenar formulario con los datos obtenidos
       setFormData({
-        cedula: cedula,
+        cedula: result.data.cedula || cedula,
         nombres: result.data.nombres || '',
         apellidos: result.data.apellidos || '',
         direccion: result.data.direccion || '',
         telefono: result.data.telefono || '',
-        email: result.data.email || ''
+        email: result.data.email || '',
+        // Campos adicionales si viene de leads
+        ...(esDeLeads && {
+          fecha_nacimiento: result.data.fecha_nacimiento,
+          municipio_votacion: result.data.municipio_votacion,
+          mesa_votacion: result.data.mesa_votacion,
+          puesto_votacion: result.data.puesto_votacion,
+        })
       });
+      
+      // Mostrar indicador de fuente
+      if (esDePisami) {
+        showNotification('Datos obtenidos de Registraduría (PISAMI)', 'success');
+      } else if (esDeLeads) {
+        showNotification('Datos obtenidos de base de datos local', 'info');
+      }
     } else {
       alert('No se encontró información para esta cédula');
     }

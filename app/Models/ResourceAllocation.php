@@ -15,11 +15,14 @@ class ResourceAllocation extends Model
 
     protected $fillable = [
         'tenant_id',
+        'meeting_id',
         'assigned_to_user_id',
         'assigned_by_user_id',
         'leader_user_id',
+        'title',
         'type',
         'amount',
+        'total_cost',
         'details',
         'allocation_date',
         'notes',
@@ -28,6 +31,7 @@ class ResourceAllocation extends Model
 
     protected $casts = [
         'amount' => 'decimal:2',
+        'total_cost' => 'decimal:2',
         'allocation_date' => 'date',
         'details' => 'array',
     ];
@@ -84,5 +88,17 @@ class ResourceAllocation extends Model
     public function scopeService($query)
     {
         return $query->where('type', 'service');
+    }
+
+    // Nueva relación con items
+    public function items()
+    {
+        return $this->hasMany(ResourceAllocationItem::class);
+    }
+
+    // Accessor para calcular total desde items
+    public function getTotalFromItemsAttribute(): float
+    {
+        return $this->items->sum('subtotal');
     }
 }

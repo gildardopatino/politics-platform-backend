@@ -17,12 +17,31 @@ class ResourceAllocationResource extends JsonResource
         return [
             'id' => $this->id,
             'tenant_id' => $this->tenant_id,
+            
+            // Sistema legacy
             'type' => $this->type,
             'amount' => $this->amount,
+            'descripcion' => $this->descripcion,
+            'fecha_asignacion' => $this->fecha_asignacion,
             'details' => $this->details,
+            
+            // Sistema nuevo
+            'title' => $this->title,
+            'meeting_id' => $this->meeting_id,
+            'meeting' => $this->whenLoaded('meeting', function() {
+                return [
+                    'id' => $this->meeting->id,
+                    'title' => $this->meeting->title ?? 'Sin título',
+                ];
+            }),
             'allocation_date' => $this->allocation_date?->toDateString(),
             'notes' => $this->notes,
             'status' => $this->status,
+            'total_cost' => $this->total_cost,
+            
+            // Items del nuevo sistema
+            'items' => ResourceAllocationItemResource::collection($this->whenLoaded('items')),
+            'items_count' => $this->when($this->relationLoaded('items'), fn() => $this->items->count()),
             
             // Relación con usuarios
             'assigned_to_user_id' => $this->assigned_to_user_id,

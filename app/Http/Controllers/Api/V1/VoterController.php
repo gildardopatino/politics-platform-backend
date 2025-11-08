@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\Voter;
+use App\Models\Lead;
 use App\Services\PisamiService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -228,6 +229,7 @@ class VoterController extends Controller
     /**
      * Verify document from external PISAMI API
      * This endpoint is public (no authentication required)
+     * If not found in PISAMI, searches in local leads table
      */
     public function verifyDocument(Request $request, PisamiService $pisamiService): JsonResponse
     {
@@ -244,19 +246,58 @@ class VoterController extends Controller
 
         $cedula = $request->cedula;
 
-        // Consumir API externa de PISAMI
+        // 1. Intentar consumir API externa de PISAMI
         $data = $pisamiService->verifyDocument($cedula);
 
-        if (!$data) {
+        if ($data) {
             return response()->json([
-                'success' => false,
-                'message' => 'No se encontró información para la cédula proporcionada',
-            ], 404);
+                'success' => true,
+                'data' => $data,
+                'source' => 'pisami',
+            ]);
         }
 
+        // 2. Si no se encuentra en PISAMI, buscar en tabla leads
+        $lead = Lead::where('cedula', $cedula)->first();
+
+        if ($lead) {
+            // Formatear datos del lead al mismo formato que PISAMI
+            $leadData = [
+                'cedula' => $lead->cedula,
+                'nombres' => trim(($lead->nombre1 ?? '') . ' ' . ($lead->nombre2 ?? '')),
+                'apellidos' => trim(($lead->apellido1 ?? '') . ' ' . ($lead->apellido2 ?? '')),
+                'nombre_completo' => $lead->full_name,
+                'fecha_nacimiento' => $lead->fecha_nacimiento?->format('Y-m-d'),
+                'telefono' => $lead->telefono,
+                'email' => $lead->email,
+                'direccion' => $lead->direccion,
+                'barrio' => $lead->barrio_otro,
+                
+                // Información electoral
+                'departamento_votacion' => $lead->departamento_votacion,
+                'municipio_votacion' => $lead->municipio_votacion,
+                'puesto_votacion' => $lead->puesto_votacion,
+                'zona_votacion' => $lead->zona_votacion,
+                'mesa_votacion' => $lead->mesa_votacion,
+                'direccion_votacion' => $lead->direccion_votacion,
+                'locality_name' => $lead->locality_name,
+                
+                // Coordenadas
+                'latitud' => $lead->latitud,
+                'longitud' => $lead->longitud,
+            ];
+
+            return response()->json([
+                'success' => true,
+                'data' => $leadData,
+                'source' => 'leads',
+            ]);
+        }
+
+        // 3. No se encontró en ninguna fuente
         return response()->json([
-            'success' => true,
-            'data' => $data,
-        ]);
+            'success' => false,
+            'message' => 'No se encontró información para la cédula proporcionada en PISAMI ni en la base de datos local',
+        ], 404);
     }
 }

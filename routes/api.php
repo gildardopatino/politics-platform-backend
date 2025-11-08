@@ -20,6 +20,8 @@ use App\Http\Controllers\Api\V1\OrganizationController;
 use App\Http\Controllers\Api\V1\PriorityController;
 use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\ResourceAllocationController;
+use App\Http\Controllers\Api\V1\ResourceItemController;
+use App\Http\Controllers\Api\V1\ResourceAllocationItemController;
 use App\Http\Controllers\Api\V1\PermissionController;
 use App\Http\Controllers\Api\V1\RoleController;
 use App\Http\Controllers\Api\V1\SurveyController;
@@ -135,6 +137,15 @@ Route::prefix('v1')->group(function () {
             Route::apiResource('resource-allocations', ResourceAllocationController::class);
             Route::get('/resource-allocations/by-meeting/{meeting}', [ResourceAllocationController::class, 'byMeeting']);
             Route::get('/resource-allocations/by-leader/{user}', [ResourceAllocationController::class, 'byLeader']);
+            
+            // Resource Items (Catalog)
+            Route::apiResource('resource-items', ResourceItemController::class);
+            Route::get('/resource-items-low-stock', [ResourceItemController::class, 'lowStock']);
+            
+            // Resource Allocation Items (Control individual)
+            Route::patch('/resource-allocation-items/{resourceAllocationItem}/status', [ResourceAllocationItemController::class, 'updateStatus']);
+            Route::put('/resource-allocation-items/{resourceAllocationItem}', [ResourceAllocationItemController::class, 'update']);
+            Route::delete('/resource-allocation-items/{resourceAllocationItem}', [ResourceAllocationItemController::class, 'destroy']);
             
             // Geography
             Route::get('/departments', [GeographyController::class, 'departments']);

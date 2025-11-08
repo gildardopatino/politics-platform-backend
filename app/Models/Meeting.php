@@ -108,6 +108,16 @@ class Meeting extends Model
         return $this->hasMany(Commitment::class);
     }
 
+    public function reminders()
+    {
+        return $this->hasMany(MeetingReminder::class);
+    }
+
+    public function activeReminder()
+    {
+        return $this->hasOne(MeetingReminder::class)->whereIn('status', ['pending', 'processing'])->latest();
+    }
+
     // Scopes
     public function scopeUpcoming($query)
     {
