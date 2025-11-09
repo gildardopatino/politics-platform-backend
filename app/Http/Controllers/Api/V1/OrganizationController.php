@@ -125,21 +125,37 @@ class OrganizationController extends Controller
         $userWithTeam = User::where('id', $user->id)
             ->with([
                 'roles',
+                // OLD: Single geographic relationships (deprecated)
                 'department:id,nombre',
                 'municipality:id,nombre',
                 'commune:id,nombre',
                 'barrio:id,nombre',
                 'corregimiento:id,nombre',
                 'vereda:id,nombre',
+                // NEW: Multiple geographic relationships
+                'departments:id,nombre,codigo',
+                'municipalities:id,nombre,codigo',
+                'communes:id,nombre,codigo',
+                'barrios:id,nombre,codigo',
+                'corregimientos:id,nombre,codigo',
+                'veredas:id,nombre,codigo',
                 'subordinates' => function($query) {
                     $query->with([
                         'roles',
+                        // OLD: Single geographic relationships (deprecated)
                         'department:id,nombre',
                         'municipality:id,nombre',
                         'commune:id,nombre',
                         'barrio:id,nombre',
                         'corregimiento:id,nombre',
                         'vereda:id,nombre',
+                        // NEW: Multiple geographic relationships
+                        'departments:id,nombre,codigo',
+                        'municipalities:id,nombre,codigo',
+                        'communes:id,nombre,codigo',
+                        'barrios:id,nombre,codigo',
+                        'corregimientos:id,nombre,codigo',
+                        'veredas:id,nombre,codigo',
                         'subordinates' // Recursive loading
                     ]);
                 }
@@ -168,7 +184,41 @@ class OrganizationController extends Controller
             'is_team_leader' => $user->is_team_leader,
             'roles' => $user->roles->pluck('name')->toArray(),
             
-            // Geographic data
+            // Geographic data (NEW: Multiple assignments)
+            'geographic_assignments' => [
+                'departments' => $user->departments->map(fn($dept) => [
+                    'id' => $dept->id,
+                    'name' => $dept->nombre,
+                    'codigo' => $dept->codigo,
+                ])->values()->toArray(),
+                'municipalities' => $user->municipalities->map(fn($muni) => [
+                    'id' => $muni->id,
+                    'name' => $muni->nombre,
+                    'codigo' => $muni->codigo,
+                ])->values()->toArray(),
+                'communes' => $user->communes->map(fn($commune) => [
+                    'id' => $commune->id,
+                    'name' => $commune->nombre,
+                    'codigo' => $commune->codigo,
+                ])->values()->toArray(),
+                'barrios' => $user->barrios->map(fn($barrio) => [
+                    'id' => $barrio->id,
+                    'name' => $barrio->nombre,
+                    'codigo' => $barrio->codigo,
+                ])->values()->toArray(),
+                'corregimientos' => $user->corregimientos->map(fn($corre) => [
+                    'id' => $corre->id,
+                    'name' => $corre->nombre,
+                    'codigo' => $corre->codigo,
+                ])->values()->toArray(),
+                'veredas' => $user->veredas->map(fn($vereda) => [
+                    'id' => $vereda->id,
+                    'name' => $vereda->nombre,
+                    'codigo' => $vereda->codigo,
+                ])->values()->toArray(),
+            ],
+            
+            // OLD: Single geographic assignment (deprecated, for backward compatibility)
             'geographic_assignment' => [
                 'department' => $user->department ? [
                     'id' => $user->department->id,

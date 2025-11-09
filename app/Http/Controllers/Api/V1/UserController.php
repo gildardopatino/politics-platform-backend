@@ -27,12 +27,20 @@ class UserController extends Controller
                 'tenant',
                 'supervisor',
                 'permissions',
+                // OLD: Single relationships (deprecated)
                 'department',
                 'municipality',
                 'commune',
                 'barrio',
                 'corregimiento',
-                'vereda'
+                'vereda',
+                // NEW: Multiple relationships
+                'departments',
+                'municipalities',
+                'communes',
+                'barrios',
+                'corregimientos',
+                'veredas'
             ])
             ->allowedSorts(['name', 'created_at', 'email'])
             ->paginate(request('per_page', 15));
@@ -71,6 +79,7 @@ class UserController extends Controller
             'is_team_leader' => $request->is_team_leader ?? false,
             'reports_to' => $request->reports_to,
             'created_by_user_id' => $authUser->id,
+            // Keep old single fields for backward compatibility
             'department_id' => $request->department_id,
             'municipality_id' => $request->municipality_id,
             'commune_id' => $request->commune_id,
@@ -84,6 +93,68 @@ class UserController extends Controller
             $user->syncRoles($request->roles);
         } elseif ($request->filled('role_id')) {
             $user->syncRoles([$request->role_id]);
+        }
+
+        // Sync many-to-many geographic assignments
+        if ($request->filled('department_ids') && is_array($request->department_ids)) {
+            $data = [];
+            foreach ($request->department_ids as $deptId) {
+                $data[$deptId] = [
+                    'tenant_id' => $user->tenant_id,
+                    'assignable_type' => 'App\\Models\\Department'
+                ];
+            }
+            $user->departments()->sync($data);
+        }
+        if ($request->filled('municipality_ids') && is_array($request->municipality_ids)) {
+            $data = [];
+            foreach ($request->municipality_ids as $muniId) {
+                $data[$muniId] = [
+                    'tenant_id' => $user->tenant_id,
+                    'assignable_type' => 'App\\Models\\Municipality'
+                ];
+            }
+            $user->municipalities()->sync($data);
+        }
+        if ($request->filled('commune_ids') && is_array($request->commune_ids)) {
+            $data = [];
+            foreach ($request->commune_ids as $communeId) {
+                $data[$communeId] = [
+                    'tenant_id' => $user->tenant_id,
+                    'assignable_type' => 'App\\Models\\Commune'
+                ];
+            }
+            $user->communes()->sync($data);
+        }
+        if ($request->filled('barrio_ids') && is_array($request->barrio_ids)) {
+            $data = [];
+            foreach ($request->barrio_ids as $barrioId) {
+                $data[$barrioId] = [
+                    'tenant_id' => $user->tenant_id,
+                    'assignable_type' => 'App\\Models\\Barrio'
+                ];
+            }
+            $user->barrios()->sync($data);
+        }
+        if ($request->filled('corregimiento_ids') && is_array($request->corregimiento_ids)) {
+            $data = [];
+            foreach ($request->corregimiento_ids as $correId) {
+                $data[$correId] = [
+                    'tenant_id' => $user->tenant_id,
+                    'assignable_type' => 'App\\Models\\Corregimiento'
+                ];
+            }
+            $user->corregimientos()->sync($data);
+        }
+        if ($request->filled('vereda_ids') && is_array($request->vereda_ids)) {
+            $data = [];
+            foreach ($request->vereda_ids as $veredaId) {
+                $data[$veredaId] = [
+                    'tenant_id' => $user->tenant_id,
+                    'assignable_type' => 'App\\Models\\Vereda'
+                ];
+            }
+            $user->veredas()->sync($data);
         }
 
         // Get JWT token from Authorization header
@@ -115,12 +186,20 @@ class UserController extends Controller
             'subordinates',
             'roles',
             'permissions',
+            // OLD: Single geographic relationships (deprecated)
             'department:id,nombre',
             'municipality:id,nombre',
             'commune:id,nombre',
             'barrio:id,nombre',
             'corregimiento:id,nombre',
-            'vereda:id,nombre'
+            'vereda:id,nombre',
+            // NEW: Multiple geographic relationships
+            'departments:id,nombre,codigo',
+            'municipalities:id,nombre,codigo',
+            'communes:id,nombre,codigo',
+            'barrios:id,nombre,codigo',
+            'corregimientos:id,nombre,codigo',
+            'veredas:id,nombre,codigo'
         ]);
 
         return response()->json([
@@ -133,7 +212,7 @@ class UserController extends Controller
      */
     public function update(UpdateUserRequest $request, User $user): JsonResponse
     {
-        $data = $request->except(['password', 'roles', 'role_id']);
+        $data = $request->except(['password', 'roles', 'role_id', 'department_ids', 'municipality_ids', 'commune_ids', 'barrio_ids', 'corregimiento_ids', 'vereda_ids']);
         
         if ($request->filled('password')) {
             $data['password'] = Hash::make($request->password);
@@ -146,6 +225,68 @@ class UserController extends Controller
             $user->syncRoles($request->roles);
         } elseif ($request->filled('role_id')) {
             $user->syncRoles([$request->role_id]);
+        }
+
+        // Sync many-to-many geographic assignments
+        if ($request->filled('department_ids') && is_array($request->department_ids)) {
+            $data = [];
+            foreach ($request->department_ids as $deptId) {
+                $data[$deptId] = [
+                    'tenant_id' => $user->tenant_id,
+                    'assignable_type' => 'App\\Models\\Department'
+                ];
+            }
+            $user->departments()->sync($data);
+        }
+        if ($request->filled('municipality_ids') && is_array($request->municipality_ids)) {
+            $data = [];
+            foreach ($request->municipality_ids as $muniId) {
+                $data[$muniId] = [
+                    'tenant_id' => $user->tenant_id,
+                    'assignable_type' => 'App\\Models\\Municipality'
+                ];
+            }
+            $user->municipalities()->sync($data);
+        }
+        if ($request->filled('commune_ids') && is_array($request->commune_ids)) {
+            $data = [];
+            foreach ($request->commune_ids as $communeId) {
+                $data[$communeId] = [
+                    'tenant_id' => $user->tenant_id,
+                    'assignable_type' => 'App\\Models\\Commune'
+                ];
+            }
+            $user->communes()->sync($data);
+        }
+        if ($request->filled('barrio_ids') && is_array($request->barrio_ids)) {
+            $data = [];
+            foreach ($request->barrio_ids as $barrioId) {
+                $data[$barrioId] = [
+                    'tenant_id' => $user->tenant_id,
+                    'assignable_type' => 'App\\Models\\Barrio'
+                ];
+            }
+            $user->barrios()->sync($data);
+        }
+        if ($request->filled('corregimiento_ids') && is_array($request->corregimiento_ids)) {
+            $data = [];
+            foreach ($request->corregimiento_ids as $correId) {
+                $data[$correId] = [
+                    'tenant_id' => $user->tenant_id,
+                    'assignable_type' => 'App\\Models\\Corregimiento'
+                ];
+            }
+            $user->corregimientos()->sync($data);
+        }
+        if ($request->filled('vereda_ids') && is_array($request->vereda_ids)) {
+            $data = [];
+            foreach ($request->vereda_ids as $veredaId) {
+                $data[$veredaId] = [
+                    'tenant_id' => $user->tenant_id,
+                    'assignable_type' => 'App\\Models\\Vereda'
+                ];
+            }
+            $user->veredas()->sync($data);
         }
 
         return response()->json([

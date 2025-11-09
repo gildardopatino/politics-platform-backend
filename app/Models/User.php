@@ -8,6 +8,7 @@ use Illuminate\Notifications\Notifiable;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphToMany;
 use Illuminate\Database\Eloquent\Builder;
 use Spatie\Permission\Traits\HasRoles;
 use Spatie\Activitylog\Traits\LogsActivity;
@@ -115,31 +116,125 @@ class User extends Authenticatable implements JWTSubject
         return $this->hasMany(ResourceAllocation::class, 'assigned_to_user_id');
     }
 
+    // ========================================
+    // NEW: Many-to-Many Geographic Relationships
+    // Using manual polymorphic queries
+    // ========================================
+    
+    public function departments()
+    {
+        return $this->belongsToMany(
+            Department::class,
+            'user_geographic_assignments',
+            'user_id',
+            'assignable_id'
+        )->wherePivot('assignable_type', 'App\\Models\\Department')
+        ->withTimestamps();
+    }
+
+    public function municipalities()
+    {
+        return $this->belongsToMany(
+            Municipality::class,
+            'user_geographic_assignments',
+            'user_id',
+            'assignable_id'
+        )->wherePivot('assignable_type', 'App\\Models\\Municipality')
+        ->withTimestamps();
+    }
+
+    public function communes()
+    {
+        return $this->belongsToMany(
+            Commune::class,
+            'user_geographic_assignments',
+            'user_id',
+            'assignable_id'
+        )->wherePivot('assignable_type', 'App\\Models\\Commune')
+        ->withTimestamps();
+    }
+
+    public function barrios()
+    {
+        return $this->belongsToMany(
+            Barrio::class,
+            'user_geographic_assignments',
+            'user_id',
+            'assignable_id'
+        )->wherePivot('assignable_type', 'App\\Models\\Barrio')
+        ->withTimestamps();
+    }
+
+    public function corregimientos()
+    {
+        return $this->belongsToMany(
+            Corregimiento::class,
+            'user_geographic_assignments',
+            'user_id',
+            'assignable_id'
+        )->wherePivot('assignable_type', 'App\\Models\\Corregimiento')
+        ->withTimestamps();
+    }
+
+    public function veredas()
+    {
+        return $this->belongsToMany(
+            Vereda::class,
+            'user_geographic_assignments',
+            'user_id',
+            'assignable_id'
+        )->wherePivot('assignable_type', 'App\\Models\\Vereda')
+        ->withTimestamps();
+    }
+
+    // ========================================
+    // DEPRECATED: Single Geographic Relationships (for backward compatibility)
+    // These will be removed in future versions
+    // ========================================
+
+    /**
+     * @deprecated Use departments() instead
+     */
     public function department(): BelongsTo
     {
         return $this->belongsTo(Department::class);
     }
 
+    /**
+     * @deprecated Use municipalities() instead
+     */
     public function municipality(): BelongsTo
     {
         return $this->belongsTo(Municipality::class);
     }
 
+    /**
+     * @deprecated Use communes() instead
+     */
     public function commune(): BelongsTo
     {
         return $this->belongsTo(Commune::class);
     }
 
+    /**
+     * @deprecated Use barrios() instead
+     */
     public function barrio(): BelongsTo
     {
         return $this->belongsTo(Barrio::class);
     }
 
+    /**
+     * @deprecated Use corregimientos() instead
+     */
     public function corregimiento(): BelongsTo
     {
         return $this->belongsTo(Corregimiento::class);
     }
 
+    /**
+     * @deprecated Use veredas() instead
+     */
     public function vereda(): BelongsTo
     {
         return $this->belongsTo(Vereda::class);

@@ -25,7 +25,7 @@ class UserResource extends JsonResource
             'is_team_leader' => $this->is_team_leader,
             'reports_to' => $this->reports_to,
             
-            // Geographic IDs
+            // OLD: Single geographic IDs (backward compatibility)
             'department_id' => $this->department_id,
             'municipality_id' => $this->municipality_id,
             'commune_id' => $this->commune_id,
@@ -37,7 +37,51 @@ class UserResource extends JsonResource
             'supervisor' => $this->whenLoaded('supervisor', fn() => new UserResource($this->supervisor)),
             'tenant' => $this->whenLoaded('tenant', fn() => new TenantResource($this->tenant)),
             
-            // Geographic relationships
+            // NEW: Multiple geographic assignments (arrays)
+            'departments' => $this->whenLoaded('departments', function() {
+                return $this->departments->map(fn($dept) => [
+                    'id' => $dept->id,
+                    'name' => $dept->nombre,
+                    'codigo' => $dept->codigo,
+                ])->values();
+            }),
+            'municipalities' => $this->whenLoaded('municipalities', function() {
+                return $this->municipalities->map(fn($muni) => [
+                    'id' => $muni->id,
+                    'name' => $muni->nombre,
+                    'codigo' => $muni->codigo,
+                ])->values();
+            }),
+            'communes' => $this->whenLoaded('communes', function() {
+                return $this->communes->map(fn($commune) => [
+                    'id' => $commune->id,
+                    'name' => $commune->nombre,
+                    'codigo' => $commune->codigo,
+                ])->values();
+            }),
+            'barrios' => $this->whenLoaded('barrios', function() {
+                return $this->barrios->map(fn($barrio) => [
+                    'id' => $barrio->id,
+                    'name' => $barrio->nombre,
+                    'codigo' => $barrio->codigo,
+                ])->values();
+            }),
+            'corregimientos' => $this->whenLoaded('corregimientos', function() {
+                return $this->corregimientos->map(fn($corre) => [
+                    'id' => $corre->id,
+                    'name' => $corre->nombre,
+                    'codigo' => $corre->codigo,
+                ])->values();
+            }),
+            'veredas' => $this->whenLoaded('veredas', function() {
+                return $this->veredas->map(fn($vereda) => [
+                    'id' => $vereda->id,
+                    'name' => $vereda->nombre,
+                    'codigo' => $vereda->codigo,
+                ])->values();
+            }),
+            
+            // OLD: Single geographic relationships (deprecated, for backward compatibility)
             'department' => $this->whenLoaded('department', function() {
                 return $this->department ? [
                     'id' => $this->department->id,
