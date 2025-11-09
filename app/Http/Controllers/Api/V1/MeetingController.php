@@ -484,6 +484,8 @@ class MeetingController extends Controller
     protected function createReminder(Meeting $meeting, array $reminderData, $user): ?MeetingReminder
     {
         try {
+            // El datetime viene como string con timezone Colombia desde prepareForValidation
+            // Lo parseamos y dejamos que mantenga el timezone de la app (America/Bogota)
             $reminderDatetime = Carbon::parse($reminderData['datetime']);
             $recipientsInput = $reminderData['recipients'] ?? [];
 
@@ -560,12 +562,9 @@ class MeetingController extends Controller
                 'total_recipients' => count($recipients),
             ]);
 
-            // Calculate delay for job
-            $delay = $reminderDatetime->diffInSeconds(now());
-
-            // Schedule the job
+            // Schedule the job para la fecha exacta del recordatorio
             $job = SendMeetingReminderJob::dispatch($reminder)
-                ->delay(now()->addSeconds($delay));
+                ->delay($reminderDatetime);
 
             // Store job ID for potential cancellation
             $reminder->update(['job_id' => $job->id ?? null]);
@@ -574,7 +573,6 @@ class MeetingController extends Controller
                 'reminder_id' => $reminder->id,
                 'meeting_id' => $meeting->id,
                 'scheduled_for' => $reminderDatetime,
-                'delay_seconds' => $delay,
                 'recipients_count' => count($recipients),
             ]);
 

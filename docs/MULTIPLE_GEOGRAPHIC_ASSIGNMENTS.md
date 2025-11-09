@@ -22,6 +22,26 @@ Se ha actualizado el sistema para permitir que los usuarios puedan ser asignados
 }
 ```
 
+### ✅ Flexibilidad Total
+
+**El sistema permite asignaciones completamente flexibles:**
+
+- ✅ Múltiples comunas del **mismo** municipio
+- ✅ Múltiples comunas de **diferentes** municipios
+- ✅ Múltiples barrios del **mismo** municipio  
+- ✅ Múltiples barrios de **diferentes** municipios
+- ✅ Combinaciones complejas sin restricciones jerárquicas
+
+**Ejemplo:** Un usuario puede tener comunas de Ibagué Y Bogotá simultáneamente:
+```json
+{
+  "commune_ids": [1, 2, 3, 50, 51],  // 3 de Ibagué + 2 de Bogotá
+  "barrio_ids": [12, 13, 20, 21]      // Barrios de ambos municipios
+}
+```
+
+**El backend NO valida jerarquías geográficas** - el frontend puede enviar cualquier combinación válida de IDs.
+
 ---
 
 ## 🔧 Cambios en la API
@@ -766,6 +786,7 @@ function validateUserForm(formData) {
   const hasGeographicAssignment = 
     (formData.department_ids && formData.department_ids.length > 0) ||
     (formData.municipality_ids && formData.municipality_ids.length > 0) ||
+    (formData.commune_ids && formData.commune_ids.length > 0) ||
     (formData.barrio_ids && formData.barrio_ids.length > 0);
 
   if (!hasGeographicAssignment) {
@@ -776,6 +797,23 @@ function validateUserForm(formData) {
   if (formData.department_ids && !Array.isArray(formData.department_ids)) {
     errors.department_ids = 'Los departamentos deben ser un array';
   }
+  
+  if (formData.commune_ids && !Array.isArray(formData.commune_ids)) {
+    errors.commune_ids = 'Las comunas deben ser un array';
+  }
+
+  // ⚠️ IMPORTANTE: NO validar jerarquías geográficas
+  // El backend permite comunas/barrios de diferentes municipios
+  // Esta es una validación OPCIONAL del frontend si se requiere
+  
+  // Ejemplo de validación opcional de jerarquía (comentado por defecto):
+  /*
+  if (formData.commune_ids && formData.commune_ids.length > 0 && 
+      formData.municipality_ids && formData.municipality_ids.length > 0) {
+    // Aquí podrías validar que las comunas pertenezcan a los municipios seleccionados
+    // Pero NO es requerido por el backend
+  }
+  */
 
   return {
     isValid: Object.keys(errors).length === 0,
@@ -1138,6 +1176,76 @@ PUT /api/v1/users/24
       {"id": 29, "name": "Dolores", "codigo": "73236"}
     ],
     "barrios": [],
+    
+    "updated_at": "2025-11-08T11:45:00.000000Z"
+  },
+  "message": "User updated successfully"
+}
+```
+
+### Ejemplo 4: Usuario con Comunas de DIFERENTES Municipios ⭐
+
+**Caso de Uso Real:** Coordinador que trabaja en múltiples ciudades con comunas específicas.
+
+```json
+POST /api/v1/users
+
+{
+  "name": "Ana Martínez",
+  "email": "ana.martinez@example.com",
+  "phone": "3151234567",
+  "password": "password123",
+  "is_team_leader": true,
+  "roles": ["regional_coordinator"],
+  
+  "department_ids": [1, 2],           // Tolima y Cundinamarca
+  "municipality_ids": [28, 30],       // Ibagué y Bogotá
+  "commune_ids": [1, 2, 3, 50, 51],   // 3 comunas de Ibagué + 2 de Bogotá
+  "barrio_ids": [12, 13, 20, 21, 22]  // Barrios de ambos municipios
+}
+```
+
+**Respuesta:**
+```json
+{
+  "data": {
+    "id": 26,
+    "name": "Ana Martínez",
+    "email": "ana.martinez@example.com",
+    "is_team_leader": true,
+    
+    "departments": [
+      {"id": 1, "name": "Tolima", "codigo": "73"},
+      {"id": 2, "name": "Cundinamarca", "codigo": "25"}
+    ],
+    "municipalities": [
+      {"id": 28, "name": "Ibagué", "codigo": "73001"},
+      {"id": 30, "name": "Bogotá", "codigo": "25001"}
+    ],
+    "communes": [
+      {"id": 1, "name": "Comuna 1", "codigo": "73001001"},
+      {"id": 2, "name": "Comuna 2", "codigo": "73001002"},
+      {"id": 3, "name": "Comuna 3", "codigo": "73001003"},
+      {"id": 50, "name": "Comuna Centro", "codigo": "25001050"},
+      {"id": 51, "name": "Comuna Norte", "codigo": "25001051"}
+    ],
+    "barrios": [
+      {"id": 12, "name": "San Simón", "codigo": "73001012"},
+      {"id": 13, "name": "La Pola", "codigo": "73001013"},
+      {"id": 20, "name": "Chapinero", "codigo": "25001020"},
+      {"id": 21, "name": "Usaquén", "codigo": "25001021"},
+      {"id": 22, "name": "Suba", "codigo": "25001022"}
+    ],
+    
+    "roles": ["regional_coordinator"]
+  },
+  "message": "User created successfully"
+}
+```
+
+**✅ Nota Importante:** Las comunas 1, 2, 3 pertenecen a Ibagué y las comunas 50, 51 pertenecen a Bogotá. El sistema permite esta combinación sin restricciones.
+
+### Ejemplo 5: Remover Todas las Asignaciones de un Tipo
     
     "updated_at": "2025-11-08T11:45:00.000000Z"
   },

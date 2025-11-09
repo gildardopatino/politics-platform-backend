@@ -51,6 +51,38 @@ class StoreMeetingRequest extends FormRequest
         });
     }
 
+        /**
+     * Prepare the data for validation.
+     */
+    protected function prepareForValidation(): void
+    {
+        $data = [];
+
+        // Parsear fechas con timezone Colombia y dejar que Laravel las convierta a UTC al guardar
+        if ($this->has('starts_at')) {
+            $startsAt = \Carbon\Carbon::parse($this->starts_at, 'America/Bogota');
+            $data['starts_at'] = $startsAt->toDateTimeString();
+        }
+
+        if ($this->has('ends_at')) {
+            $endsAt = \Carbon\Carbon::parse($this->ends_at, 'America/Bogota');
+            $data['ends_at'] = $endsAt->toDateTimeString();
+        }
+
+        // Convertir fecha del recordatorio si existe
+        if ($this->has('reminder.datetime')) {
+            $reminderDatetime = \Carbon\Carbon::parse($this->input('reminder.datetime'), 'America/Bogota');
+            $data['reminder'] = array_merge(
+                $this->input('reminder', []),
+                ['datetime' => $reminderDatetime->toDateTimeString()]
+            );
+        }
+
+        if (!empty($data)) {
+            $this->merge($data);
+        }
+    }
+
     /**
      * Get the validation rules that apply to the request.
      *

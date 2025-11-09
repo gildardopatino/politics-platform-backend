@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AttendeeHierarchyController;
+use App\Http\Controllers\Api\V1\AuditController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\BarrioController;
 use App\Http\Controllers\Api\V1\CallController;
@@ -244,6 +245,15 @@ Route::prefix('v1')->group(function () {
                 Route::put('/auto-sync', [SocialMediaSettingsController::class, 'updateAutoSync']);
                 Route::post('/sync', [SocialMediaSettingsController::class, 'syncAll']);
                 Route::post('/sync/{platform}', [SocialMediaSettingsController::class, 'syncPlatform']);
+            });
+            
+            // Audits (Activity Logs)
+            Route::prefix('audits')->group(function () {
+                Route::get('/', [AuditController::class, 'index']);
+                Route::get('/statistics', [AuditController::class, 'statistics']);
+                Route::get('/user/{userId}', [AuditController::class, 'byUser']);
+                Route::get('/model/{model}/{id}', [AuditController::class, 'byModel']);
+                Route::get('/{id}', [AuditController::class, 'show']);
             });
         });
     });

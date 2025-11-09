@@ -8,10 +8,12 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Spatie\Activitylog\Traits\LogsActivity;
 use Spatie\Activitylog\LogOptions;
+use OwenIt\Auditing\Contracts\Auditable;
 
-class Campaign extends Model
+class Campaign extends Model implements Auditable
 {
     use HasFactory, HasTenant, SoftDeletes, LogsActivity;
+    use \OwenIt\Auditing\Auditable;
 
     protected $fillable = [
         'tenant_id',

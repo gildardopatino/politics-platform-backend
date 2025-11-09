@@ -33,8 +33,8 @@ class MeetingResource extends JsonResource
             'tenant_id' => $this->tenant_id,
             'title' => $this->title,
             'description' => $this->description,
-            'starts_at' => $this->starts_at?->toISOString(),
-            'ends_at' => $this->ends_at?->toISOString(),
+            'starts_at' => $this->starts_at?->timezone('America/Bogota')->toIso8601String(),
+            'ends_at' => $this->ends_at?->timezone('America/Bogota')->toIso8601String(),
             'lugar_nombre' => $this->lugar_nombre,
             'direccion' => $this->direccion,
             'latitude' => $this->latitude,
@@ -81,10 +81,11 @@ class MeetingResource extends JsonResource
             // Recordatorio activo
             'active_reminder' => $this->whenLoaded('activeReminder', fn() => new MeetingReminderResource($this->activeReminder)),
             
-            // Timestamps
-            'created_at' => $this->created_at?->toISOString(),
-            'updated_at' => $this->updated_at?->toISOString(),
-            'deleted_at' => $this->deleted_at?->toISOString(),
+            // Timestamps (en hora de Colombia)
+            'created_by' => $this->whenLoaded('creator', fn() => new UserResource($this->creator)),
+            'created_at' => $this->created_at?->timezone('America/Bogota')->toIso8601String(),
+            'updated_at' => $this->updated_at?->timezone('America/Bogota')->toIso8601String(),
+            'deleted_at' => $this->deleted_at?->timezone('America/Bogota')->toIso8601String(),
         ];
     }
 }

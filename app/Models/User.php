@@ -15,10 +15,12 @@ use Spatie\Activitylog\Traits\LogsActivity;
 use Spatie\Activitylog\LogOptions;
 use Tymon\JWTAuth\Contracts\JWTSubject;
 use App\Traits\HasTenant;
+use OwenIt\Auditing\Contracts\Auditable;
 
-class User extends Authenticatable implements JWTSubject
+class User extends Authenticatable implements JWTSubject, Auditable
 {
     use HasFactory, Notifiable, SoftDeletes, HasRoles, LogsActivity, HasTenant;
+    use \OwenIt\Auditing\Auditable;
 
     protected $fillable = [
         'tenant_id',

@@ -21,8 +21,24 @@ class OrganizationController extends Controller
         $users = User::where('tenant_id', $user->tenant_id)
             ->whereNull('reports_to') // Only root users (top level)
             ->with([
+                'roles',
+                'departments:id,nombre,codigo',
+                'municipalities:id,nombre,codigo',
+                'communes:id,nombre,codigo',
+                'barrios:id,nombre,codigo',
+                'corregimientos:id,nombre,codigo',
+                'veredas:id,nombre,codigo',
                 'subordinates' => function($query) {
-                    $query->with('subordinates'); // Recursive loading
+                    $query->with([
+                        'roles',
+                        'departments:id,nombre,codigo',
+                        'municipalities:id,nombre,codigo',
+                        'communes:id,nombre,codigo',
+                        'barrios:id,nombre,codigo',
+                        'corregimientos:id,nombre,codigo',
+                        'veredas:id,nombre,codigo',
+                        'subordinates' // Recursive loading
+                    ]);
                 }
             ])
             ->get();
@@ -49,6 +65,41 @@ class OrganizationController extends Controller
             'cedula' => $user->cedula,
             'is_team_leader' => $user->is_team_leader,
             'roles' => $user->roles->pluck('name')->toArray(),
+            
+            // Geographic data (Multiple assignments)
+            'geographic_assignments' => [
+                'departments' => $user->departments->map(fn($dept) => [
+                    'id' => $dept->id,
+                    'name' => $dept->nombre,
+                    'codigo' => $dept->codigo,
+                ])->values()->toArray(),
+                'municipalities' => $user->municipalities->map(fn($muni) => [
+                    'id' => $muni->id,
+                    'name' => $muni->nombre,
+                    'codigo' => $muni->codigo,
+                ])->values()->toArray(),
+                'communes' => $user->communes->map(fn($commune) => [
+                    'id' => $commune->id,
+                    'name' => $commune->nombre,
+                    'codigo' => $commune->codigo,
+                ])->values()->toArray(),
+                'barrios' => $user->barrios->map(fn($barrio) => [
+                    'id' => $barrio->id,
+                    'name' => $barrio->nombre,
+                    'codigo' => $barrio->codigo,
+                ])->values()->toArray(),
+                'corregimientos' => $user->corregimientos->map(fn($corre) => [
+                    'id' => $corre->id,
+                    'name' => $corre->nombre,
+                    'codigo' => $corre->codigo,
+                ])->values()->toArray(),
+                'veredas' => $user->veredas->map(fn($vereda) => [
+                    'id' => $vereda->id,
+                    'name' => $vereda->nombre,
+                    'codigo' => $vereda->codigo,
+                ])->values()->toArray(),
+            ],
+            
             'subordinates_count' => $user->subordinates->count(),
             'subordinates' => $user->subordinates->map(function ($subordinate) {
                 return $this->buildUserNode($subordinate);
@@ -87,7 +138,17 @@ class OrganizationController extends Controller
         $user = request()->user();
         
         $users = User::where('tenant_id', $user->tenant_id)
-            ->with(['supervisor:id,name,email', 'roles', 'subordinates']) // Eager load subordinates
+            ->with([
+                'supervisor:id,name,email',
+                'roles',
+                'subordinates',
+                'departments:id,nombre,codigo',
+                'municipalities:id,nombre,codigo',
+                'communes:id,nombre,codigo',
+                'barrios:id,nombre,codigo',
+                'corregimientos:id,nombre,codigo',
+                'veredas:id,nombre,codigo',
+            ])
             ->get()
             ->map(function ($user) {
                 return [
@@ -104,7 +165,41 @@ class OrganizationController extends Controller
                         'email' => $user->supervisor->email,
                     ] : null,
                     'roles' => $user->roles->pluck('name')->toArray(),
-                    'subordinates_count' => $user->subordinates->count(), // Count loaded relationship
+                    'subordinates_count' => $user->subordinates->count(),
+                    
+                    // Geographic data (Multiple assignments)
+                    'geographic_assignments' => [
+                        'departments' => $user->departments->map(fn($dept) => [
+                            'id' => $dept->id,
+                            'name' => $dept->nombre,
+                            'codigo' => $dept->codigo,
+                        ])->values()->toArray(),
+                        'municipalities' => $user->municipalities->map(fn($muni) => [
+                            'id' => $muni->id,
+                            'name' => $muni->nombre,
+                            'codigo' => $muni->codigo,
+                        ])->values()->toArray(),
+                        'communes' => $user->communes->map(fn($commune) => [
+                            'id' => $commune->id,
+                            'name' => $commune->nombre,
+                            'codigo' => $commune->codigo,
+                        ])->values()->toArray(),
+                        'barrios' => $user->barrios->map(fn($barrio) => [
+                            'id' => $barrio->id,
+                            'name' => $barrio->nombre,
+                            'codigo' => $barrio->codigo,
+                        ])->values()->toArray(),
+                        'corregimientos' => $user->corregimientos->map(fn($corre) => [
+                            'id' => $corre->id,
+                            'name' => $corre->nombre,
+                            'codigo' => $corre->codigo,
+                        ])->values()->toArray(),
+                        'veredas' => $user->veredas->map(fn($vereda) => [
+                            'id' => $vereda->id,
+                            'name' => $vereda->nombre,
+                            'codigo' => $vereda->codigo,
+                        ])->values()->toArray(),
+                    ],
                 ];
             });
         

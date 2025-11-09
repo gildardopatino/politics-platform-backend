@@ -6,10 +6,12 @@ use App\Traits\HasTenant;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use OwenIt\Auditing\Contracts\Auditable;
 
-class ResourceItem extends Model
+class ResourceItem extends Model implements Auditable
 {
     use HasFactory, HasTenant, SoftDeletes;
+    use \OwenIt\Auditing\Auditable;
 
     protected $fillable = [
         'tenant_id',
