@@ -23,7 +23,17 @@ class UserController extends Controller
         $users = QueryBuilder::for(User::class)
             ->with('roles') // Always load roles by default
             ->allowedFilters(['name', 'email', 'is_team_leader'])
-            ->allowedIncludes(['tenant', 'supervisor', 'permissions'])
+            ->allowedIncludes([
+                'tenant',
+                'supervisor',
+                'permissions',
+                'department',
+                'municipality',
+                'commune',
+                'barrio',
+                'corregimiento',
+                'vereda'
+            ])
             ->allowedSorts(['name', 'created_at', 'email'])
             ->paginate(request('per_page', 15));
 
@@ -46,14 +56,16 @@ class UserController extends Controller
         /** @var \App\Models\User $authUser */
         $authUser = $request->user();
         
-        // Generate random password (12 characters: letters, numbers, and symbols)
-        $generatedPassword = Str::password(12, true, true, false, false);
+        // Use provided password or generate a random one
+        $password = $request->filled('password') 
+            ? $request->password 
+            : Str::password(12, true, true, false, false);
         
         $user = User::create([
             'tenant_id' => $request->tenant_id ?? $authUser->tenant_id,
             'name' => $request->name,
             'email' => $request->email,
-            'password' => Hash::make($generatedPassword),
+            'password' => Hash::make($password),
             'phone' => $request->phone,
             'cedula' => $request->cedula,
             'is_team_leader' => $request->is_team_leader ?? false,
@@ -67,7 +79,10 @@ class UserController extends Controller
             'vereda_id' => $request->vereda_id,
         ]);
 
-        if ($request->filled('role_id')) {
+        // Handle roles assignment - support both 'role_id' and 'roles' array
+        if ($request->filled('roles') && is_array($request->roles)) {
+            $user->syncRoles($request->roles);
+        } elseif ($request->filled('role_id')) {
             $user->syncRoles([$request->role_id]);
         }
 
@@ -78,7 +93,7 @@ class UserController extends Controller
         $emailSent = $emailService->sendWelcomeEmail(
             $user->email,
             $user->name,
-            $generatedPassword,
+            $password,
             $token
         );
 
@@ -94,7 +109,19 @@ class UserController extends Controller
      */
     public function show(User $user): JsonResponse
     {
-        $user->load(['tenant', 'supervisor', 'subordinates', 'roles', 'permissions']);
+        $user->load([
+            'tenant',
+            'supervisor',
+            'subordinates',
+            'roles',
+            'permissions',
+            'department:id,nombre',
+            'municipality:id,nombre',
+            'commune:id,nombre',
+            'barrio:id,nombre',
+            'corregimiento:id,nombre',
+            'vereda:id,nombre'
+        ]);
 
         return response()->json([
             'data' => new UserResource($user)
@@ -106,7 +133,7 @@ class UserController extends Controller
      */
     public function update(UpdateUserRequest $request, User $user): JsonResponse
     {
-        $data = $request->except('password');
+        $data = $request->except(['password', 'roles', 'role_id']);
         
         if ($request->filled('password')) {
             $data['password'] = Hash::make($request->password);
@@ -114,7 +141,10 @@ class UserController extends Controller
 
         $user->update($data);
 
-        if ($request->filled('role_id')) {
+        // Handle roles assignment - support both 'role_id' and 'roles' array
+        if ($request->filled('roles') && is_array($request->roles)) {
+            $user->syncRoles($request->roles);
+        } elseif ($request->filled('role_id')) {
             $user->syncRoles([$request->role_id]);
         }
 

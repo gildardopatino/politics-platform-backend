@@ -121,22 +121,95 @@ class OrganizationController extends Controller
     {
         $user = request()->user();
         
-        // Load the authenticated user with all subordinates recursively
+        // Load the authenticated user with all subordinates recursively and geographic data
         $userWithTeam = User::where('id', $user->id)
             ->with([
                 'roles',
+                'department:id,nombre',
+                'municipality:id,nombre',
+                'commune:id,nombre',
+                'barrio:id,nombre',
+                'corregimiento:id,nombre',
+                'vereda:id,nombre',
                 'subordinates' => function($query) {
-                    $query->with('subordinates'); // Recursive loading
+                    $query->with([
+                        'roles',
+                        'department:id,nombre',
+                        'municipality:id,nombre',
+                        'commune:id,nombre',
+                        'barrio:id,nombre',
+                        'corregimiento:id,nombre',
+                        'vereda:id,nombre',
+                        'subordinates' // Recursive loading
+                    ]);
                 }
             ])
             ->first();
         
         // Build the complete tree starting from authenticated user
-        $tree = $this->buildUserNode($userWithTeam);
+        $tree = $this->buildUserNodeWithGeography($userWithTeam);
         
         return response()->json([
             'data' => $tree
         ]);
+    }
+    
+    /**
+     * Build a single user node with geography data
+     */
+    protected function buildUserNodeWithGeography(User $user): array
+    {
+        return [
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+            'phone' => $user->phone,
+            'cedula' => $user->cedula,
+            'is_team_leader' => $user->is_team_leader,
+            'roles' => $user->roles->pluck('name')->toArray(),
+            
+            // Geographic data
+            'geographic_assignment' => [
+                'department' => $user->department ? [
+                    'id' => $user->department->id,
+                    'name' => $user->department->nombre,
+                ] : null,
+                'municipality' => $user->municipality ? [
+                    'id' => $user->municipality->id,
+                    'name' => $user->municipality->nombre,
+                ] : null,
+                'commune' => $user->commune ? [
+                    'id' => $user->commune->id,
+                    'name' => $user->commune->nombre,
+                ] : null,
+                'barrio' => $user->barrio ? [
+                    'id' => $user->barrio->id,
+                    'name' => $user->barrio->nombre,
+                ] : null,
+                'corregimiento' => $user->corregimiento ? [
+                    'id' => $user->corregimiento->id,
+                    'name' => $user->corregimiento->nombre,
+                ] : null,
+                'vereda' => $user->vereda ? [
+                    'id' => $user->vereda->id,
+                    'name' => $user->vereda->nombre,
+                ] : null,
+            ],
+            
+            'subordinates_count' => $user->subordinates->count(),
+            'subordinates' => $user->subordinates->map(function ($subordinate) {
+                return $this->buildUserNodeWithGeography($subordinate);
+            })->toArray(),
+            
+            // Statistics
+            'stats' => [
+                'total_team_size' => $this->calculateTeamSize($user),
+                'direct_reports' => $user->subordinates->count(),
+                'meetings_planned' => $user->plannedMeetings()->count(),
+                'commitments_assigned' => $user->assignedCommitments()->count(),
+                'commitments_completed' => $user->assignedCommitments()->where('status', 'completed')->count(),
+            ],
+        ];
     }
     
     /**

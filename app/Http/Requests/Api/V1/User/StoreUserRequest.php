@@ -31,6 +31,7 @@ class StoreUserRequest extends FormRequest
                 'unique:users,email,NULL,id,tenant_id,' . $tenantId
             ],
             // Password is optional - will be auto-generated if not provided
+            'password' => 'nullable|string|min:6',
             'phone' => 'nullable|string|max:20',
             'cedula' => 'nullable|string|max:20',
             'is_team_leader' => 'nullable|boolean',
@@ -42,6 +43,8 @@ class StoreUserRequest extends FormRequest
             'corregimiento_id' => 'nullable|exists:corregimientos,id',
             'vereda_id' => 'nullable|exists:veredas,id',
             'role_id' => 'nullable|integer|exists:roles,id',
+            'roles' => 'nullable|array',
+            'roles.*' => 'string|exists:roles,name',
         ];
     }
 
@@ -52,6 +55,7 @@ class StoreUserRequest extends FormRequest
             'email.required' => 'El correo electrónico es obligatorio.',
             'email.email' => 'El correo electrónico debe ser válido.',
             'email.unique' => 'Este correo electrónico ya está registrado.',
+            'password.min' => 'La contraseña debe tener al menos 6 caracteres.',
             'phone.max' => 'El teléfono no puede exceder 20 caracteres.',
             'cedula.max' => 'La cédula no puede exceder 20 caracteres.',
             'reports_to.exists' => 'El supervisor seleccionado no existe.',
@@ -63,6 +67,8 @@ class StoreUserRequest extends FormRequest
             'vereda_id.exists' => 'La vereda seleccionada no existe.',
             'role_id.exists' => 'El rol seleccionado no existe.',
             'role_id.integer' => 'El rol debe ser un número válido.',
+            'roles.array' => 'Los roles deben ser un array.',
+            'roles.*.exists' => 'Uno o más roles seleccionados no existen.',
         ];
     }
 }

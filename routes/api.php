@@ -91,6 +91,7 @@ Route::prefix('v1')->group(function () {
             // Tenant Settings (for current tenant to update their own settings)
             Route::get('/tenant/settings', [TenantSettingsController::class, 'show']);
             Route::put('/tenant/settings', [TenantSettingsController::class, 'update']);
+            Route::delete('/tenant/settings/logo', [TenantSettingsController::class, 'deleteLogo']);
             Route::get('/tenant/hierarchy-config/check', [TenantSettingsController::class, 'checkHierarchyConfig']);
             
             // Geocoding

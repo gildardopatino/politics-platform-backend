@@ -24,8 +24,63 @@ class UserResource extends JsonResource
             'is_super_admin' => $this->is_super_admin,
             'is_team_leader' => $this->is_team_leader,
             'reports_to' => $this->reports_to,
+            
+            // Geographic IDs
+            'department_id' => $this->department_id,
+            'municipality_id' => $this->municipality_id,
+            'commune_id' => $this->commune_id,
+            'barrio_id' => $this->barrio_id,
+            'corregimiento_id' => $this->corregimiento_id,
+            'vereda_id' => $this->vereda_id,
+            
+            // Relationships
             'supervisor' => $this->whenLoaded('supervisor', fn() => new UserResource($this->supervisor)),
             'tenant' => $this->whenLoaded('tenant', fn() => new TenantResource($this->tenant)),
+            
+            // Geographic relationships
+            'department' => $this->whenLoaded('department', function() {
+                return $this->department ? [
+                    'id' => $this->department->id,
+                    'name' => $this->department->nombre,
+                    'codigo' => $this->department->codigo,
+                ] : null;
+            }),
+            'municipality' => $this->whenLoaded('municipality', function() {
+                return $this->municipality ? [
+                    'id' => $this->municipality->id,
+                    'name' => $this->municipality->nombre,
+                    'codigo' => $this->municipality->codigo,
+                ] : null;
+            }),
+            'commune' => $this->whenLoaded('commune', function() {
+                return $this->commune ? [
+                    'id' => $this->commune->id,
+                    'name' => $this->commune->nombre,
+                    'codigo' => $this->commune->codigo,
+                ] : null;
+            }),
+            'barrio' => $this->whenLoaded('barrio', function() {
+                return $this->barrio ? [
+                    'id' => $this->barrio->id,
+                    'name' => $this->barrio->nombre,
+                    'codigo' => $this->barrio->codigo,
+                ] : null;
+            }),
+            'corregimiento' => $this->whenLoaded('corregimiento', function() {
+                return $this->corregimiento ? [
+                    'id' => $this->corregimiento->id,
+                    'name' => $this->corregimiento->nombre,
+                    'codigo' => $this->corregimiento->codigo,
+                ] : null;
+            }),
+            'vereda' => $this->whenLoaded('vereda', function() {
+                return $this->vereda ? [
+                    'id' => $this->vereda->id,
+                    'name' => $this->vereda->nombre,
+                    'codigo' => $this->vereda->codigo,
+                ] : null;
+            }),
+            
             'roles' => $this->whenLoaded('roles', function() {
                 return $this->roles->pluck('name');
             }, []),

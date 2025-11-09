@@ -16,6 +16,36 @@ class UpdateTenantSettingsRequest extends FormRequest
     }
 
     /**
+     * Prepare the data for validation - Convert FormData strings to proper types
+     */
+    protected function prepareForValidation(): void
+    {
+        $data = [];
+
+        // Convert boolean strings to actual booleans
+        if ($this->has('auto_assign_hierarchy')) {
+            $data['auto_assign_hierarchy'] = filter_var(
+                $this->input('auto_assign_hierarchy'), 
+                FILTER_VALIDATE_BOOLEAN, 
+                FILTER_NULL_ON_FAILURE
+            );
+        }
+
+        if ($this->has('require_hierarchy_config')) {
+            $data['require_hierarchy_config'] = filter_var(
+                $this->input('require_hierarchy_config'), 
+                FILTER_VALIDATE_BOOLEAN, 
+                FILTER_NULL_ON_FAILURE
+            );
+        }
+
+        // Merge the converted data
+        if (!empty($data)) {
+            $this->merge($data);
+        }
+    }
+
+    /**
      * Get the validation rules that apply to the request.
      *
      * @return array<string, \Illuminate\Contracts\Validation\ValidationRule|array<mixed>|string>
@@ -23,53 +53,33 @@ class UpdateTenantSettingsRequest extends FormRequest
     public function rules(): array
     {
         return [
-            // Visual settings
-            'logo' => 'nullable|string|max:255',
-            'sidebar_bg_color' => 'nullable|string|regex:/^#([a-fA-F0-9]{6}|[a-fA-F0-9]{3})$/',
-            'sidebar_text_color' => 'nullable|string|regex:/^#([a-fA-F0-9]{6}|[a-fA-F0-9]{3})$/',
-            'header_bg_color' => 'nullable|string|regex:/^#([a-fA-F0-9]{6}|[a-fA-F0-9]{3})$/',
-            'header_text_color' => 'nullable|string|regex:/^#([a-fA-F0-9]{6}|[a-fA-F0-9]{3})$/',
-            'content_bg_color' => 'nullable|string|regex:/^#([a-fA-F0-9]{6}|[a-fA-F0-9]{3})$/',
-            'content_text_color' => 'nullable|string|regex:/^#([a-fA-F0-9]{6}|[a-fA-F0-9]{3})$/',
+            // Visual settings - Logo with file upload
+            'logo' => 'nullable|file|image|max:2048',
+            
+            // Colors - Accept any string (validation in controller if needed)
+            'sidebar_bg_color' => 'nullable|string|max:20',
+            'sidebar_text_color' => 'nullable|string|max:20',
+            'header_bg_color' => 'nullable|string|max:20',
+            'header_text_color' => 'nullable|string|max:20',
+            'content_bg_color' => 'nullable|string|max:20',
+            'content_text_color' => 'nullable|string|max:20',
             
             // Hierarchy settings
-            'hierarchy_mode' => 'nullable|in:disabled,simple_tree,multiple_supervisors,context_based',
+            'hierarchy_mode' => 'nullable|string',
             'auto_assign_hierarchy' => 'nullable|boolean',
-            'hierarchy_conflict_resolution' => 'nullable|in:last_assignment,most_active,manual_review',
+            'hierarchy_conflict_resolution' => 'nullable|string',
             'require_hierarchy_config' => 'nullable|boolean',
         ];
     }
 
     /**
-     * Get custom attributes for validator errors.
-     */
-    public function attributes(): array
-    {
-        return [
-            // Visual settings
-            'logo' => 'logo',
-            'sidebar_bg_color' => 'color de fondo del sidebar',
-            'sidebar_text_color' => 'color de texto del sidebar',
-            'header_bg_color' => 'color de fondo del header',
-            'header_text_color' => 'color de texto del header',
-            'content_bg_color' => 'color de fondo del contenido',
-            'content_text_color' => 'color de texto del contenido',
-            
-            // Hierarchy settings
-            'hierarchy_mode' => 'modo de jerarquía',
-            'auto_assign_hierarchy' => 'asignación automática de jerarquía',
-            'hierarchy_conflict_resolution' => 'resolución de conflictos de jerarquía',
-            'require_hierarchy_config' => 'requerir configuración de jerarquía',
-        ];
-    }
-
-    /**
-     * Get custom messages for validator errors.
+     * Get custom validation messages
      */
     public function messages(): array
     {
         return [
-            '*.regex' => 'El :attribute debe ser un color hexadecimal válido (ej: #ffffff o #fff).',
+            'logo.image' => 'El archivo debe ser una imagen válida.',
+            'logo.max' => 'La imagen no debe superar los 2MB.',
         ];
     }
 }
