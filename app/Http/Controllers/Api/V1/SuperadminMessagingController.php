@@ -79,10 +79,19 @@ class SuperadminMessagingController extends Controller
             $tenantCredit = TenantMessagingCredit::where('tenant_id', $transaction->tenant_id)->first();
             
             if (!$tenantCredit) {
-                DB::rollBack();
-                return response()->json([
-                    'message' => 'Tenant messaging credits not found'
-                ], 404);
+                // Create tenant messaging credits if they don't exist
+                $tenantCredit = TenantMessagingCredit::create([
+                    'tenant_id' => $transaction->tenant_id,
+                    'emails_available' => 0,
+                    'whatsapp_available' => 0,
+                    'emails_used' => 0,
+                    'whatsapp_used' => 0,
+                ]);
+                
+                Log::info('Tenant messaging credits created automatically', [
+                    'tenant_id' => $transaction->tenant_id,
+                    'created_by' => $user->id,
+                ]);
             }
 
             // Add credits WITHOUT creating a new transaction (we already have the pending one)
@@ -197,9 +206,19 @@ class SuperadminMessagingController extends Controller
         $tenantCredit = TenantMessagingCredit::where('tenant_id', $request->tenant_id)->first();
 
         if (!$tenantCredit) {
-            return response()->json([
-                'message' => 'Tenant messaging credits not found'
-            ], 404);
+            // Create tenant messaging credits if they don't exist
+            $tenantCredit = TenantMessagingCredit::create([
+                'tenant_id' => $request->tenant_id,
+                'emails_available' => 0,
+                'whatsapp_available' => 0,
+                'emails_used' => 0,
+                'whatsapp_used' => 0,
+            ]);
+            
+            Log::info('Tenant messaging credits created automatically', [
+                'tenant_id' => $request->tenant_id,
+                'created_by' => $user->id,
+            ]);
         }
 
         DB::beginTransaction();
