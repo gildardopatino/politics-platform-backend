@@ -88,7 +88,13 @@ class MercadoPagoController extends Controller
                     ]
                 ],
                 'external_reference' => (string) $order->id,
-                'notification_url' => 'https://51a4b556480b.ngrok-free.app/api/v1/mercadopago/webhook',
+                'notification_url' => config('app.backend_url') . '/api/v1/mercadopago/webhook',
+                'back_urls' => [
+                    'success' => config('app.frontend_url') . '/buy-credits/success',
+                    'failure' => config('app.frontend_url') . '/buy-credits/failure',
+                    'pending' => config('app.frontend_url') . '/buy-credits/pending',
+                ],
+                'auto_return' => 'approved', // Redirigir automáticamente cuando el pago sea aprobado
             ];
 
             Log::info('Creating MercadoPago preference', [
