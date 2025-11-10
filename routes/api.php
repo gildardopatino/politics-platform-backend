@@ -36,11 +36,14 @@ use App\Http\Controllers\Api\V1\PermissionController;
 use App\Http\Controllers\Api\V1\RoleController;
 use App\Http\Controllers\Api\V1\SurveyController;
 use App\Http\Controllers\Api\V1\SurveyQuestionController;
+use App\Http\Controllers\Api\V1\SuperadminMessagingController;
 use App\Http\Controllers\Api\V1\TenantController;
+use App\Http\Controllers\Api\V1\TenantMessagingController;
 use App\Http\Controllers\Api\V1\TenantSettingsController;
 use App\Http\Controllers\Api\V1\UserController;
 use App\Http\Controllers\Api\V1\VeredaController;
 use App\Http\Controllers\Api\V1\VoterController;
+use App\Http\Controllers\Api\V1\MercadoPagoController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -58,6 +61,9 @@ Route::prefix('v1')->group(function () {
     Route::post('/meetings/check-in/{qr_code}', [MeetingController::class, 'checkIn']);
     Route::get('/barrios/search/by-name', [BarrioController::class, 'search']);
     Route::get('/verify-document', [VoterController::class, 'verifyDocument']);
+    
+    // MercadoPago Webhook (public - must be outside authentication)
+    Route::post('/mercadopago/webhook', [MercadoPagoController::class, 'webhook']);
     
     // Landing Page Public Routes
     Route::prefix('landingpage')->group(function () {
@@ -254,6 +260,34 @@ Route::prefix('v1')->group(function () {
                 Route::get('/user/{userId}', [AuditController::class, 'byUser']);
                 Route::get('/model/{model}/{id}', [AuditController::class, 'byModel']);
                 Route::get('/{id}', [AuditController::class, 'show']);
+            });
+
+            // Messaging Credits (Tenant)
+            Route::prefix('messaging')->group(function () {
+                Route::get('/credits', [TenantMessagingController::class, 'index']);
+                Route::get('/transactions', [TenantMessagingController::class, 'transactions']);
+                Route::post('/request-recharge', [TenantMessagingController::class, 'requestRecharge']);
+                Route::get('/pricing', [TenantMessagingController::class, 'pricing']);
+                Route::post('/purchase-options', [TenantMessagingController::class, 'purchaseOptions']);
+            });
+
+            // Messaging Credits (Superadmin)
+            Route::prefix('superadmin/messaging')->group(function () {
+                Route::get('/pending-requests', [SuperadminMessagingController::class, 'pendingRequests']);
+                Route::post('/approve/{transactionId}', [SuperadminMessagingController::class, 'approveRequest']);
+                Route::post('/reject/{transactionId}', [SuperadminMessagingController::class, 'rejectRequest']);
+                Route::post('/add-credits', [SuperadminMessagingController::class, 'addCredits']);
+                Route::get('/all-tenants', [SuperadminMessagingController::class, 'allTenantCredits']);
+                Route::get('/pricing', [SuperadminMessagingController::class, 'pricing']);
+                Route::put('/pricing', [SuperadminMessagingController::class, 'pricing']);
+            });
+
+            // MercadoPago Payment Routes (authenticated)
+            Route::prefix('mercadopago')->group(function () {
+                Route::post('/create-preference', [MercadoPagoController::class, 'createPreference']);
+                Route::get('/orders/{orderId}/status', [MercadoPagoController::class, 'getOrderStatus']);
+                Route::post('/orders/{orderId}/process-manually', [MercadoPagoController::class, 'processPaymentManually']);
+                Route::get('/payment-history', [MercadoPagoController::class, 'paymentHistory']);
             });
         });
     });

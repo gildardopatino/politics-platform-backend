@@ -484,8 +484,8 @@ class MeetingController extends Controller
     protected function createReminder(Meeting $meeting, array $reminderData, $user): ?MeetingReminder
     {
         try {
-            // El datetime viene como string con timezone Colombia desde prepareForValidation
-            // Lo parseamos y dejamos que mantenga el timezone de la app (America/Bogota)
+            // El datetime viene en America/Bogota desde prepareForValidation
+            // Con APP_TIMEZONE=America/Bogota, parseamos directamente sin especificar timezone
             $reminderDatetime = Carbon::parse($reminderData['datetime']);
             $recipientsInput = $reminderData['recipients'] ?? [];
 

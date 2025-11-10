@@ -36,23 +36,26 @@ class UpdateMeetingRequest extends FormRequest
     {
         $data = [];
 
-        // Parsear fechas con timezone Colombia y dejar que Laravel las convierta a UTC al guardar
+        // El frontend envía fechas con formato ISO pero en hora LOCAL de Colombia
+        // Ejemplo: "2025-11-09T17:45:00.000Z" significa 17:45 hora de Colombia (la Z es solo formato)
+        // Con APP_TIMEZONE=America/Bogota, simplemente parseamos sin conversión
         if ($this->has('starts_at')) {
-            $startsAt = \Carbon\Carbon::parse($this->starts_at, 'America/Bogota');
-            $data['starts_at'] = $startsAt->toDateTimeString();
+            // Extraer solo la parte de fecha/hora, ignorando timezone
+            $dateString = substr($this->starts_at, 0, 19); // "2025-11-09T17:45:00"
+            $data['starts_at'] = $dateString;
         }
 
         if ($this->has('ends_at')) {
-            $endsAt = \Carbon\Carbon::parse($this->ends_at, 'America/Bogota');
-            $data['ends_at'] = $endsAt->toDateTimeString();
+            $dateString = substr($this->ends_at, 0, 19);
+            $data['ends_at'] = $dateString;
         }
 
         // Convertir fecha del recordatorio si existe
         if ($this->has('reminder.datetime')) {
-            $reminderDatetime = \Carbon\Carbon::parse($this->input('reminder.datetime'), 'America/Bogota');
+            $dateString = substr($this->input('reminder.datetime'), 0, 19);
             $data['reminder'] = array_merge(
                 $this->input('reminder', []),
-                ['datetime' => $reminderDatetime->toDateTimeString()]
+                ['datetime' => $dateString]
             );
         }
 
@@ -92,14 +95,22 @@ class UpdateMeetingRequest extends FormRequest
             'reminder.datetime' => [
                 'required_with:reminder',
                 'date',
-                'after:now',
                 function ($attribute, $value, $fail) {
+                    // Validar que sea en el futuro (comparar en hora local de Colombia)
+                    $reminderTime = \Carbon\Carbon::parse($value);
+                    $now = now(); // now() está en America/Bogota por APP_TIMEZONE
+                    
+                    if ($reminderTime <= $now) {
+                        $fail('El recordatorio debe ser en el futuro.');
+                        return;
+                    }
+                    
+                    // Validar que sea antes de la reunión
                     $startsAt = $this->input('starts_at') ?? $this->route('meeting')->starts_at;
                     if (!$startsAt) {
                         return;
                     }
 
-                    $reminderTime = \Carbon\Carbon::parse($value);
                     $meetingTime = \Carbon\Carbon::parse($startsAt);
 
                     // Reminder must be before meeting

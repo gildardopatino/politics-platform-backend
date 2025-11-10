@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\MeetingReminder;
+use App\Models\TenantMessagingCredit;
 use App\Services\WhatsAppNotificationService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -10,7 +11,9 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Http;
 use Carbon\Carbon;
+use Tymon\JWTAuth\Facades\JWTAuth;
 
 class SendMeetingReminderJob implements ShouldQueue
 {
@@ -44,28 +47,12 @@ class SendMeetingReminderJob implements ShouldQueue
         // Update status to processing
         $this->reminder->update(['status' => 'processing']);
 
-        $meeting = $this->reminder->meeting()->with('user')->first();
+        $meeting = $this->reminder->meeting()->with('planner')->first();
         
         if (!$meeting) {
             $this->reminder->update([
                 'status' => 'failed',
                 'error_message' => 'Meeting not found',
-            ]);
-            return;
-        }
-
-        // Get creator's token for WhatsApp sending
-        $creatorToken = $meeting->user->whatsapp_token ?? $this->reminder->createdBy->whatsapp_token ?? null;
-        
-        if (!$creatorToken) {
-            Log::error('No creator token available for WhatsApp sending', [
-                'reminder_id' => $this->reminder->id,
-                'meeting_id' => $meeting->id,
-            ]);
-            
-            $this->reminder->update([
-                'status' => 'failed',
-                'error_message' => 'No WhatsApp token available',
             ]);
             return;
         }
@@ -76,6 +63,38 @@ class SendMeetingReminderJob implements ShouldQueue
         $sentCount = 0;
         $failedCount = 0;
         $recipients = $this->reminder->recipients ?? [];
+        $recipientCount = count($recipients);
+
+        // Check if tenant has enough WhatsApp credits before sending
+        $tenantCredit = TenantMessagingCredit::where('tenant_id', $meeting->tenant_id)->first();
+        
+        if (!$tenantCredit) {
+            Log::error('No messaging credits found for tenant', [
+                'tenant_id' => $meeting->tenant_id,
+                'reminder_id' => $this->reminder->id,
+            ]);
+            
+            $this->reminder->update([
+                'status' => 'failed',
+                'error_message' => 'No messaging credits configured for tenant',
+            ]);
+            return;
+        }
+
+        if (!$tenantCredit->hasWhatsAppCredits($recipientCount)) {
+            Log::warning('Insufficient WhatsApp credits', [
+                'tenant_id' => $meeting->tenant_id,
+                'reminder_id' => $this->reminder->id,
+                'required' => $recipientCount,
+                'available' => $tenantCredit->whatsapp_available,
+            ]);
+            
+            $this->reminder->update([
+                'status' => 'failed',
+                'error_message' => "Créditos insuficientes. Disponibles: {$tenantCredit->whatsapp_available}, Requeridos: {$recipientCount}",
+            ]);
+            return;
+        }
 
         foreach ($recipients as $recipient) {
             $phone = $recipient['phone'] ?? null;
@@ -90,10 +109,15 @@ class SendMeetingReminderJob implements ShouldQueue
             }
 
             try {
-                $success = $whatsappService->sendMessage($phone, $message, $creatorToken);
+                // Send WhatsApp via n8n webhook
+                $success = $this->sendWhatsAppViaWebhook($phone, $message);
                 
                 if ($success) {
                     $sentCount++;
+                    
+                    // Consume WhatsApp credit for successful send
+                    $tenantCredit->consumeWhatsApp(1, "Meeting reminder #{$this->reminder->id} to {$phone}");
+                    
                     Log::info('Meeting reminder sent successfully', [
                         'reminder_id' => $this->reminder->id,
                         'recipient_name' => $recipient['name'] ?? 'Unknown',
@@ -132,7 +156,92 @@ class SendMeetingReminderJob implements ShouldQueue
     }
 
     /**
-     * Build reminder message
+     * Send WhatsApp message via n8n webhook
+     */
+    protected function sendWhatsAppViaWebhook(string $phone, string $message): bool
+    {
+        try {
+            $webhookUrl = config('services.n8n.whatsapp_webhook_url');
+            
+            if (!$webhookUrl) {
+                Log::error('N8N WhatsApp webhook URL not configured');
+                return false;
+            }
+
+            // Get superadmin user (ID 1) for authentication
+            $adminUser = \App\Models\User::find(1);
+            
+            if (!$adminUser) {
+                Log::error('Superadmin user (ID 1) not found for WhatsApp webhook authentication');
+                return false;
+            }
+
+            // Generate JWT token for superadmin
+            $token = JWTAuth::fromUser($adminUser);
+            
+            if (!$token) {
+                Log::error('Failed to generate JWT token for superadmin user', [
+                    'user_id' => $adminUser->id
+                ]);
+                return false;
+            }
+
+            // Normalize phone number
+            $phone = preg_replace('/[^0-9]/', '', $phone);
+            if (strlen($phone) === 10) {
+                $phone = '57' . $phone; // Add Colombia country code
+            }
+
+            $payload = [
+                'phone' => $phone,
+                'message' => $message,
+            ];
+
+            Log::info('=== SENDING WHATSAPP VIA N8N WEBHOOK ===', [
+                'webhook_url' => $webhookUrl,
+                'payload' => $payload,
+                'phone_original' => $phone,
+                'has_token' => !empty($token),
+            ]);
+
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $token,
+                'Content-Type' => 'application/json',
+                'Accept' => 'application/json',
+            ])->post($webhookUrl, $payload);
+
+            Log::info('=== WHATSAPP WEBHOOK RESPONSE ===', [
+                'status' => $response->status(),
+                'body' => $response->body(),
+                'successful' => $response->successful(),
+            ]);
+
+            if ($response->successful()) {
+                Log::info('WhatsApp reminder sent via n8n webhook', [
+                    'phone' => $phone,
+                    'status' => $response->status()
+                ]);
+                return true;
+            }
+
+            Log::warning('N8N webhook returned non-success status', [
+                'phone' => $phone,
+                'status' => $response->status(),
+                'body' => $response->body()
+            ]);
+            
+            return false;
+        } catch (\Exception $e) {
+            Log::error('Failed to send WhatsApp via n8n webhook', [
+                'phone' => $phone,
+                'error' => $e->getMessage()
+            ]);
+            return false;
+        }
+    }
+
+    /**
+     * Build the reminder message
      */
     protected function buildReminderMessage($meeting): string
     {
@@ -141,7 +250,8 @@ class SendMeetingReminderJob implements ShouldQueue
             return $this->reminder->message;
         }
 
-        $startsAt = Carbon::parse($meeting->starts_at);
+        // starts_at ya está en America/Bogota por APP_TIMEZONE
+        $startsAt = \Carbon\Carbon::parse($meeting->starts_at);
         
         $message = "🔔 *Recordatorio de Reunión*\n\n";
         $message .= "📋 *Título:* {$meeting->title}\n";

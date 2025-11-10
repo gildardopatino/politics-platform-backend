@@ -135,4 +135,16 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Superadmin Configuration
+    |--------------------------------------------------------------------------
+    |
+    | Superadmin email used for system-level operations like automated
+    | WhatsApp notifications via n8n webhook.
+    |
+    */
+
+    'superadmin_email' => env('SUPERADMIN_EMAIL', 'admin@politics-platform.com'),
+
 ];

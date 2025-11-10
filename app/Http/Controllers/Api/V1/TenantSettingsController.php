@@ -24,7 +24,20 @@ class TenantSettingsController extends Controller
      */
     public function show(): JsonResponse
     {
-        $tenant = app('tenant');
+        $user = auth('api')->user();
+        
+        // Check if tenant binding exists (for tenant users)
+        if (app()->bound('tenant')) {
+            $tenant = app('tenant');
+        } elseif ($user->tenant_id) {
+            // Fallback: load tenant from user relationship
+            $tenant = $user->tenant;
+        } else {
+            // Superadmin trying to access settings without tenant context
+            return response()->json([
+                'message' => 'No tenant associated with this user. Superadmin must access tenant settings via /api/v1/tenants/{id}'
+            ], 403);
+        }
         
         if (!$tenant) {
             return response()->json([
@@ -82,7 +95,20 @@ class TenantSettingsController extends Controller
             'fields' => $request->except(['logo']),
         ]);
 
-        $tenant = app('tenant');
+        $user = $request->user();
+        
+        // Check if tenant binding exists (for tenant users)
+        if (app()->bound('tenant')) {
+            $tenant = app('tenant');
+        } elseif ($user->tenant_id) {
+            // Fallback: load tenant from user relationship
+            $tenant = $user->tenant;
+        } else {
+            // Superadmin cannot update settings via this endpoint
+            return response()->json([
+                'message' => 'No tenant associated with this user. Superadmin must update tenant settings via PUT /api/v1/tenants/{id}'
+            ], 403);
+        }
         
         if (!$tenant) {
             return response()->json([
@@ -206,7 +232,20 @@ class TenantSettingsController extends Controller
      */
     public function checkHierarchyConfig(): JsonResponse
     {
-        $tenant = app('tenant');
+        $user = auth('api')->user();
+        
+        // Check if tenant binding exists (for tenant users)
+        if (app()->bound('tenant')) {
+            $tenant = app('tenant');
+        } elseif ($user->tenant_id) {
+            // Fallback: load tenant from user relationship
+            $tenant = $user->tenant;
+        } else {
+            // Superadmin trying to check hierarchy without tenant context
+            return response()->json([
+                'message' => 'No tenant associated with this user.'
+            ], 403);
+        }
         
         if (!$tenant) {
             return response()->json([
@@ -237,7 +276,20 @@ class TenantSettingsController extends Controller
      */
     public function deleteLogo(Request $request): JsonResponse
     {
-        $tenant = app('tenant');
+        $user = $request->user();
+        
+        // Check if tenant binding exists (for tenant users)
+        if (app()->bound('tenant')) {
+            $tenant = app('tenant');
+        } elseif ($user->tenant_id) {
+            // Fallback: load tenant from user relationship
+            $tenant = $user->tenant;
+        } else {
+            // Superadmin cannot delete logo via this endpoint
+            return response()->json([
+                'message' => 'No tenant associated with this user.'
+            ], 403);
+        }
         
         if (!$tenant) {
             return response()->json([

@@ -87,6 +87,21 @@ class Tenant extends Model
         return $this->hasMany(Meeting::class);
     }
 
+    public function messagingCredit()
+    {
+        return $this->hasOne(TenantMessagingCredit::class);
+    }
+
+    public function messagingTransactions()
+    {
+        return $this->hasMany(MessagingCreditTransaction::class);
+    }
+
+    public function messagingOrders()
+    {
+        return $this->hasMany(MessagingCreditOrder::class);
+    }
+
     public function campaigns()
     {
         return $this->hasMany(Campaign::class);
