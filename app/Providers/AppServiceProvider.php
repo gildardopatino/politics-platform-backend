@@ -30,6 +30,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        // Register observers
+        \App\Models\MeetingAttendee::observe(\App\Observers\MeetingAttendeeObserver::class);
     }
 }

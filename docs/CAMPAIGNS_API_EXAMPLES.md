@@ -8,12 +8,14 @@ El sistema de campañas te permite enviar mensajes por **WhatsApp**, **Email** o
 ✅ **Asistentes de UNA reunión** específica  
 ✅ **Asistentes de MÚLTIPLES reuniones** (elimina duplicados automáticamente)  
 ✅ **Lista personalizada** de emails/teléfonos específicos (contactos externos, VIPs, etc.)  
+✅ **Por ubicación geográfica** (Departamento, Municipio, Comuna, Barrio) - ⭐ NUEVO
 
 **Características:**
 - Envío inmediato o programado para fecha/hora futura
 - Deduplicación automática de destinatarios
 - Tracking de envío (pending, sent, failed)
 - Contadores automáticos de éxito/fallos
+- Filtrado geográfico con cascada automática (más específico tiene prioridad)
 
 ---
 

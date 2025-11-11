@@ -41,12 +41,16 @@ class StoreCampaignRequest extends FormRequest
             'message' => 'required|string',
             'channel' => 'required|in:whatsapp,email,both',
             'filter_json' => 'nullable|array',
-            'filter_json.target' => 'nullable|in:all_users,meeting_attendees,custom_list',
+            'filter_json.target' => 'nullable|in:all_users,meeting_attendees,custom_list,by_location',
             'filter_json.meeting_ids' => 'nullable|array',
             'filter_json.meeting_ids.*' => 'exists:meetings,id',
             'filter_json.custom_recipients' => 'nullable|array',
             'filter_json.custom_recipients.*.type' => 'required_with:filter_json.custom_recipients|in:email,phone',
             'filter_json.custom_recipients.*.value' => 'required_with:filter_json.custom_recipients|string',
+            'filter_json.department_id' => 'nullable|exists:departments,id',
+            'filter_json.municipality_id' => 'nullable|exists:municipalities,id',
+            'filter_json.commune_id' => 'nullable|exists:communes,id',
+            'filter_json.barrio_id' => 'nullable|exists:barrios,id',
             'scheduled_at' => 'nullable|date',
         ];
     }

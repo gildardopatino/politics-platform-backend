@@ -81,6 +81,12 @@ class CampaignService
             $recipients = array_merge($recipients, $this->extractCustomRecipients($campaign, $filters['custom_recipients']));
         }
 
+        // 4. Por ubicación geográfica (Departamento -> Municipio -> Comuna -> Barrio)
+        if ($target === 'by_location') {
+            $attendees = $this->getAttendeesByLocation($filters);
+            $recipients = array_merge($recipients, $this->extractRecipientsFromAttendees($campaign, $attendees));
+        }
+
         // Eliminar duplicados por recipient_value
         $recipients = $this->deduplicateRecipients($recipients);
 
@@ -89,6 +95,64 @@ class CampaignService
         }
 
         return $recipients;
+    }
+
+    /**
+     * Get attendees filtered by geographic location
+     * Prioridad: Barrio > Comuna > Municipio > Departamento (se toma el más específico)
+     */
+    protected function getAttendeesByLocation(array $filters)
+    {
+        $query = MeetingAttendee::query();
+
+        // Filtrar por la ubicación más específica proporcionada
+        if (isset($filters['barrio_id']) && $filters['barrio_id']) {
+            // Más específico: Barrio
+            $query->where('barrio_id', $filters['barrio_id']);
+            
+            Log::info('Campaign filter by location: Barrio', [
+                'barrio_id' => $filters['barrio_id']
+            ]);
+            
+        } elseif (isset($filters['commune_id']) && $filters['commune_id']) {
+            // Comuna
+            $query->whereHas('barrio', function ($q) use ($filters) {
+                $q->where('commune_id', $filters['commune_id']);
+            });
+            
+            Log::info('Campaign filter by location: Comuna', [
+                'commune_id' => $filters['commune_id']
+            ]);
+            
+        } elseif (isset($filters['municipality_id']) && $filters['municipality_id']) {
+            // Municipio (puede tener comunas o barrios directos)
+            $query->where(function ($q) use ($filters) {
+                // Barrios que pertenecen directamente al municipio
+                $q->whereHas('barrio', function ($bq) use ($filters) {
+                    $bq->where('municipality_id', $filters['municipality_id']);
+                })
+                // O barrios que pertenecen a comunas de este municipio
+                ->orWhereHas('barrio.commune', function ($cq) use ($filters) {
+                    $cq->where('municipality_id', $filters['municipality_id']);
+                });
+            });
+            
+            Log::info('Campaign filter by location: Municipality', [
+                'municipality_id' => $filters['municipality_id']
+            ]);
+            
+        } elseif (isset($filters['department_id']) && $filters['department_id']) {
+            // Departamento (más general)
+            $query->whereHas('barrio.municipality', function ($q) use ($filters) {
+                $q->where('department_id', $filters['department_id']);
+            });
+            
+            Log::info('Campaign filter by location: Department', [
+                'department_id' => $filters['department_id']
+            ]);
+        }
+
+        return $query->get();
     }
 
     protected function extractRecipientsFromUsers(Campaign $campaign, $users): array
