@@ -2,16 +2,17 @@
 
 Documentación completa de los endpoints de administración de tenants (candidatos) del sistema.
 
-**Fecha:** 8 de Noviembre, 2025  
-**Versión:** 1.0
+**Fecha:** 12 de Noviembre, 2025  
+**Versión:** 1.1
 
 ---
 
 ## Índice
 
 1. [Introducción](#introducción)
-2. [Gestión de Tenants (Super Admin)](#gestión-de-tenants-super-admin)
-3. [Configuración de Tenant (Self-Service)](#configuración-de-tenant-self-service)
+2. [Sistema de Expiración de Tenants](#sistema-de-expiración-de-tenants)
+3. [Gestión de Tenants (Super Admin)](#gestión-de-tenants-super-admin)
+4. [Configuración de Tenant (Self-Service)](#configuración-de-tenant-self-service)
 
 ---
 
@@ -21,6 +22,73 @@ El sistema maneja dos niveles de administración de tenants:
 
 1. **Super Admin**: Puede crear, ver, actualizar y eliminar cualquier tenant
 2. **Tenant Admin**: Puede ver y actualizar la configuración de su propio tenant
+
+---
+
+## Sistema de Expiración de Tenants
+
+### Descripción General
+
+Cada tenant tiene fechas de inicio y expiración que controlan el acceso al sistema:
+
+- **`start_date`**: Fecha y hora en que el tenant puede comenzar a usar el sistema
+- **`expiration_date`**: Fecha y hora en que el tenant deja de tener acceso
+
+### Comportamiento del Sistema
+
+#### 1. **Tenant No Iniciado** (`start_date` en el futuro)
+- El tenant y todos sus usuarios **NO pueden acceder** al sistema
+- Mensaje: _"Su cuenta aún no está activa. Por favor, comuníquese con el administrador del sistema al correo admin@appcore.com.co"_
+- Status: `403 Forbidden`
+
+#### 2. **Tenant Activo** (entre `start_date` y `expiration_date`)
+- El tenant y todos sus usuarios tienen **acceso completo** al sistema
+- Todas las funcionalidades están disponibles
+
+#### 3. **Tenant Expirado** (`expiration_date` en el pasado)
+- El tenant y todos sus usuarios **NO pueden acceder** al sistema
+- Mensaje: _"Su cuenta ha expirado. Por favor, comuníquese con el administrador del sistema al correo admin@appcore.com.co"_
+- Status: `403 Forbidden`
+
+### Campos de Estado en la API
+
+Todos los endpoints de tenants incluyen información de expiración:
+
+```json
+{
+  "id": 1,
+  "nombre": "Juan Pérez",
+  "start_date": "2025-01-01T00:00:00.000000Z",
+  "expiration_date": "2025-12-31T23:59:59.000000Z",
+  "is_active": true,
+  "is_expired": false,
+  "is_not_started": false,
+  "days_until_expiration": 45
+}
+```
+
+**Descripción de campos:**
+- `start_date`: Fecha de inicio (ISO 8601), `null` si no tiene restricción de inicio
+- `expiration_date`: Fecha de expiración (ISO 8601), `null` si no expira
+- `is_active`: `true` si el tenant puede acceder actualmente al sistema
+- `is_expired`: `true` si la fecha de expiración ya pasó
+- `is_not_started`: `true` si aún no llega la fecha de inicio
+- `days_until_expiration`: Días restantes hasta expiración (negativo si ya expiró, `null` si no tiene fecha de expiración)
+
+### Excepciones
+
+- **Super Admin**: Los usuarios con `tenant_id = null` (super admin) **NUNCA** son bloqueados por expiración
+- **Rutas Públicas**: Las rutas públicas (login, landing pages, webhooks) no están sujetas a verificación de expiración
+
+### Email de Contacto Configurable
+
+El email de contacto del super administrador es configurable mediante la variable de entorno:
+
+```env
+ADMIN_EMAIL=admin@appcore.com.co
+```
+
+Este email se muestra en los mensajes de error cuando un tenant está expirado o no ha iniciado.
 
 ---
 
@@ -68,6 +136,12 @@ GET /api/v1/tenants?per_page=20&filter[tipo_cargo]=Alcalde&sort=-created_at
       "nombre": "Juan Carlos Pérez",
       "tipo_cargo": "Alcalde",
       "identificacion": "123456789",
+      "start_date": "2025-01-01T00:00:00.000000Z",
+      "expiration_date": "2025-12-31T23:59:59.000000Z",
+      "is_active": true,
+      "is_expired": false,
+      "is_not_started": false,
+      "days_until_expiration": 49,
       "logo": "https://wasabi.url/tenants/logo1.png",
       "sidebar_bg_color": "#1E3A8A",
       "sidebar_text_color": "#FFFFFF",
@@ -84,6 +158,24 @@ GET /api/v1/tenants?per_page=20&filter[tipo_cargo]=Alcalde&sort=-created_at
         "cargo": "Candidato a Alcalde",
         "imagen": "https://wasabi.url/juan-perez-2025/landing/biografia/perfil.jpg"
       },
+      "messaging_credits": {
+        "emails": {
+          "available": 1000,
+          "used": 250,
+          "total_cost": 12500,
+          "unit_price": 50,
+          "percentage_used": 20
+        },
+        "whatsapp": {
+          "available": 500,
+          "used": 100,
+          "total_cost": 10000,
+          "unit_price": 100,
+          "percentage_used": 16.67
+        },
+        "total_cost": 22500,
+        "currency": "COP"
+      },
       "created_at": "2025-10-01T10:00:00.000000Z",
       "updated_at": "2025-11-08T10:00:00.000000Z"
     },
@@ -93,6 +185,12 @@ GET /api/v1/tenants?per_page=20&filter[tipo_cargo]=Alcalde&sort=-created_at
       "nombre": "María López",
       "tipo_cargo": "Gobernadora",
       "identificacion": "987654321",
+      "start_date": null,
+      "expiration_date": null,
+      "is_active": true,
+      "is_expired": false,
+      "is_not_started": false,
+      "days_until_expiration": null,
       "logo": "https://wasabi.url/tenants/logo2.png",
       "sidebar_bg_color": "#7C3AED",
       "sidebar_text_color": "#FFFFFF",
@@ -105,6 +203,24 @@ GET /api/v1/tenants?per_page=20&filter[tipo_cargo]=Alcalde&sort=-created_at
       "hierarchy_conflict_resolution": "replace",
       "require_hierarchy_config": false,
       "biografia_data": null,
+      "messaging_credits": {
+        "emails": {
+          "available": 2000,
+          "used": 0,
+          "total_cost": 0,
+          "unit_price": 50,
+          "percentage_used": 0
+        },
+        "whatsapp": {
+          "available": 1000,
+          "used": 0,
+          "total_cost": 0,
+          "unit_price": 100,
+          "percentage_used": 0
+        },
+        "total_cost": 0,
+        "currency": "COP"
+      },
       "created_at": "2025-10-15T10:00:00.000000Z",
       "updated_at": "2025-11-05T10:00:00.000000Z"
     }
@@ -143,6 +259,12 @@ GET /api/v1/tenants?per_page=20&filter[tipo_cargo]=Alcalde&sort=-created_at
     "nombre": "Juan Carlos Pérez",
     "tipo_cargo": "Alcalde",
     "identificacion": "123456789",
+    "start_date": "2025-01-01T00:00:00.000000Z",
+    "expiration_date": "2025-12-31T23:59:59.000000Z",
+    "is_active": true,
+    "is_expired": false,
+    "is_not_started": false,
+    "days_until_expiration": 49,
     "logo": "https://wasabi.url/tenants/logo1.png",
     "sidebar_bg_color": "#1E3A8A",
     "sidebar_text_color": "#FFFFFF",
@@ -163,27 +285,28 @@ GET /api/v1/tenants?per_page=20&filter[tipo_cargo]=Alcalde&sort=-created_at
         "descripcion": "Líder comunitario..."
       }
     },
-    "users": [
-      {
-        "id": 1,
-        "name": "Admin User",
-        "email": "admin@juanperez.com"
-      }
-    ],
-    "meetings": [
-      {
-        "id": 1,
-        "title": "Reunión Comunitaria",
-        "date": "2025-11-15"
-      }
-    ],
-    "campaigns": [
-      {
-        "id": 1,
-        "name": "Campaña SMS Noviembre",
-        "status": "draft"
-      }
-    ],
+    "messaging_credits": {
+      "emails": {
+        "available": 1000,
+        "used": 250,
+        "total_cost": 12500,
+        "unit_price": 50,
+        "percentage_used": 20
+      },
+      "whatsapp": {
+        "available": 500,
+        "used": 100,
+        "total_cost": 10000,
+        "unit_price": 100,
+        "percentage_used": 16.67
+      },
+      "total_cost": 22500,
+      "currency": "COP",
+      "last_transaction_at": "2025-11-10T15:30:00.000000Z"
+    },
+    "users_count": 15,
+    "meetings_count": 25,
+    "campaigns_count": 8,
     "created_at": "2025-10-01T10:00:00.000000Z",
     "updated_at": "2025-11-08T10:00:00.000000Z"
   }
@@ -213,6 +336,10 @@ GET /api/v1/tenants?per_page=20&filter[tipo_cargo]=Alcalde&sort=-created_at
   "nombre": "Pedro Gómez",
   "tipo_cargo": "Alcalde",
   "identificacion": "456789123",
+  "start_date": "2025-11-15T00:00:00",
+  "expiration_date": "2026-11-15T23:59:59",
+  "initial_emails": 1000,
+  "initial_whatsapp": 500,
   "logo": "https://example.com/logo.png",
   "sidebar_bg_color": "#1E3A8A",
   "sidebar_text_color": "#FFFFFF",
@@ -234,6 +361,10 @@ GET /api/v1/tenants?per_page=20&filter[tipo_cargo]=Alcalde&sort=-created_at
 - `identificacion` (string, único, max:50)
 
 **Campos opcionales:**
+- `start_date` (datetime ISO 8601): Fecha de inicio de acceso
+- `expiration_date` (datetime ISO 8601): Fecha de expiración (debe ser posterior a `start_date`)
+- `initial_emails` (integer, min:0, default:1000): Créditos iniciales de email
+- `initial_whatsapp` (integer, min:0, default:500): Créditos iniciales de WhatsApp
 - `logo` (string URL, max:500)
 - `sidebar_bg_color` (string hex color, default: #1E3A8A)
 - `sidebar_text_color` (string hex color, default: #FFFFFF)
@@ -255,6 +386,12 @@ GET /api/v1/tenants?per_page=20&filter[tipo_cargo]=Alcalde&sort=-created_at
     "nombre": "Pedro Gómez",
     "tipo_cargo": "Alcalde",
     "identificacion": "456789123",
+    "start_date": "2025-11-15T00:00:00.000000Z",
+    "expiration_date": "2026-11-15T23:59:59.000000Z",
+    "is_active": false,
+    "is_expired": false,
+    "is_not_started": true,
+    "days_until_expiration": 365,
     "logo": "https://example.com/logo.png",
     "sidebar_bg_color": "#1E3A8A",
     "sidebar_text_color": "#FFFFFF",
@@ -267,8 +404,26 @@ GET /api/v1/tenants?per_page=20&filter[tipo_cargo]=Alcalde&sort=-created_at
     "hierarchy_conflict_resolution": "keep_both",
     "require_hierarchy_config": true,
     "biografia_data": null,
-    "created_at": "2025-11-08T16:00:00.000000Z",
-    "updated_at": "2025-11-08T16:00:00.000000Z"
+    "messaging_credits": {
+      "emails": {
+        "available": 1000,
+        "used": 0,
+        "total_cost": 0,
+        "unit_price": 50,
+        "percentage_used": 0
+      },
+      "whatsapp": {
+        "available": 500,
+        "used": 0,
+        "total_cost": 0,
+        "unit_price": 100,
+        "percentage_used": 0
+      },
+      "total_cost": 0,
+      "currency": "COP"
+    },
+    "created_at": "2025-11-12T16:00:00.000000Z",
+    "updated_at": "2025-11-12T16:00:00.000000Z"
   },
   "message": "Tenant created successfully"
 }
@@ -306,6 +461,8 @@ GET /api/v1/tenants?per_page=20&filter[tipo_cargo]=Alcalde&sort=-created_at
 {
   "nombre": "Pedro Antonio Gómez",
   "tipo_cargo": "Alcalde Municipal",
+  "start_date": "2025-11-01T00:00:00",
+  "expiration_date": "2027-11-01T23:59:59",
   "logo": "https://example.com/nuevo-logo.png",
   "sidebar_bg_color": "#7C3AED",
   "hierarchy_mode": "automatic",
@@ -314,6 +471,11 @@ GET /api/v1/tenants?per_page=20&filter[tipo_cargo]=Alcalde&sort=-created_at
 ```
 
 **Nota:** Todos los campos son opcionales. Solo envía los que deseas actualizar.
+
+**Campos actualizables:**
+- `nombre`, `tipo_cargo`, `identificacion` (string)
+- `start_date`, `expiration_date` (datetime ISO 8601, `expiration_date` debe ser posterior a `start_date`)
+- Todos los campos de configuración de tema y jerarquía
 
 **Respuesta exitosa (200):**
 ```json
@@ -324,6 +486,12 @@ GET /api/v1/tenants?per_page=20&filter[tipo_cargo]=Alcalde&sort=-created_at
     "nombre": "Pedro Antonio Gómez",
     "tipo_cargo": "Alcalde Municipal",
     "identificacion": "456789123",
+    "start_date": "2025-11-01T00:00:00.000000Z",
+    "expiration_date": "2027-11-01T23:59:59.000000Z",
+    "is_active": true,
+    "is_expired": false,
+    "is_not_started": false,
+    "days_until_expiration": 719,
     "logo": "https://example.com/nuevo-logo.png",
     "sidebar_bg_color": "#7C3AED",
     "sidebar_text_color": "#FFFFFF",
@@ -336,6 +504,24 @@ GET /api/v1/tenants?per_page=20&filter[tipo_cargo]=Alcalde&sort=-created_at
     "hierarchy_conflict_resolution": "keep_both",
     "require_hierarchy_config": false,
     "biografia_data": null,
+    "messaging_credits": {
+      "emails": {
+        "available": 1000,
+        "used": 0,
+        "total_cost": 0,
+        "unit_price": 50,
+        "percentage_used": 0
+      },
+      "whatsapp": {
+        "available": 500,
+        "used": 0,
+        "total_cost": 0,
+        "unit_price": 100,
+        "percentage_used": 0
+      },
+      "total_cost": 0,
+      "currency": "COP"
+    },
     "created_at": "2025-11-08T16:00:00.000000Z",
     "updated_at": "2025-11-08T17:00:00.000000Z"
   },
@@ -724,7 +910,7 @@ El sistema permite personalizar 6 colores del tema:
 
 ## Ejemplos de Uso
 
-### Ejemplo 1: Super Admin Crea un Nuevo Tenant
+### Ejemplo 1: Super Admin Crea un Nuevo Tenant con Fechas
 
 ```javascript
 // JavaScript/Node.js
@@ -740,6 +926,10 @@ const crearTenant = async () => {
       nombre: 'Candidato Ejemplo',
       tipo_cargo: 'Alcalde',
       identificacion: '987654321',
+      start_date: '2025-01-01T00:00:00',
+      expiration_date: '2025-12-31T23:59:59',
+      initial_emails: 2000,
+      initial_whatsapp: 1000,
       hierarchy_mode: 'automatic',
       require_hierarchy_config: false,
       sidebar_bg_color: '#7C3AED',
@@ -749,6 +939,8 @@ const crearTenant = async () => {
 
   const data = await response.json();
   console.log('Tenant creado:', data);
+  console.log('Activo:', data.data.is_active);
+  console.log('Días hasta expiración:', data.data.days_until_expiration);
 };
 ```
 
@@ -832,6 +1024,15 @@ const puedeCrearReunion = async () => {
 ---
 
 ## Notas Importantes
+
+### Notas Importantes
+
+### Expiración de Tenants
+- Si un tenant **no ha iniciado** (`start_date` en el futuro), ninguno de sus usuarios puede acceder
+- Si un tenant **ha expirado** (`expiration_date` en el pasado), ninguno de sus usuarios puede acceder
+- Los mensajes de error incluyen el email de contacto del super admin (configurable en `.env`)
+- El super admin **nunca** es bloqueado por expiración
+- Las rutas públicas (login, landing pages, webhooks) no verifican expiración
 
 ### Permisos
 - **Super Admin**: Acceso total a todos los endpoints

@@ -31,6 +31,8 @@ class Tenant extends Model
         'auto_assign_hierarchy',
         'hierarchy_conflict_resolution',
         'require_hierarchy_config',
+        'start_date',
+        'expiration_date',
         // Social media credentials
         'twitter_enabled',
         'twitter_bearer_token',
@@ -62,11 +64,61 @@ class Tenant extends Model
         'youtube_enabled' => 'boolean',
         'social_auto_sync_enabled' => 'boolean',
         'social_last_synced_at' => 'datetime',
+        // Note: start_date and expiration_date use custom mutators/accessors
+        // to preserve exact datetime without timezone conversion
     ];
 
     public function getRouteKeyName(): string
     {
         return 'slug';
+    }
+
+    /**
+     * Set start_date attribute - stores exactly as received without timezone conversion
+     */
+    protected function setStartDateAttribute($value): void
+    {
+        if ($value) {
+            // Remove timezone info and store as-is
+            $this->attributes['start_date'] = \Carbon\Carbon::parse($value)->format('Y-m-d H:i:s');
+        } else {
+            $this->attributes['start_date'] = null;
+        }
+    }
+
+    /**
+     * Get start_date attribute - returns as Carbon instance in app timezone
+     */
+    protected function getStartDateAttribute($value): ?\Carbon\Carbon
+    {
+        if ($value) {
+            return \Carbon\Carbon::createFromFormat('Y-m-d H:i:s', $value, config('app.timezone'));
+        }
+        return null;
+    }
+
+    /**
+     * Set expiration_date attribute - stores exactly as received without timezone conversion
+     */
+    protected function setExpirationDateAttribute($value): void
+    {
+        if ($value) {
+            // Remove timezone info and store as-is
+            $this->attributes['expiration_date'] = \Carbon\Carbon::parse($value)->format('Y-m-d H:i:s');
+        } else {
+            $this->attributes['expiration_date'] = null;
+        }
+    }
+
+    /**
+     * Get expiration_date attribute - returns as Carbon instance in app timezone
+     */
+    protected function getExpirationDateAttribute($value): ?\Carbon\Carbon
+    {
+        if ($value) {
+            return \Carbon\Carbon::createFromFormat('Y-m-d H:i:s', $value, config('app.timezone'));
+        }
+        return null;
     }
 
     public function getActivitylogOptions(): LogOptions
@@ -115,5 +167,62 @@ class Tenant extends Model
     public function resourceAllocations()
     {
         return $this->hasMany(ResourceAllocation::class);
+    }
+
+    /**
+     * Check if the tenant is currently active (not expired)
+     */
+    public function isActive(): bool
+    {
+        // If no expiration date is set, tenant is always active
+        if (!$this->expiration_date) {
+            return true;
+        }
+
+        // If no start date is set, only check expiration
+        if (!$this->start_date) {
+            return now()->lte($this->expiration_date);
+        }
+
+        // Check if current date is between start and expiration dates
+        return now()->gte($this->start_date) && now()->lte($this->expiration_date);
+    }
+
+    /**
+     * Check if the tenant is expired
+     */
+    public function isExpired(): bool
+    {
+        if (!$this->expiration_date) {
+            return false;
+        }
+
+        return now()->gt($this->expiration_date);
+    }
+
+    /**
+     * Check if the tenant hasn't started yet
+     */
+    public function isNotStarted(): bool
+    {
+        if (!$this->start_date) {
+            return false;
+        }
+
+        return now()->lt($this->start_date);
+    }
+
+    /**
+     * Get the number of days until expiration
+     * Returns null if no expiration date is set
+     * Returns negative number if already expired
+     */
+    public function daysUntilExpiration(): ?int
+    {
+        if (!$this->expiration_date) {
+            return null;
+        }
+
+        return (int) floor(now()->diffInDays($this->expiration_date, false));
     }
 }

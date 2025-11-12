@@ -21,26 +21,28 @@ class UserController extends Controller
     public function index(): JsonResponse
     {
         $users = QueryBuilder::for(User::class)
-            ->with('roles') // Always load roles by default
+            ->with([
+                'roles', // Always load roles by default
+                // NEW: Always load multiple geographic relationships
+                'departments:id,nombre,codigo',
+                'municipalities:id,nombre,codigo',
+                'communes:id,nombre,codigo',
+                'barrios:id,nombre,codigo',
+                'corregimientos:id,nombre,codigo',
+                'veredas:id,nombre,codigo',
+                // OLD: Single geographic relationships (for backward compatibility)
+                'department:id,nombre',
+                'municipality:id,nombre',
+                'commune:id,nombre',
+                'barrio:id,nombre',
+                'corregimiento:id,nombre',
+                'vereda:id,nombre',
+            ])
             ->allowedFilters(['name', 'email', 'is_team_leader'])
             ->allowedIncludes([
                 'tenant',
                 'supervisor',
                 'permissions',
-                // OLD: Single relationships (deprecated)
-                'department',
-                'municipality',
-                'commune',
-                'barrio',
-                'corregimiento',
-                'vereda',
-                // NEW: Multiple relationships
-                'departments',
-                'municipalities',
-                'communes',
-                'barrios',
-                'corregimientos',
-                'veredas'
             ])
             ->allowedSorts(['name', 'created_at', 'email'])
             ->paginate(request('per_page', 15));
@@ -168,8 +170,25 @@ class UserController extends Controller
             $token
         );
 
+        // Load all relationships for the response
+        $user->load([
+            'roles',
+            'departments:id,nombre,codigo',
+            'municipalities:id,nombre,codigo',
+            'communes:id,nombre,codigo',
+            'barrios:id,nombre,codigo',
+            'corregimientos:id,nombre,codigo',
+            'veredas:id,nombre,codigo',
+            'department:id,nombre',
+            'municipality:id,nombre',
+            'commune:id,nombre',
+            'barrio:id,nombre',
+            'corregimiento:id,nombre',
+            'vereda:id,nombre',
+        ]);
+
         return response()->json([
-            'data' => new UserResource($user->load('roles')),
+            'data' => new UserResource($user),
             'message' => 'User created successfully. ' . ($emailSent ? 'Welcome email sent.' : 'Failed to send welcome email.'),
             'email_sent' => $emailSent
         ], 201);
@@ -289,8 +308,25 @@ class UserController extends Controller
             $user->veredas()->sync($data);
         }
 
+        // Load all relationships for the response
+        $user->load([
+            'roles',
+            'departments:id,nombre,codigo',
+            'municipalities:id,nombre,codigo',
+            'communes:id,nombre,codigo',
+            'barrios:id,nombre,codigo',
+            'corregimientos:id,nombre,codigo',
+            'veredas:id,nombre,codigo',
+            'department:id,nombre',
+            'municipality:id,nombre',
+            'commune:id,nombre',
+            'barrio:id,nombre',
+            'corregimiento:id,nombre',
+            'vereda:id,nombre',
+        ]);
+
         return response()->json([
-            'data' => new UserResource($user->load('roles')),
+            'data' => new UserResource($user),
             'message' => 'User updated successfully'
         ]);
     }

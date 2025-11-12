@@ -21,6 +21,15 @@ class TenantResource extends JsonResource
             'tipo_cargo' => $this->tipo_cargo,
             'identificacion' => $this->identificacion,
             'metadata' => $this->metadata,
+            
+            // Expiration information
+            'start_date' => $this->start_date?->toISOString(),
+            'expiration_date' => $this->expiration_date?->toISOString(),
+            'is_active' => $this->isActive(),
+            'is_expired' => $this->isExpired(),
+            'is_not_started' => $this->isNotStarted(),
+            'days_until_expiration' => $this->daysUntilExpiration(),
+            
             'users_count' => $this->whenCounted('users'),
             'meetings_count' => $this->whenCounted('meetings'),
             'campaigns_count' => $this->whenCounted('campaigns'),

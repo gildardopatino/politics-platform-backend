@@ -114,7 +114,7 @@ class AuthController extends Controller
         $user = auth()->user();
         $user->load(['roles', 'permissions', 'tenant']);
         
-        return response()->json([
+        $response = [
             'access_token' => $token,
             'token_type' => 'bearer',
             'expires_in' => $ttl * 60, // En segundos
@@ -122,6 +122,20 @@ class AuthController extends Controller
             'refresh_expires_in' => $refreshTtl * 60, // En segundos
             'refresh_expires_at' => now()->addMinutes($refreshTtl)->toISOString(),
             'user' => new UserResource($user)
-        ], $statusCode);
+        ];
+
+        // Add tenant expiration info if user belongs to a tenant
+        if ($user->tenant) {
+            $response['tenant_status'] = [
+                'start_date' => $user->tenant->start_date?->toISOString(),
+                'expiration_date' => $user->tenant->expiration_date?->toISOString(),
+                'is_active' => $user->tenant->isActive(),
+                'is_expired' => $user->tenant->isExpired(),
+                'is_not_started' => $user->tenant->isNotStarted(),
+                'days_until_expiration' => $user->tenant->daysUntilExpiration(),
+            ];
+        }
+        
+        return response()->json($response, $statusCode);
     }
 }

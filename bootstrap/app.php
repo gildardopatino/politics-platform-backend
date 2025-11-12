@@ -17,6 +17,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'jwt.auth' => \App\Http\Middleware\JwtMiddleware::class,
             'tenant' => \App\Http\Middleware\EnsureTenant::class,
             'superadmin' => \App\Http\Middleware\CheckSuperAdmin::class,
+            'tenant.active' => \App\Http\Middleware\CheckTenantExpiration::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

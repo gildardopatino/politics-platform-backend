@@ -27,8 +27,32 @@
     "name": "Usuario",
     "email": "usuario@example.com",
     ...
+  },
+  "tenant_status": {
+    "start_date": "2025-11-04T14:17:00.000000Z",
+    "expiration_date": "2025-11-11T14:17:00.000000Z",
+    "is_active": true,
+    "is_expired": false,
+    "is_not_started": false,
+    "days_until_expiration": 5
   }
 }
+```
+
+**Nota sobre `tenant_status`:**
+- Solo se incluye si el usuario pertenece a un tenant (usuarios de tenant)
+- **No se incluye** para superadmin (tenant_id = null)
+- `start_date`: Fecha/hora de inicio del tenant (null si no está configurada)
+- `expiration_date`: Fecha/hora de expiración del tenant (null si no está configurada)
+- `is_active`: `true` si el tenant está activo (entre start_date y expiration_date)
+- `is_expired`: `true` si el tenant ya expiró
+- `is_not_started`: `true` si el tenant aún no ha iniciado
+- `days_until_expiration`: Días hasta la expiración (negativo si ya expiró, null si no hay fecha de expiración)
+
+**El frontend debe:**
+1. Verificar `tenant_status.is_expired` o `tenant_status.is_not_started`
+2. Si alguno es `true`, mostrar mensaje de error y no permitir el acceso
+3. Si `days_until_expiration` es menor a 7, mostrar advertencia de próxima expiración
 ```
 
 ### 2. Uso del Token

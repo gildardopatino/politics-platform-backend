@@ -92,8 +92,8 @@ Route::prefix('v1')->group(function () {
             Route::apiResource('tenants', TenantController::class);
         });
 
-        // Tenant-scoped routes
-        Route::middleware('tenant')->group(function () {
+        // Tenant-scoped routes (with expiration check)
+        Route::middleware(['tenant', 'tenant.active'])->group(function () {
             
             // Tenant Settings (for current tenant to update their own settings)
             Route::get('/tenant/settings', [TenantSettingsController::class, 'show']);
