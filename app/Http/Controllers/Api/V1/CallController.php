@@ -62,7 +62,7 @@ class CallController extends Controller
             'survey_id' => 'nullable|exists:surveys,id',
             'call_date' => 'required|date',
             'duration_seconds' => 'nullable|integer|min:0',
-            'status' => 'required|in:completed,no_answer,busy,rejected,wrong_number,voicemail',
+            'status' => 'required|in:completed,no_answer,busy,rejected,wrong_number,voicemail,pending',
             'notes' => 'nullable|string',
             'responses' => 'nullable|array',
             'responses.*.survey_question_id' => 'required|exists:survey_questions,id',
@@ -150,7 +150,7 @@ class CallController extends Controller
             'survey_id' => 'nullable|exists:surveys,id',
             'call_date' => 'required|date',
             'duration_seconds' => 'nullable|integer|min:0',
-            'status' => 'required|in:completed,no_answer,busy,rejected,wrong_number,voicemail',
+            'status' => 'required|in:completed,no_answer,busy,rejected,wrong_number,voicemail,pending',
             'notes' => 'nullable|string',
         ]);
 

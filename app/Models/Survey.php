@@ -85,7 +85,7 @@ class Survey extends Model
             return false;
         }
         
-        return $this->is_active;
+        return (bool) $this->is_active;
     }
 
     /**

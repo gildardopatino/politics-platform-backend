@@ -27,7 +27,7 @@ class ResourceAllocationController extends Controller
         // Aplicar includes si se solicitan
         $includes = request()->input('include', '');
         if ($includes) {
-            $allowedIncludes = ['meeting', 'allocatedBy', 'leader', 'assignedTo', 'items', 'items.resourceItem'];
+            $allowedIncludes = ['meeting', 'assignedBy', 'leader', 'assignedTo', 'items', 'items.resourceItem'];
             $requestedIncludes = explode(',', $includes);
             $validIncludes = array_intersect($requestedIncludes, $allowedIncludes);
             if (!empty($validIncludes)) {
@@ -84,7 +84,7 @@ class ResourceAllocationController extends Controller
             // Preparar datos para la asignación
             $allocationData = [
                 'tenant_id' => app('tenant')->id,
-                'allocated_by_user_id' => auth()->id(),
+                'assigned_by_user_id' => auth('api')->id(),
                 'leader_user_id' => $validated['leader_user_id'],
                 'assigned_to_user_id' => $validated['assigned_to_user_id'] ?? $validated['leader_user_id'],
                 'meeting_id' => $validated['meeting_id'] ?? null,
@@ -148,7 +148,7 @@ class ResourceAllocationController extends Controller
             DB::commit();
 
             return response()->json([
-                'data' => new ResourceAllocationResource($resource->load(['meeting', 'allocatedBy', 'leader', 'items.resourceItem'])),
+                'data' => new ResourceAllocationResource($resource->load(['meeting', 'assignedBy', 'leader', 'items.resourceItem'])),
                 'message' => 'Asignación de recursos creada exitosamente'
             ], 201);
             
@@ -168,7 +168,7 @@ class ResourceAllocationController extends Controller
     {
         // Cargar relaciones solicitadas
         $includes = request()->input('include', '');
-        $allowedIncludes = ['meeting', 'allocatedBy', 'leader', 'assignedTo', 'items', 'items.resourceItem'];
+        $allowedIncludes = ['meeting', 'assignedBy', 'leader', 'assignedTo', 'items', 'items.resourceItem'];
         
         if ($includes) {
             $requestedIncludes = explode(',', $includes);
@@ -191,7 +191,7 @@ class ResourceAllocationController extends Controller
         $resourceAllocation->update($request->validated());
 
         return response()->json([
-            'data' => new ResourceAllocationResource($resourceAllocation->load(['meeting', 'allocatedBy', 'leader'])),
+            'data' => new ResourceAllocationResource($resourceAllocation->load(['meeting', 'assignedBy', 'leader'])),
             'message' => 'Resource allocation updated successfully'
         ]);
     }
@@ -214,7 +214,7 @@ class ResourceAllocationController extends Controller
     public function byMeeting(Meeting $meeting): JsonResponse
     {
         $resources = $meeting->resourceAllocations()
-            ->with(['allocatedBy', 'leader', 'items.resourceItem'])
+            ->with(['assignedBy', 'leader', 'items.resourceItem'])
             ->get();
 
         // Calcular totales del sistema legacy
@@ -243,7 +243,7 @@ class ResourceAllocationController extends Controller
     public function byLeader(User $user): JsonResponse
     {
         $resources = ResourceAllocation::where('leader_user_id', $user->id)
-            ->with(['meeting', 'allocatedBy', 'items.resourceItem'])
+            ->with(['meeting', 'assignedBy', 'items.resourceItem'])
             ->paginate(request('per_page', 15));
 
         // Calcular totales del sistema legacy
