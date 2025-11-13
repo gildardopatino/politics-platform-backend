@@ -22,7 +22,7 @@ class EmailNotificationService
         try {
             $message = $this->buildWelcomeMessage($name, $email, $password);
             
-            return $this->sendEmail($email, $message, $userToken);
+            return $this->sendEmail($email, $message, $userToken, 'Bienvenido a Campaign Manager - Cuenta Creada');
         } catch (\Exception $e) {
             Log::error('Failed to send welcome email', [
                 'email' => $email,
@@ -38,24 +38,32 @@ class EmailNotificationService
      * @param string $email Recipient email
      * @param string $message Email message (HTML)
      * @param string $userToken JWT token of the authenticated user making the request
+     * @param string|null $subject Email subject (optional)
      */
-    public function sendEmail(string $email, string $message, string $userToken): bool
+    public function sendEmail(string $email, string $message, string $userToken, ?string $subject = null): bool
     {
         try {
             Log::info('Attempting to send email via webhook', [
                 'email' => $email,
                 'webhook_url' => $this->webhookUrl,
-                'token_length' => strlen($userToken)
+                'token_length' => strlen($userToken),
+                'subject' => $subject
             ]);
+            
+            $payload = [
+                'email' => $email,
+                'message' => $message,
+            ];
+            
+            if ($subject !== null) {
+                $payload['subject'] = $subject;
+            }
             
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . $userToken,
                 'Content-Type' => 'application/json',
                 'Accept' => 'application/json',
-            ])->post($this->webhookUrl, [
-                'email' => $email,
-                'message' => $message,
-            ]);
+            ])->post($this->webhookUrl, $payload);
 
             Log::info('Email webhook response received', [
                 'email' => $email,

@@ -44,6 +44,7 @@ use App\Http\Controllers\Api\V1\UserController;
 use App\Http\Controllers\Api\V1\VeredaController;
 use App\Http\Controllers\Api\V1\VoterController;
 use App\Http\Controllers\Api\V1\MercadoPagoController;
+use App\Http\Controllers\Api\V1\PasswordResetController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -56,6 +57,9 @@ Route::prefix('v1')->group(function () {
     
     // Public routes
     Route::post('/login', [AuthController::class, 'login']);
+    // Password reset (forgot + reset via n8n email webhook)
+    Route::post('/password/forgot', [PasswordResetController::class, 'forgot']);
+    Route::post('/password/reset', [PasswordResetController::class, 'reset']);
     Route::get('/meetings/public/{qr_code}', [MeetingController::class, 'getPublicInfo']);
     Route::get('/meetings/check-in/{qr_code}', [MeetingController::class, 'showByQR']);
     Route::post('/meetings/check-in/{qr_code}', [MeetingController::class, 'checkIn']);
