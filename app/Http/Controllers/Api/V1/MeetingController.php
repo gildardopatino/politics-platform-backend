@@ -28,10 +28,10 @@ class MeetingController extends Controller
     {
         $meetings = QueryBuilder::for(Meeting::class)
             ->allowedFilters(['title', 'status', 'department_id', 'municipality_id', 'commune_id', 'barrio_id'])
-            ->allowedIncludes(['planner', 'template', 'attendees', 'commitments', 'department', 'municipality', 'commune', 'barrio', 'corregimiento', 'vereda'])
+            ->allowedIncludes(['planner', 'template', 'attendees', 'commitments', 'department', 'municipality', 'commune', 'barrio', 'corregimiento', 'vereda', 'resourceAllocations'])
             ->allowedSorts(['starts_at', 'created_at', 'title', 'status'])
             ->with(['planner', 'department', 'municipality', 'commune', 'barrio', 'template'])
-            ->withCount(['attendees', 'commitments'])
+            ->withCount(['attendees', 'commitments', 'resourceAllocations'])
             ->paginate(request('per_page', 15));
 
         return response()->json([
@@ -101,7 +101,7 @@ class MeetingController extends Controller
      */
     public function show(Meeting $meeting): JsonResponse
     {
-        $meeting->load(['planner', 'template', 'attendees', 'commitments', 'department', 'municipality', 'commune', 'barrio', 'corregimiento', 'vereda', 'activeReminder']);
+        $meeting->load(['planner', 'template', 'attendees', 'commitments', 'department', 'municipality', 'commune', 'barrio', 'corregimiento', 'vereda', 'activeReminder', 'resourceAllocations.items.resourceItem']);
         
         return response()->json([
             'data' => new MeetingResource($meeting)

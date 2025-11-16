@@ -120,6 +120,11 @@ class Meeting extends Model implements Auditable
         return $this->hasOne(MeetingReminder::class)->whereIn('status', ['pending', 'processing'])->latest();
     }
 
+    public function resourceAllocations()
+    {
+        return $this->hasMany(ResourceAllocation::class);
+    }
+
     // Scopes
     public function scopeUpcoming($query)
     {

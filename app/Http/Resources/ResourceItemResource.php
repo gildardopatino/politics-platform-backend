@@ -23,6 +23,8 @@ class ResourceItemResource extends JsonResource
             'unit_cost' => $this->unit_cost,
             'currency' => $this->currency,
             'stock_quantity' => $this->stock_quantity,
+            'reserved_quantity' => $this->reserved_quantity,
+            'available_quantity' => $this->available_quantity,
             'min_stock' => $this->min_stock,
             'supplier' => $this->supplier,
             'supplier_contact' => $this->supplier_contact,

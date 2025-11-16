@@ -32,6 +32,7 @@ class Lead extends Model
         'direccion_votacion',
         'latitud',
         'longitud',
+        'genero'
     ];
 
     protected $casts = [

@@ -81,6 +81,33 @@ class ResourceAllocationController extends Controller
         try {
             $validated = $request->validated();
             
+            // Si hay items, validar stock disponible ANTES de crear la asignación
+            if (isset($validated['items']) && is_array($validated['items'])) {
+                foreach ($validated['items'] as $itemData) {
+                    $resourceItem = ResourceItem::find($itemData['resource_item_id']);
+                    
+                    if (!$resourceItem) {
+                        DB::rollBack();
+                        return response()->json([
+                            'message' => 'Recurso no encontrado',
+                            'resource_item_id' => $itemData['resource_item_id']
+                        ], 404);
+                    }
+                    
+                    if (!$resourceItem->hasAvailableStock($itemData['quantity'])) {
+                        DB::rollBack();
+                        return response()->json([
+                            'message' => "Stock insuficiente para '{$resourceItem->name}'",
+                            'resource' => $resourceItem->name,
+                            'requested' => $itemData['quantity'],
+                            'available' => $resourceItem->available_quantity,
+                            'in_stock' => $resourceItem->stock_quantity,
+                            'reserved' => $resourceItem->reserved_quantity
+                        ], 422);
+                    }
+                }
+            }
+            
             // Preparar datos para la asignación
             $allocationData = [
                 'tenant_id' => app('tenant')->id,
@@ -121,12 +148,15 @@ class ResourceAllocationController extends Controller
 
             $resource = ResourceAllocation::create($allocationData);
 
-            // Si hay items, crearlos
+            // Si hay items, crearlos y RESERVAR el stock
             if (isset($validated['items']) && is_array($validated['items'])) {
                 $totalCost = 0;
                 
                 foreach ($validated['items'] as $itemData) {
                     $resourceItem = ResourceItem::find($itemData['resource_item_id']);
+                    
+                    // Reservar el stock
+                    $resourceItem->reserveStock($itemData['quantity']);
                     
                     $allocationItem = ResourceAllocationItem::create([
                         'resource_allocation_id' => $resource->id,
@@ -188,12 +218,95 @@ class ResourceAllocationController extends Controller
      */
     public function update(UpdateResourceAllocationRequest $request, ResourceAllocation $resourceAllocation): JsonResponse
     {
-        $resourceAllocation->update($request->validated());
+        DB::beginTransaction();
+        try {
+            $validated = $request->validated();
+            $oldStatus = $resourceAllocation->status;
+            $newStatus = $validated['status'] ?? $oldStatus;
 
-        return response()->json([
-            'data' => new ResourceAllocationResource($resourceAllocation->load(['meeting', 'assignedBy', 'leader'])),
-            'message' => 'Resource allocation updated successfully'
-        ]);
+            // Si cambia el estado, gestionar el inventario
+            if ($oldStatus !== $newStatus && $resourceAllocation->items()->exists()) {
+                
+                // De pending a delivered: Descontar del stock y liberar reserva
+                if ($oldStatus === 'pending' && $newStatus === 'delivered') {
+                    foreach ($resourceAllocation->items as $item) {
+                        $resourceItem = $item->resourceItem;
+                        
+                        // Liberar la reserva
+                        $resourceItem->releaseReservedStock($item->quantity);
+                        
+                        // Descontar del stock
+                        if (!$resourceItem->decreaseStock($item->quantity)) {
+                            DB::rollBack();
+                            return response()->json([
+                                'message' => "No hay suficiente stock para descontar '{$resourceItem->name}'",
+                                'resource' => $resourceItem->name,
+                                'needed' => $item->quantity,
+                                'available' => $resourceItem->stock_quantity
+                            ], 422);
+                        }
+                        
+                        // Actualizar estado del item
+                        $item->update(['status' => 'delivered']);
+                    }
+                }
+                
+                // De delivered a returned: Devolver al stock
+                elseif ($oldStatus === 'delivered' && $newStatus === 'returned') {
+                    foreach ($resourceAllocation->items as $item) {
+                        $resourceItem = $item->resourceItem;
+                        
+                        // Devolver al stock
+                        $resourceItem->increaseStock($item->quantity);
+                        
+                        // Actualizar estado del item
+                        $item->update(['status' => 'returned']);
+                    }
+                }
+                
+                // De pending a cancelled: Liberar reserva
+                elseif ($oldStatus === 'pending' && $newStatus === 'cancelled') {
+                    foreach ($resourceAllocation->items as $item) {
+                        $resourceItem = $item->resourceItem;
+                        
+                        // Liberar la reserva
+                        $resourceItem->releaseReservedStock($item->quantity);
+                        
+                        // Actualizar estado del item
+                        $item->update(['status' => 'cancelled']);
+                    }
+                }
+                
+                // Otros cambios no permitidos
+                elseif ($oldStatus !== $newStatus) {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => "Cambio de estado no permitido: {$oldStatus} -> {$newStatus}",
+                        'allowed_transitions' => [
+                            'pending -> delivered',
+                            'pending -> cancelled',
+                            'delivered -> returned'
+                        ]
+                    ], 422);
+                }
+            }
+
+            $resourceAllocation->update($validated);
+
+            DB::commit();
+
+            return response()->json([
+                'data' => new ResourceAllocationResource($resourceAllocation->load(['meeting', 'assignedBy', 'leader', 'items.resourceItem'])),
+                'message' => 'Resource allocation updated successfully'
+            ]);
+            
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Error al actualizar la asignación',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
@@ -201,11 +314,31 @@ class ResourceAllocationController extends Controller
      */
     public function destroy(ResourceAllocation $resourceAllocation): JsonResponse
     {
-        $resourceAllocation->delete();
+        DB::beginTransaction();
+        try {
+            // Si está en pending, liberar las reservas
+            if ($resourceAllocation->status === 'pending' && $resourceAllocation->items()->exists()) {
+                foreach ($resourceAllocation->items as $item) {
+                    $resourceItem = $item->resourceItem;
+                    $resourceItem->releaseReservedStock($item->quantity);
+                }
+            }
 
-        return response()->json([
-            'message' => 'Resource allocation deleted successfully'
-        ]);
+            $resourceAllocation->delete();
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Resource allocation deleted successfully'
+            ]);
+            
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Error al eliminar la asignación',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     /**

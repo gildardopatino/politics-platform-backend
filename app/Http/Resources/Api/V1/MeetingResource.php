@@ -78,6 +78,11 @@ class MeetingResource extends JsonResource
             'commitments' => $this->whenLoaded('commitments', fn() => CommitmentResource::collection($this->commitments)),
             'commitments_count' => $this->whenCounted('commitments'),
             
+            // Recursos asignados
+            'resource_allocations' => $this->whenLoaded('resourceAllocations', fn() => ResourceAllocationResource::collection($this->resourceAllocations)),
+            'resource_allocations_count' => $this->whenCounted('resourceAllocations'),
+            'has_resources' => $this->whenCounted('resourceAllocations', fn() => $this->resource_allocations_count > 0, false),
+            
             // Recordatorio activo
             'active_reminder' => $this->whenLoaded('activeReminder', fn() => new MeetingReminderResource($this->activeReminder)),
             

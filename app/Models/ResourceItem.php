@@ -22,6 +22,7 @@ class ResourceItem extends Model implements Auditable
         'unit_cost',
         'currency',
         'stock_quantity',
+        'reserved_quantity',
         'min_stock',
         'supplier',
         'supplier_contact',
@@ -32,6 +33,7 @@ class ResourceItem extends Model implements Auditable
     protected $casts = [
         'unit_cost' => 'decimal:2',
         'stock_quantity' => 'integer',
+        'reserved_quantity' => 'integer',
         'min_stock' => 'integer',
         'metadata' => 'array',
         'is_active' => 'boolean',
@@ -78,5 +80,46 @@ class ResourceItem extends Model implements Auditable
     public function getFormattedCostAttribute(): string
     {
         return number_format($this->unit_cost, 2) . ' ' . $this->currency;
+    }
+
+    public function getAvailableQuantityAttribute(): int
+    {
+        return max(0, $this->stock_quantity - $this->reserved_quantity);
+    }
+
+    // Methods for inventory management
+    public function hasAvailableStock(int $quantity): bool
+    {
+        return $this->getAvailableQuantityAttribute() >= $quantity;
+    }
+
+    public function reserveStock(int $quantity): bool
+    {
+        if (!$this->hasAvailableStock($quantity)) {
+            return false;
+        }
+
+        $this->increment('reserved_quantity', $quantity);
+        return true;
+    }
+
+    public function releaseReservedStock(int $quantity): void
+    {
+        $this->decrement('reserved_quantity', min($quantity, $this->reserved_quantity));
+    }
+
+    public function decreaseStock(int $quantity): bool
+    {
+        if ($this->stock_quantity < $quantity) {
+            return false;
+        }
+
+        $this->decrement('stock_quantity', $quantity);
+        return true;
+    }
+
+    public function increaseStock(int $quantity): void
+    {
+        $this->increment('stock_quantity', $quantity);
     }
 }
