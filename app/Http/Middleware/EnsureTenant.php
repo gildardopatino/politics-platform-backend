@@ -2,6 +2,8 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\Tenant;
+use App\Scopes\TenantScope;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -36,7 +38,7 @@ class EnsureTenant
             ], 403);
         }
 
-        $tenant = \App\Models\Tenant::withoutGlobalScope(\App\Scopes\TenantScope::class)->find($user->tenant_id);
+        $tenant = Tenant::withoutGlobalScope(TenantScope::class)->find($user->tenant_id);
 
         if (!$tenant) {
             return response()->json([

@@ -26,6 +26,7 @@ $votingData = [
     'ciudad' => 'IBAGUE',
     'puesto' => 'IE JOSE CELESTINO MUTIS SEDE 2',
     'mesa' => '9',
+    'direccion' => 'CARRERA 5 # 28-75',
 ];
 
 echo "Configuration:\n";
@@ -51,7 +52,7 @@ try {
     echo "[1] Generating image...\n";
     $imageUrl = $imageService->generateVotingPlaceImage($cedula, $votingData);
     echo "✓ Image generated: {$imageUrl}\n\n";
-    
+    exit;
     echo "[2] Sending via WhatsApp to {$phone}...\n";
     $success = $imageService->sendVotingPlaceImageWhatsApp(
         $phone,
@@ -59,6 +60,7 @@ try {
         $votingData,
         $tenantId
     );
+    
     
     if ($success) {
         echo "✓ Image sent successfully!\n";

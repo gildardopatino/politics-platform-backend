@@ -46,6 +46,7 @@ use App\Http\Controllers\Api\V1\VeredaController;
 use App\Http\Controllers\Api\V1\VoterController;
 use App\Http\Controllers\Api\V1\MercadoPagoController;
 use App\Http\Controllers\Api\V1\PasswordResetController;
+use App\Http\Controllers\Api\V1\VotingPlaceController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -66,6 +67,10 @@ Route::prefix('v1')->group(function () {
     Route::post('/meetings/check-in/{qr_code}', [MeetingController::class, 'checkIn']);
     Route::get('/barrios/search/by-name', [BarrioController::class, 'search']);
     Route::get('/verify-document', [VoterController::class, 'verifyDocument']);
+    
+    // Voting Place Image Generation (public)
+    Route::post('/voting-place/generate-image', [VotingPlaceController::class, 'generateImage']);
+    Route::post('/voting-place/send-whatsapp', [VotingPlaceController::class, 'sendWhatsApp']);
     
     // MercadoPago Webhook (public - must be outside authentication)
     Route::post('/mercadopago/webhook', [MercadoPagoController::class, 'webhook']);

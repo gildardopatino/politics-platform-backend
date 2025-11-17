@@ -49,19 +49,22 @@ class VotingPlaceImageService
             // These positions are estimates and may need fine-tuning based on actual image
             
             // C.C (Cédula) - Top left area
-            $this->addText($img, "C.C: {$cedula}", 150, 330, 28, '#000000', $fontFile, $useCustomFont);
+            $this->addText($img, "{$cedula}", 610, 320, 40, '#000000', $fontFile, $useCustomFont);
             
             // Departamento - Below cedula
-            $this->addText($img, "Departamento: {$data['departamento']}", 150, 380, 26, '#000000', $fontFile, $useCustomFont);
+            $this->addText($img, "{$data['departamento']}", 170, 425, 50, '#000000', $fontFile, $useCustomFont);
             
             // Ciudad/Municipio - Below departamento
-            $this->addText($img, "Ciudad: {$data['ciudad']}", 150, 420, 26, '#000000', $fontFile, $useCustomFont);
+            $this->addText($img, "{$data['ciudad']}", 170, 560, 50, '#000000', $fontFile, $useCustomFont);
+
+            // Direccion Votacion - Below Municpio
+            $this->addText($img, "{$data['direccion']}", 90, 695, 36, '#000000', $fontFile, $useCustomFont);
             
             // Puesto de votación - Below ciudad
-            $this->addText($img, "Puesto: {$data['puesto']}", 150, 460, 22, '#000000', $fontFile, $useCustomFont);
+            $this->addText($img, "{$data['puesto']}", 560, 460, 26, '#000000', $fontFile, $useCustomFont);
             
             // Mesa - Larger and highlighted
-            $this->addText($img, "MESA: {$data['mesa']}", 150, 510, 40, '#000000', $fontFile, $useCustomFont, 'bold');
+            $this->addText($img, "{$data['mesa']}", 680, 580, 50, '#000000', $fontFile, $useCustomFont, 'bold');
 
             // Save generated image
             $directory = 'images/votaciones';
