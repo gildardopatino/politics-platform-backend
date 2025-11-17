@@ -26,6 +26,7 @@ class ResourceAllocation extends Model
         'details',
         'allocation_date',
         'notes',
+        'cash_purpose',
         'status',
     ];
 

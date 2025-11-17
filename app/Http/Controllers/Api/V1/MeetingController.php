@@ -13,6 +13,7 @@ use App\Models\Meeting;
 use App\Models\MeetingReminder;
 use App\Services\AttendeeHierarchyService;
 use App\Services\QRCodeService;
+use App\Services\WhatsAppNotificationService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -48,7 +49,7 @@ class MeetingController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    public function store(StoreMeetingRequest $request, QRCodeService $qrCodeService, AttendeeHierarchyService $hierarchyService): JsonResponse
+    public function store(StoreMeetingRequest $request, QRCodeService $qrCodeService, AttendeeHierarchyService $hierarchyService, WhatsAppNotificationService $whatsappService): JsonResponse
     {
         try {
             /** @var \App\Models\User $user */
@@ -80,9 +81,17 @@ class MeetingController extends Controller
                 $this->createReminder($meeting, $request->input('reminder'), $user);
             }
 
+            // Send WhatsApp notification to planner
+            $whatsappSent = false;
+            $meeting->load('planner');
+            if ($meeting->planner && $meeting->planner->phone) {
+                $whatsappSent = $this->sendMeetingAssignmentNotification($meeting, $whatsappService, $user);
+            }
+
             return response()->json([
                 'data' => new MeetingResource($meeting->load(['planner', 'department', 'municipality', 'commune', 'barrio', 'template', 'activeReminder'])),
-                'message' => 'Meeting created successfully'
+                'message' => 'Meeting created successfully',
+                'whatsapp_notification_sent' => $whatsappSent,
             ], 201);
         } catch (\Exception $e) {
             Log::error('Error creating meeting', [
@@ -583,6 +592,54 @@ class MeetingController extends Controller
                 'error' => $e->getMessage(),
             ]);
             return null;
+        }
+    }
+
+    /**
+     * Send WhatsApp notification to planner when meeting is assigned
+     */
+    private function sendMeetingAssignmentNotification(Meeting $meeting, WhatsAppNotificationService $whatsappService, \App\Models\User $user): bool
+    {
+        try {
+            $meetingDate = \Carbon\Carbon::parse($meeting->datetime)->format('d/m/Y H:i');
+            
+            $message = "🗓️ *Nueva Reunión Asignada*\n\n";
+            $message .= "*Título:* {$meeting->title}\n";
+            $message .= "*Fecha:* {$meetingDate}\n";
+            
+            if ($meeting->location) {
+                $message .= "*Lugar:* {$meeting->location}\n";
+            }
+            
+            $message .= "\nHas sido asignado como *planificador* de esta reunión.";
+
+            $success = $whatsappService->sendMessage(
+                $meeting->planner->phone,
+                $message,
+                config('services.n8n.auth_token')
+            );
+
+            if ($success) {
+                // Descontar crédito de WhatsApp
+                $tenantCredit = \App\Models\TenantMessagingCredit::where('tenant_id', $meeting->tenant_id)->first();
+                if ($tenantCredit) {
+                    $tenantCredit->consumeWhatsApp(1, "Meeting assignment notification to planner #{$meeting->planner_user_id} for meeting #{$meeting->id}");
+                }
+
+                Log::info('Meeting assignment notification sent', [
+                    'meeting_id' => $meeting->id,
+                    'planner_id' => $meeting->planner_user_id,
+                ]);
+            }
+            
+            return $success;
+        } catch (\Exception $e) {
+            Log::error('Failed to send meeting assignment notification', [
+                'meeting_id' => $meeting->id,
+                'planner_id' => $meeting->planner_user_id,
+                'error' => $e->getMessage(),
+            ]);
+            return false;
         }
     }
 }

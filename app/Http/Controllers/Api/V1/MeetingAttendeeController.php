@@ -35,6 +35,77 @@ class MeetingAttendeeController extends Controller
     }
 
     /**
+     * Search attendees by cedula or name
+     */
+    public function search(Meeting $meeting): JsonResponse
+    {
+        $search = request('search');
+
+        if (!$search) {
+            return response()->json([
+                'data' => [],
+                'message' => 'Search parameter is required'
+            ], 400);
+        }
+
+        $attendees = $meeting->attendees()
+            ->where(function ($query) use ($search) {
+                $query->where('cedula', 'like', "%{$search}%")
+                    ->orWhere('nombres', 'ilike', "%{$search}%")
+                    ->orWhere('apellidos', 'ilike', "%{$search}%");
+            })
+            ->when(request('checked_in'), fn($q) => 
+                request('checked_in') === 'true' ? $q->checkedIn() : $q->notCheckedIn()
+            )
+            ->limit(50)
+            ->get();
+
+        return response()->json([
+            'data' => MeetingAttendeeResource::collection($attendees),
+            'meta' => [
+                'total' => $attendees->count(),
+                'search_term' => $search,
+            ]
+        ]);
+    }
+
+    /**
+     * Search all attendees (across all meetings) by cedula or name
+     * Returns unique attendees (no duplicates)
+     */
+    public function searchAll(): JsonResponse
+    {
+        $search = request('search');
+
+        if (!$search) {
+            return response()->json([
+                'data' => [],
+                'message' => 'Search parameter is required'
+            ], 400);
+        }
+
+        // Buscar asistentes únicos por cedula, nombres y apellidos
+        // Agrupar por cedula para evitar duplicados
+        $attendees = MeetingAttendee::select('cedula', 'nombres', 'apellidos', 'telefono', 'email')
+            ->where(function ($query) use ($search) {
+                $query->where('cedula', 'like', "%{$search}%")
+                    ->orWhere('nombres', 'ilike', "%{$search}%")
+                    ->orWhere('apellidos', 'ilike', "%{$search}%");
+            })
+            ->groupBy('cedula', 'nombres', 'apellidos', 'telefono', 'email')
+            ->limit(50)
+            ->get();
+
+        return response()->json([
+            'data' => $attendees,
+            'meta' => [
+                'total' => $attendees->count(),
+                'search_term' => $search,
+            ]
+        ]);
+    }
+
+    /**
      * Store a newly created resource in storage.
      */
     public function store(Request $request, Meeting $meeting): JsonResponse

@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Commitment\StoreCommitmentRequest;
 use App\Http\Requests\Api\V1\Commitment\UpdateCommitmentRequest;
 use App\Http\Resources\Api\V1\CommitmentResource;
+use App\Jobs\SendCommitmentReminderJob;
 use App\Models\Commitment;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Log;
 use Spatie\QueryBuilder\QueryBuilder;
 
 class CommitmentController extends Controller
@@ -49,9 +51,13 @@ class CommitmentController extends Controller
             ...$request->validated()
         ]);
 
+        // Programar notificaciones de WhatsApp
+        $whatsappSent = $this->scheduleCommitmentReminders($commitment);
+
         return response()->json([
             'data' => new CommitmentResource($commitment->load(['meeting', 'assignedUser', 'priority'])),
-            'message' => 'Commitment created successfully'
+            'message' => 'Commitment created successfully',
+            'whatsapp_notification_sent' => $whatsappSent,
         ], 201);
     }
 
@@ -149,5 +155,64 @@ class CommitmentController extends Controller
                 'last_page' => $commitments->lastPage(),
             ]
         ]);
+    }
+
+    /**
+     * Schedule all WhatsApp reminders for a commitment
+     * Sends immediate assignment notification and schedules future reminders
+     */
+    private function scheduleCommitmentReminders(Commitment $commitment): bool
+    {
+        // Reload with relationships
+        $commitment->load(['assignedUser', 'priority']);
+
+        // Check if assigned user has phone
+        if (!$commitment->assignedUser || !$commitment->assignedUser->phone) {
+            Log::info("Commitment {$commitment->id}: No phone number for assigned user, skipping WhatsApp notifications");
+            return false;
+        }
+
+        $now = now();
+        $dueDate = \Carbon\Carbon::parse($commitment->due_date);
+        $totalDays = $now->diffInDays($dueDate);
+
+        // Dispatch immediate assignment notification
+        try {
+            SendCommitmentReminderJob::dispatch($commitment, 'assignment');
+            Log::info("Commitment {$commitment->id}: Assignment notification dispatched");
+        } catch (\Exception $e) {
+            Log::error("Commitment {$commitment->id}: Failed to dispatch assignment notification", [
+                'error' => $e->getMessage()
+            ]);
+            return false;
+        }
+
+        // Schedule future reminders only if there's enough time (more than 2 days)
+        if ($totalDays > 2) {
+            // 50% reminder - halfway through the time period
+            $fiftyPercentDate = $now->copy()->addDays((int) ($totalDays * 0.5));
+            SendCommitmentReminderJob::dispatch($commitment, '50_percent')->delay($fiftyPercentDate);
+            Log::info("Commitment {$commitment->id}: 50% reminder scheduled for {$fiftyPercentDate}");
+
+            // 25% reminder - at 75% of time elapsed (25% remaining)
+            $twentyFivePercentDate = $now->copy()->addDays((int) ($totalDays * 0.75));
+            SendCommitmentReminderJob::dispatch($commitment, '25_percent')->delay($twentyFivePercentDate);
+            Log::info("Commitment {$commitment->id}: 25% reminder scheduled for {$twentyFivePercentDate}");
+        } else {
+            Log::info("Commitment {$commitment->id}: Due in {$totalDays} days, skipping intermediate reminders");
+        }
+
+        // Due date reminder - on the due date at 8:00 AM
+        $dueDateReminder = $dueDate->copy()->setTime(8, 0);
+        
+        // Only schedule if due date is in the future
+        if ($dueDateReminder->isFuture()) {
+            SendCommitmentReminderJob::dispatch($commitment, 'due_date')->delay($dueDateReminder);
+            Log::info("Commitment {$commitment->id}: Due date reminder scheduled for {$dueDateReminder}");
+        } else {
+            Log::info("Commitment {$commitment->id}: Due date is today or past, skipping due date reminder");
+        }
+
+        return true; // Assignment notification was dispatched
     }
 }

@@ -97,7 +97,13 @@ class TenantController extends Controller
     public function show(Tenant $tenant): JsonResponse
     {
         return response()->json([
-            'data' => new TenantResource($tenant->load(['users', 'meetings', 'campaigns', 'messagingCredit']))
+            'data' => new TenantResource($tenant->load([
+                'users', 
+                'meetings', 
+                'campaigns', 
+                'messagingCredit',
+                'whatsappInstances'
+            ]))
         ]);
     }
 
@@ -109,7 +115,10 @@ class TenantController extends Controller
         $tenant->update($request->validated());
 
         return response()->json([
-            'data' => new TenantResource($tenant->load('messagingCredit')),
+            'data' => new TenantResource($tenant->load([
+                'messagingCredit',
+                'whatsappInstances'
+            ])),
             'message' => 'Tenant updated successfully'
         ]);
     }

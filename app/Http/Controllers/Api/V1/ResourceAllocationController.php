@@ -11,8 +11,10 @@ use App\Models\ResourceAllocation;
 use App\Models\ResourceAllocationItem;
 use App\Models\ResourceItem;
 use App\Models\User;
+use App\Services\WhatsAppNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Spatie\QueryBuilder\QueryBuilder;
 
 class ResourceAllocationController extends Controller
@@ -75,7 +77,7 @@ class ResourceAllocationController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    public function store(StoreResourceAllocationRequest $request): JsonResponse
+    public function store(StoreResourceAllocationRequest $request, WhatsAppNotificationService $whatsappService): JsonResponse
     {
         DB::beginTransaction();
         try {
@@ -175,11 +177,23 @@ class ResourceAllocationController extends Controller
                 $resource->update(['total_cost' => $totalCost]);
             }
 
+            // Enviar notificación de WhatsApp al planificador si la asignación está asociada a una reunión
+            $whatsappSent = false;
+            if ($resource->meeting_id) {
+                $resource->load(['meeting.planner', 'items.resourceItem']);
+                $meeting = $resource->meeting;
+                
+                if ($meeting && $meeting->planner && $meeting->planner->phone) {
+                    $whatsappSent = $this->sendResourceAssignmentNotification($resource, $meeting, $whatsappService, auth('api')->user());
+                }
+            }
+
             DB::commit();
 
             return response()->json([
                 'data' => new ResourceAllocationResource($resource->load(['meeting', 'assignedBy', 'leader', 'items.resourceItem'])),
-                'message' => 'Asignación de recursos creada exitosamente'
+                'message' => 'Asignación de recursos creada exitosamente',
+                'whatsapp_notification_sent' => $whatsappSent,
             ], 201);
             
         } catch (\Exception $e) {
@@ -401,5 +415,72 @@ class ResourceAllocationController extends Controller
                 'grand_total' => $totalCash + $totalMaterial + $totalService + $totalFromItems,
             ]
         ]);
+    }
+
+    /**
+     * Send WhatsApp notification to planner when resources are assigned
+     */
+    private function sendResourceAssignmentNotification(
+        ResourceAllocation $allocation, 
+        Meeting $meeting, 
+        WhatsAppNotificationService $whatsappService, 
+        \App\Models\User $user
+    ): bool
+    {
+        try {
+            $meetingDate = \Carbon\Carbon::parse($meeting->datetime)->format('d/m/Y H:i');
+            
+            $message = "📦 *Recursos Asignados*\n\n";
+            $message .= "*Reunión:* {$meeting->title}\n";
+            $message .= "*Fecha:* {$meetingDate}\n";
+            
+            if ($allocation->title) {
+                $message .= "*Asignación:* {$allocation->title}\n";
+            }
+            
+            $message .= "\n*Recursos:*\n";
+            foreach ($allocation->items as $item) {
+                $message .= "• {$item->resourceItem->name} (x{$item->quantity})\n";
+            }
+            
+            if ($allocation->total_cost > 0) {
+                $message .= "\n*Costo Total:* $" . number_format($allocation->total_cost, 0, ',', '.');
+            }
+            
+            if ($allocation->allocation_date) {
+                $deliveryDate = \Carbon\Carbon::parse($allocation->allocation_date)->format('d/m/Y');
+                $message .= "\n*Fecha de entrega:* {$deliveryDate}";
+            }
+
+            $success = $whatsappService->sendMessage(
+                $meeting->planner->phone,
+                $message,
+                config('services.n8n.auth_token')
+            );
+
+            if ($success) {
+                // Descontar crédito de WhatsApp
+                $tenantCredit = \App\Models\TenantMessagingCredit::where('tenant_id', $meeting->tenant_id)->first();
+                if ($tenantCredit) {
+                    $tenantCredit->consumeWhatsApp(1, "Resource assignment notification to planner #{$meeting->planner_user_id} for meeting #{$meeting->id}");
+                }
+
+                Log::info('Resource assignment notification sent', [
+                    'allocation_id' => $allocation->id,
+                    'meeting_id' => $meeting->id,
+                    'planner_id' => $meeting->planner_user_id,
+                ]);
+            }
+            
+            return $success;
+        } catch (\Exception $e) {
+            Log::error('Failed to send resource assignment notification', [
+                'allocation_id' => $allocation->id,
+                'meeting_id' => $meeting->id,
+                'planner_id' => $meeting->planner_user_id ?? null,
+                'error' => $e->getMessage(),
+            ]);
+            return false;
+        }
     }
 }

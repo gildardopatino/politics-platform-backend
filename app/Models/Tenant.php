@@ -154,6 +154,16 @@ class Tenant extends Model
         return $this->hasMany(MessagingCreditOrder::class);
     }
 
+    public function whatsappInstances()
+    {
+        return $this->hasMany(TenantWhatsAppInstance::class);
+    }
+
+    public function activeWhatsappInstances()
+    {
+        return $this->hasMany(TenantWhatsAppInstance::class)->where('is_active', true);
+    }
+
     public function campaigns()
     {
         return $this->hasMany(Campaign::class);

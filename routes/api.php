@@ -29,6 +29,7 @@ use App\Http\Controllers\Api\V1\MunicipalityController;
 use App\Http\Controllers\Api\V1\OrganizationController;
 use App\Http\Controllers\Api\V1\PriorityController;
 use App\Http\Controllers\Api\V1\ReportController;
+use App\Http\Controllers\Api\V1\TenantWhatsAppInstanceController;
 use App\Http\Controllers\Api\V1\ResourceAllocationController;
 use App\Http\Controllers\Api\V1\ResourceItemController;
 use App\Http\Controllers\Api\V1\ResourceAllocationItemController;
@@ -94,6 +95,22 @@ Route::prefix('v1')->group(function () {
         Route::middleware('superadmin')->group(function () {
             Route::post('/register', [AuthController::class, 'register']);
             Route::apiResource('tenants', TenantController::class);
+            
+            // WhatsApp instances management - nested under tenants for super admin
+            // Using tenantId to accept numeric ID instead of slug
+            Route::prefix('tenants/{tenantId}')->group(function () {
+                Route::get('/whatsapp-instances', [TenantWhatsAppInstanceController::class, 'index']);
+                Route::post('/whatsapp-instances', [TenantWhatsAppInstanceController::class, 'store']);
+                Route::get('/whatsapp-instances/{instance}', [TenantWhatsAppInstanceController::class, 'show']);
+                Route::put('/whatsapp-instances/{instance}', [TenantWhatsAppInstanceController::class, 'update']);
+                Route::delete('/whatsapp-instances/{instance}', [TenantWhatsAppInstanceController::class, 'destroy']);
+                Route::post('/whatsapp-instances/{instance}/toggle-active', [TenantWhatsAppInstanceController::class, 'toggleActive']);
+                Route::post('/whatsapp-instances/{instance}/reset-counter', [TenantWhatsAppInstanceController::class, 'resetCounter']);
+                Route::get('/whatsapp-instances/{instance}/statistics', [TenantWhatsAppInstanceController::class, 'statistics']);
+            });
+            
+            // Also allow listing all instances across all tenants
+            Route::get('/whatsapp-instances', [TenantWhatsAppInstanceController::class, 'index']);
         });
 
         // Tenant-scoped routes (with expiration check)
@@ -128,7 +145,9 @@ Route::prefix('v1')->group(function () {
             Route::get('/meetings/{meeting}/qr-code', [MeetingController::class, 'getQRCode']);
             
             // Meeting Attendees
+            Route::get('/attendees/search', [MeetingAttendeeController::class, 'searchAll']);
             Route::get('/meetings/{meeting}/attendees', [MeetingAttendeeController::class, 'index']);
+            Route::get('/meetings/{meeting}/attendees/search', [MeetingAttendeeController::class, 'search']);
             Route::post('/meetings/{meeting}/attendees', [MeetingAttendeeController::class, 'store']);
             Route::get('/attendees/{attendee}', [MeetingAttendeeController::class, 'show']);
             Route::put('/attendees/{attendee}', [MeetingAttendeeController::class, 'update']);

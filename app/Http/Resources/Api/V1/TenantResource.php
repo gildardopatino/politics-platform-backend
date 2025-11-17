@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\Api\V1;
 
+use App\Http\Resources\TenantWhatsAppInstanceResource;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -63,6 +64,19 @@ class TenantResource extends JsonResource
                         'last_transaction_at' => $this->messagingCredit->updated_at?->toISOString(),
                     ];
                 }
+            ),
+
+            // WhatsApp instances
+            'whatsapp_instances' => $this->when(
+                $this->relationLoaded('whatsappInstances'),
+                function () {
+                    return TenantWhatsAppInstanceResource::collection($this->whatsappInstances);
+                }
+            ),
+            'whatsapp_instances_count' => $this->whenCounted('whatsappInstances'),
+            'active_whatsapp_instances_count' => $this->when(
+                $this->relationLoaded('whatsappInstances'),
+                $this->whatsappInstances->where('is_active', true)->count()
             ),
             
             'created_at' => $this->created_at?->toISOString(),

@@ -30,6 +30,7 @@ class ResourceItemResource extends JsonResource
             'supplier_contact' => $this->supplier_contact,
             'metadata' => $this->metadata,
             'is_active' => $this->is_active,
+            'is_inventory_tracked' => $this->is_inventory_tracked,
             'is_low_stock' => $this->is_low_stock,
             'formatted_cost' => $this->formatted_cost,
             'created_at' => $this->created_at,

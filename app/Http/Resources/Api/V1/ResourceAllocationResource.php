@@ -36,6 +36,7 @@ class ResourceAllocationResource extends JsonResource
             }),
             'allocation_date' => $this->allocation_date?->toDateString(),
             'notes' => $this->notes,
+            'cash_purpose' => $this->cash_purpose,
             'status' => $this->status,
             'total_cost' => $this->total_cost,
             
