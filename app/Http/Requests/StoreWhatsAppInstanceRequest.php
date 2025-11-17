@@ -21,7 +21,8 @@ class StoreWhatsAppInstanceRequest extends FormRequest
      */
     public function rules(): array
     {
-        $tenantId = $this->route('tenant') ? $this->route('tenant')->id : $this->input('tenant_id');
+        // Get tenant_id from route parameter or request body
+        $tenantId = $this->route('tenantId') ?? $this->input('tenant_id');
 
         return [
             'tenant_id' => 'sometimes|required|exists:tenants,id',

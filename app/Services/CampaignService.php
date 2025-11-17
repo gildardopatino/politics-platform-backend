@@ -301,22 +301,11 @@ class CampaignService
             } elseif ($recipient->recipient_type === 'whatsapp') {
                 $campaign = $recipient->campaign;
                 
-                // Use the long-lived token stored with the campaign
-                $token = $campaign->creator_token;
-                
-                if (!$token) {
-                    Log::error('No creator token available for WhatsApp sending', [
-                        'campaign_id' => $campaign->id,
-                        'recipient' => $recipient->recipient_value
-                    ]);
-                    throw new \Exception('No authentication token available');
-                }
-                
                 $whatsappService = app(WhatsAppNotificationService::class);
                 $success = $whatsappService->sendMessage(
                     $recipient->recipient_value,
                     $campaign->message,
-                    $token
+                    $campaign->tenant_id
                 );
                 
                 if (!$success) {

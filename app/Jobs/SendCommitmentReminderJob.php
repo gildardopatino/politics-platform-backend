@@ -56,7 +56,7 @@ class SendCommitmentReminderJob implements ShouldQueue
         $success = $whatsappService->sendMessage(
             $this->commitment->assignedUser->phone,
             $message,
-            config('services.n8n.auth_token')
+            $this->commitment->tenant_id
         );
 
         if ($success) {

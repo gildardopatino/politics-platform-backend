@@ -455,7 +455,7 @@ class ResourceAllocationController extends Controller
             $success = $whatsappService->sendMessage(
                 $meeting->planner->phone,
                 $message,
-                config('services.n8n.auth_token')
+                $meeting->tenant_id
             );
 
             if ($success) {
