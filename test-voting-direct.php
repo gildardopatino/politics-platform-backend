@@ -52,7 +52,6 @@ try {
     echo "[1] Generating image...\n";
     $imageUrl = $imageService->generateVotingPlaceImage($cedula, $votingData);
     echo "✓ Image generated: {$imageUrl}\n\n";
-    exit;
     echo "[2] Sending via WhatsApp to {$phone}...\n";
     $success = $imageService->sendVotingPlaceImageWhatsApp(
         $phone,
