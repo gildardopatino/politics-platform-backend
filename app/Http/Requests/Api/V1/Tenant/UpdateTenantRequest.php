@@ -26,7 +26,7 @@ class UpdateTenantRequest extends FormRequest
         return [
             'slug' => 'sometimes|string|max:255|unique:tenants,slug,' . $tenantId,
             'nombre' => 'sometimes|string|max:255',
-            'tipo_cargo' => 'sometimes|in:Gobernacion,Alcaldia,Concejo,Congresista,Diputado,Otro',
+            'tipo_cargo' => 'sometimes|in:Gobernacion,Alcaldia,Concejo,Congresista,Diputado,Otro,Representante',
             'identificacion' => 'sometimes|string|max:50|unique:tenants,identificacion,' . $tenantId,
             'metadata' => 'nullable|array',
             'start_date' => 'nullable|date',

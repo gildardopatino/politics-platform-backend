@@ -24,7 +24,7 @@ class StoreTenantRequest extends FormRequest
         return [
             'slug' => 'required|string|max:255|unique:tenants,slug',
             'nombre' => 'required|string|max:255',
-            'tipo_cargo' => 'required|in:Gobernacion,Alcaldia,Concejo,Congresista,Diputado,Otro',
+            'tipo_cargo' => 'required|in:Gobernacion,Alcaldia,Concejo,Congresista,Diputado,Otro,Representante',
             'identificacion' => 'required|string|max:50|unique:tenants,identificacion',
             'metadata' => 'nullable|array',
             'start_date' => 'nullable|date',
