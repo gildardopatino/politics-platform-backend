@@ -37,7 +37,7 @@ return new class extends Migration
             $table->string('departamento_votacion')->nullable();
             $table->string('municipio_votacion')->nullable();
             $table->string('puesto_votacion')->nullable();
-            $table->string('direccion_puesto')->nullable();
+            $table->string('direccion_votacion')->nullable();
             $table->string('mesa_votacion', 20)->nullable();
             
             // Flag para indicar que este votante tiene múltiples registros con datos diferentes

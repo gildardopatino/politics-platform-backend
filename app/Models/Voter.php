@@ -30,7 +30,7 @@ class Voter extends Model implements Auditable
         'departamento_votacion',
         'municipio_votacion',
         'puesto_votacion',
-        'direccion_puesto',
+        'direccion_votacion',
         'mesa_votacion',
         'has_multiple_records',
         'created_by',

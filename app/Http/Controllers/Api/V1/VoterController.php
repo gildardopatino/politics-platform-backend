@@ -66,7 +66,7 @@ class VoterController extends Controller
             'departamento_votacion' => 'nullable|string|max:255',
             'municipio_votacion' => 'nullable|string|max:255',
             'puesto_votacion' => 'nullable|string|max:255',
-            'direccion_puesto' => 'nullable|string|max:500',
+            'direccion_votacion' => 'nullable|string|max:500',
             'mesa_votacion' => 'nullable|string|max:20',
         ]);
 
@@ -134,7 +134,7 @@ class VoterController extends Controller
             'departamento_votacion' => 'nullable|string|max:255',
             'municipio_votacion' => 'nullable|string|max:255',
             'puesto_votacion' => 'nullable|string|max:255',
-            'direccion_puesto' => 'nullable|string|max:500',
+            'direccion_votacion' => 'nullable|string|max:500',
             'mesa_votacion' => 'nullable|string|max:20',
             'has_multiple_records' => 'nullable|boolean',
         ]);
@@ -299,5 +299,111 @@ class VoterController extends Controller
             'success' => false,
             'message' => 'No se encontró información para la cédula proporcionada en PISAMI ni en la base de datos local',
         ], 404);
+    }
+
+    /**
+     * Get voters grouped by voting place (puesto_votacion)
+     * Returns count and details per voting place
+     */
+    public function byVotingPlace(): JsonResponse
+    {
+        // Votantes del Tolima agrupados por puesto de votación
+        $votingPlaces = Voter::select('puesto_votacion')
+            ->selectRaw('MIN(direccion_votacion) as direccion_votacion')
+            ->selectRaw('MIN(departamento_votacion) as departamento_votacion')
+            ->selectRaw('MIN(municipio_votacion) as municipio_votacion')
+            ->selectRaw('COUNT(*) as total_votantes')
+            ->whereNotNull('puesto_votacion')
+            ->where('puesto_votacion', '!=', '')
+            ->whereNotNull('departamento_votacion')
+            ->where('departamento_votacion', 'TOLIMA')
+            ->groupBy('puesto_votacion')
+            ->orderBy('puesto_votacion')
+            ->get()
+            ->map(function ($place) {
+                // Obtener los votantes de ese puesto
+                $voters = Voter::select(
+                    'id',
+                    'cedula',
+                    'nombres',
+                    'apellidos',
+                    'email',
+                    'telefono',
+                    'direccion',
+                    'mesa_votacion'
+                )
+                ->where('puesto_votacion', $place->puesto_votacion)
+                ->where('departamento_votacion', 'TOLIMA')
+                ->orderBy('apellidos')
+                ->orderBy('nombres')
+                ->get()
+                ->map(function ($voter) {
+                    return [
+                        'id' => $voter->id,
+                        'cedula' => $voter->cedula,
+                        'nombre_completo' => trim($voter->nombres . ' ' . $voter->apellidos),
+                        'email' => $voter->email,
+                        'telefono' => $voter->telefono,
+                        'direccion' => $voter->direccion,
+                        'mesa_votacion' => $voter->mesa_votacion,
+                    ];
+                });
+
+                return [
+                    'puesto_votacion' => $place->puesto_votacion,
+                    'direccion_votacion' => $place->direccion_votacion,
+                    'departamento_votacion' => $place->departamento_votacion,
+                    'municipio_votacion' => $place->municipio_votacion,
+                    'total_votantes' => $place->total_votantes,
+                    'detalle_votacion' => $voters,
+                ];
+            });
+
+        // Votantes externos (fuera del Tolima)
+        $externalVoters = Voter::select(
+                'id',
+                'cedula',
+                'nombres',
+                'apellidos',
+                'email',
+                'telefono',
+                'direccion',
+                'departamento_votacion',
+                'municipio_votacion',
+                'puesto_votacion',
+                'direccion_votacion',
+                'mesa_votacion'
+            )
+            ->whereNotNull('departamento_votacion')
+            ->where('departamento_votacion', '!=', 'TOLIMA')
+            ->orderBy('departamento_votacion')
+            ->orderBy('municipio_votacion')
+            ->orderBy('apellidos')
+            ->orderBy('nombres')
+            ->get()
+            ->map(function ($voter) {
+                return [
+                    'id' => $voter->id,
+                    'cedula' => $voter->cedula,
+                    'nombre_completo' => trim($voter->nombres . ' ' . $voter->apellidos),
+                    'email' => $voter->email,
+                    'telefono' => $voter->telefono,
+                    'direccion' => $voter->direccion,
+                    'departamento_votacion' => $voter->departamento_votacion,
+                    'municipio_votacion' => $voter->municipio_votacion,
+                    'puesto_votacion' => $voter->puesto_votacion,
+                    'direccion_votacion' => $voter->direccion_votacion,
+                    'mesa_votacion' => $voter->mesa_votacion,
+                ];
+            });
+
+        return response()->json([
+            'success' => true,
+            'data' => $votingPlaces,
+            'total_puestos' => $votingPlaces->count(),
+            'total_votantes_tolima' => $votingPlaces->sum('total_votantes'),
+            'votantes_externos' => $externalVoters,
+            'total_votantes_externos' => $externalVoters->count(),
+        ]);
     }
 }

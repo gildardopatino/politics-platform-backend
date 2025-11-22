@@ -72,7 +72,7 @@ class VotingPlaceController extends Controller
                 'ciudad' => strtoupper($voter->municipio_votacion),
                 'puesto' => strtoupper($voter->puesto_votacion),
                 'mesa' => $voter->mesa_votacion,
-                'direccion' => $voter->direccion_puesto,
+                'direccion' => $voter->direccion_votacion,
             ];
 
             $imageUrl = $this->imageService->generateVotingPlaceImage($cedula, $votingData);

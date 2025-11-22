@@ -236,6 +236,7 @@ Route::prefix('v1')->group(function () {
             Route::apiResource('voters', VoterController::class);
             Route::get('/voters/search/by-cedula', [VoterController::class, 'searchByCedula']);
             Route::get('/voters-stats', [VoterController::class, 'stats']);
+            Route::get('/voters-by-voting-place', [VoterController::class, 'byVotingPlace']);
             
             // Surveys
             Route::apiResource('surveys', SurveyController::class);

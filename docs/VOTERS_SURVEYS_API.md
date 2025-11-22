@@ -54,7 +54,7 @@ Authorization: Bearer {token}
       "departamento_votacion": "Antioquia",
       "municipio_votacion": "Medellín",
       "puesto_votacion": "INEM José Félix de Restrepo",
-      "direccion_puesto": "Carrera 48 #51-01",
+      "direccion_votacion": "Carrera 48 #51-01",
       "mesa_votacion": "045",
       "has_multiple_records": false,
       "created_by": 1,
@@ -111,7 +111,7 @@ Authorization: Bearer {token}
   "departamento_votacion": "Antioquia",
   "municipio_votacion": "Medellín",
   "puesto_votacion": "Colegio San José",
-  "direccion_puesto": "Calle 44 #52-03",
+  "direccion_votacion": "Calle 44 #52-03",
   "mesa_votacion": "012"
 }
 ```
@@ -132,7 +132,7 @@ Authorization: Bearer {token}
 - `departamento_votacion` (string, max:255)
 - `municipio_votacion` (string, max:255)
 - `puesto_votacion` (string, max:255)
-- `direccion_puesto` (string, max:500)
+- `direccion_votacion` (string, max:500)
 - `mesa_votacion` (string, max:20)
 
 **Respuesta Exitosa (201):**
@@ -156,7 +156,7 @@ Authorization: Bearer {token}
     "departamento_votacion": "Antioquia",
     "municipio_votacion": "Medellín",
     "puesto_votacion": "Colegio San José",
-    "direccion_puesto": "Calle 44 #52-03",
+    "direccion_votacion": "Calle 44 #52-03",
     "mesa_votacion": "012",
     "has_multiple_records": false,
     "created_by": 2,
@@ -205,7 +205,7 @@ Authorization: Bearer {token}
     "departamento_votacion": "Antioquia",
     "municipio_votacion": "Medellín",
     "puesto_votacion": "INEM José Félix de Restrepo",
-    "direccion_puesto": "Carrera 48 #51-01",
+    "direccion_votacion": "Carrera 48 #51-01",
     "mesa_votacion": "045",
     "has_multiple_records": false,
     "created_at": "2025-11-05T17:50:00.000000Z",
