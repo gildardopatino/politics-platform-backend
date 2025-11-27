@@ -38,6 +38,7 @@ class RolesAndPermissionsSeeder extends Seeder
             'edit_resources',
             'delete_resources',
             'view_reports',
+            'gestion_enlaces',
         ];
 
         foreach ($permissions as $permission) {

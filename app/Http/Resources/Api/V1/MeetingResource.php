@@ -48,6 +48,9 @@ class MeetingResource extends JsonResource
             'planner_user_id' => $this->planner_user_id,
             'planner' => $this->whenLoaded('planner', fn() => new UserResource($this->planner)),
             
+            'logistics_responsible_id' => $this->logistics_responsible_id,
+            'logistics_responsible' => $this->whenLoaded('logisticsResponsible', fn() => new UserResource($this->logisticsResponsible)),
+            
             // Relaciones geográficas
             'department_id' => $this->department_id,
             'department' => $this->whenLoaded('department', fn() => new GeographyResource($this->department)),

@@ -40,6 +40,11 @@ class Barrio extends Model
         return $this->hasMany(Meeting::class);
     }
 
+    public function contacts()
+    {
+        return $this->morphMany(GeographicContact::class, 'contactable');
+    }
+
     // Helper: Obtiene el municipio (directo o a través de la comuna)
     public function getMunicipalityAttribute()
     {

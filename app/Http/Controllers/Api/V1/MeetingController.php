@@ -29,9 +29,9 @@ class MeetingController extends Controller
     {
         $meetings = QueryBuilder::for(Meeting::class)
             ->allowedFilters(['title', 'status', 'department_id', 'municipality_id', 'commune_id', 'barrio_id'])
-            ->allowedIncludes(['planner', 'template', 'attendees', 'commitments', 'department', 'municipality', 'commune', 'barrio', 'corregimiento', 'vereda', 'resourceAllocations'])
+            ->allowedIncludes(['planner', 'logisticsResponsible', 'template', 'attendees', 'commitments', 'department', 'municipality', 'commune', 'barrio', 'corregimiento', 'vereda', 'resourceAllocations'])
             ->allowedSorts(['starts_at', 'created_at', 'title', 'status'])
-            ->with(['planner', 'department', 'municipality', 'commune', 'barrio', 'template'])
+            ->with(['planner', 'logisticsResponsible', 'department', 'municipality', 'commune', 'barrio', 'template'])
             ->withCount(['attendees', 'commitments', 'resourceAllocations'])
             ->paginate(request('per_page', 15));
 
@@ -89,7 +89,7 @@ class MeetingController extends Controller
             }
 
             return response()->json([
-                'data' => new MeetingResource($meeting->load(['planner', 'department', 'municipality', 'commune', 'barrio', 'template', 'activeReminder'])),
+                'data' => new MeetingResource($meeting->load(['planner', 'logisticsResponsible', 'department', 'municipality', 'commune', 'barrio', 'template', 'activeReminder'])),
                 'message' => 'Meeting created successfully',
                 'whatsapp_notification_sent' => $whatsappSent,
             ], 201);
@@ -110,7 +110,7 @@ class MeetingController extends Controller
      */
     public function show(Meeting $meeting): JsonResponse
     {
-        $meeting->load(['planner', 'template', 'attendees', 'commitments', 'department', 'municipality', 'commune', 'barrio', 'corregimiento', 'vereda', 'activeReminder', 'resourceAllocations.items.resourceItem']);
+        $meeting->load(['planner', 'logisticsResponsible', 'template', 'attendees', 'commitments', 'department', 'municipality', 'commune', 'barrio', 'corregimiento', 'vereda', 'activeReminder', 'resourceAllocations.items.resourceItem']);
         
         return response()->json([
             'data' => new MeetingResource($meeting)
@@ -140,7 +140,7 @@ class MeetingController extends Controller
         }
 
         return response()->json([
-            'data' => new MeetingResource($meeting->load(['planner', 'department', 'municipality', 'commune', 'barrio', 'template', 'activeReminder'])),
+            'data' => new MeetingResource($meeting->load(['planner', 'logisticsResponsible', 'department', 'municipality', 'commune', 'barrio', 'template', 'activeReminder'])),
             'message' => 'Meeting updated successfully'
         ]);
     }

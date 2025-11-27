@@ -18,6 +18,7 @@ class Meeting extends Model implements Auditable
     protected $fillable = [
         'tenant_id',
         'planner_user_id',
+        'logistics_responsible_id',
         'assigned_to_cedula',
         'template_id',
         'title',
@@ -63,6 +64,11 @@ class Meeting extends Model implements Auditable
     public function planner()
     {
         return $this->belongsTo(User::class, 'planner_user_id');
+    }
+
+    public function logisticsResponsible()
+    {
+        return $this->belongsTo(User::class, 'logistics_responsible_id');
     }
 
     public function template()

@@ -34,4 +34,9 @@ class Department extends Model
     {
         return $this->hasMany(Meeting::class);
     }
+
+    public function contacts()
+    {
+        return $this->morphMany(GeographicContact::class, 'contactable');
+    }
 }

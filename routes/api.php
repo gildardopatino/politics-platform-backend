@@ -47,6 +47,7 @@ use App\Http\Controllers\Api\V1\VoterController;
 use App\Http\Controllers\Api\V1\MercadoPagoController;
 use App\Http\Controllers\Api\V1\PasswordResetController;
 use App\Http\Controllers\Api\V1\VotingPlaceController;
+use App\Http\Controllers\Api\V1\GeographicContactController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -224,6 +225,11 @@ Route::prefix('v1')->group(function () {
             
             // Geographic Statistics
             Route::get('/geographic-stats', [GeographicStatsController::class, 'index']);
+            
+            // Geographic Contacts (Enlaces)
+            Route::get('/geographic-contacts/tree', [GeographicContactController::class, 'tree']);
+            Route::get('/geographic-contacts/all', [GeographicContactController::class, 'all']);
+            Route::apiResource('geographic-contacts', GeographicContactController::class);
             
             // Reports
             Route::get('/reports/meetings', [ReportController::class, 'meetings']);
