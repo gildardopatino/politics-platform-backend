@@ -9,8 +9,12 @@ use App\Http\Requests\Api\V1\Meeting\UpdateMeetingRequest;
 use App\Http\Resources\Api\V1\MeetingResource;
 use App\Jobs\Meetings\GenerateQRCodeJob;
 use App\Jobs\SendMeetingReminderJob;
+use App\Models\Barrio;
+use App\Models\Commune;
+use App\Models\GeographicContact;
 use App\Models\Meeting;
 use App\Models\MeetingReminder;
+use App\Models\TenantMessagingCredit;
 use App\Services\AttendeeHierarchyService;
 use App\Services\QRCodeService;
 use App\Services\WhatsAppNotificationService;
@@ -88,10 +92,22 @@ class MeetingController extends Controller
                 $whatsappSent = $this->sendMeetingAssignmentNotification($meeting, $whatsappService, $user);
             }
 
+            // Send WhatsApp notification to logistics responsible with enlaces info
+            // Only if tenant has this feature enabled
+            $logisticsSent = false;
+            $tenant = app('tenant');
+            $meeting->load('logisticsResponsible');
+            if ($tenant->send_logistics_notifications && 
+                $meeting->logisticsResponsible && 
+                $meeting->logisticsResponsible->phone) {
+                $logisticsSent = $this->sendLogisticsResponsibleNotification($meeting, $whatsappService, $user);
+            }
+
             return response()->json([
                 'data' => new MeetingResource($meeting->load(['planner', 'logisticsResponsible', 'department', 'municipality', 'commune', 'barrio', 'template', 'activeReminder'])),
                 'message' => 'Meeting created successfully',
                 'whatsapp_notification_sent' => $whatsappSent,
+                'logistics_notification_sent' => $logisticsSent,
             ], 201);
         } catch (\Exception $e) {
             Log::error('Error creating meeting', [
@@ -601,7 +617,7 @@ class MeetingController extends Controller
     private function sendMeetingAssignmentNotification(Meeting $meeting, WhatsAppNotificationService $whatsappService, \App\Models\User $user): bool
     {
         try {
-            $meetingDate = \Carbon\Carbon::parse($meeting->datetime)->format('d/m/Y H:i');
+            $meetingDate = Carbon::parse($meeting->datetime)->format('d/m/Y H:i');
             
             $message = "🗓️ *Nueva Reunión Asignada*\n\n";
             $message .= "*Título:* {$meeting->title}\n";
@@ -611,7 +627,7 @@ class MeetingController extends Controller
                 $message .= "*Lugar:* {$meeting->location}\n";
             }
             
-            $message .= "\nHas sido asignado como *planificador* de esta reunión.";
+            $message .= "\nHas sido asignado como *Responsable político* de esta reunión.";
 
             $success = $whatsappService->sendMessage(
                 $meeting->planner->phone,
@@ -621,7 +637,7 @@ class MeetingController extends Controller
 
             if ($success) {
                 // Descontar crédito de WhatsApp
-                $tenantCredit = \App\Models\TenantMessagingCredit::where('tenant_id', $meeting->tenant_id)->first();
+                $tenantCredit = TenantMessagingCredit::where('tenant_id', $meeting->tenant_id)->first();
                 if ($tenantCredit) {
                     $tenantCredit->consumeWhatsApp(1, "Meeting assignment notification to planner #{$meeting->planner_user_id} for meeting #{$meeting->id}");
                 }
@@ -641,5 +657,125 @@ class MeetingController extends Controller
             ]);
             return false;
         }
+    }
+
+    /**
+     * Send WhatsApp notification to logistics responsible with enlaces info
+     */
+    private function sendLogisticsResponsibleNotification(Meeting $meeting, WhatsAppNotificationService $whatsappService, \App\Models\User $user): bool
+    {
+        try {
+            $meetingDate = Carbon::parse($meeting->datetime)->format('d/m/Y H:i');
+            
+            $message = "📋 *Nueva Reunión - Responsable Logístico*\n\n";
+            $message .= "*Título:* {$meeting->title}\n";
+            $message .= "*Fecha:* {$meetingDate}\n";
+            
+            if ($meeting->location) {
+                $message .= "*Lugar:* {$meeting->location}\n";
+            }
+
+            // Buscar enlaces del barrio o comuna
+            $enlaces = $this->getEnlacesForMeeting($meeting);
+            
+            if (!empty($enlaces)) {
+                $message .= "\n👥 *Enlaces de Apoyo Disponibles:*\n";
+                foreach ($enlaces as $index => $enlace) {
+                    $message .= "\n" . ($index + 1) . ". {$enlace['nombre_completo']}\n";
+                    $message .= "   📞 {$enlace['telefono']}\n";
+                }
+                $message .= "\n_Puedes contactar a estos enlaces para apoyo logístico._";
+            } else {
+                $message .= "\n⚠️ *No hay enlaces asociados* a esta ubicación.";
+            }
+            
+            $message .= "\n\nHas sido asignado como *responsable logístico* de esta reunión.";
+
+            $success = $whatsappService->sendMessage(
+                $meeting->logisticsResponsible->phone,
+                $message,
+                $meeting->tenant_id
+            );
+
+            if ($success) {
+                // Descontar crédito de WhatsApp
+                $tenantCredit = TenantMessagingCredit::where('tenant_id', $meeting->tenant_id)->first();
+                if ($tenantCredit) {
+                    $tenantCredit->consumeWhatsApp(1, "Meeting logistics notification to user #{$meeting->logistics_responsible_id} for meeting #{$meeting->id}");
+                }
+
+                Log::info('Meeting logistics notification sent', [
+                    'meeting_id' => $meeting->id,
+                    'logistics_responsible_id' => $meeting->logistics_responsible_id,
+                    'enlaces_count' => count($enlaces),
+                ]);
+            }
+            
+            return $success;
+        } catch (\Exception $e) {
+            Log::error('Failed to send meeting logistics notification', [
+                'meeting_id' => $meeting->id,
+                'logistics_responsible_id' => $meeting->logistics_responsible_id,
+                'error' => $e->getMessage(),
+            ]);
+            return false;
+        }
+    }
+
+    /**
+     * Get enlaces for meeting location (barrio or commune)
+     */
+    private function getEnlacesForMeeting(Meeting $meeting): array
+    {
+        $enlaces = [];
+
+        // Primero intentar buscar enlaces en el barrio
+        if ($meeting->barrio_id) {
+            $enlaces = GeographicContact::where('contactable_type', Barrio::class)
+                ->where('contactable_id', $meeting->barrio_id)
+                ->get()
+                ->map(function ($contact) {
+                    return [
+                        'nombre_completo' => $contact->nombre_completo,
+                        'telefono' => $contact->telefono,
+                    ];
+                })
+                ->toArray();
+
+            // Si hay enlaces en el barrio, retornarlos
+            if (!empty($enlaces)) {
+                return $enlaces;
+            }
+
+            // Si no hay enlaces en el barrio, buscar en la comuna del barrio
+            $barrio = Barrio::find($meeting->barrio_id);
+            if ($barrio && $barrio->commune_id) {
+                $enlaces = GeographicContact::where('contactable_type', Commune::class)
+                    ->where('contactable_id', $barrio->commune_id)
+                    ->get()
+                    ->map(function ($contact) {
+                        return [
+                            'nombre_completo' => $contact->nombre_completo,
+                            'telefono' => $contact->telefono,
+                        ];
+                    })
+                    ->toArray();
+            }
+        }
+        // Si la reunión es en una comuna (sin barrio específico)
+        elseif ($meeting->commune_id) {
+            $enlaces = GeographicContact::where('contactable_type', Commune::class)
+                ->where('contactable_id', $meeting->commune_id)
+                ->get()
+                ->map(function ($contact) {
+                    return [
+                        'nombre_completo' => $contact->nombre_completo,
+                        'telefono' => $contact->telefono,
+                    ];
+                })
+                ->toArray();
+        }
+
+        return $enlaces;
     }
 }

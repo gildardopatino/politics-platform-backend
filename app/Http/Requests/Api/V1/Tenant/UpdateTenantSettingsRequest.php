@@ -39,6 +39,14 @@ class UpdateTenantSettingsRequest extends FormRequest
             );
         }
 
+        if ($this->has('send_logistics_notifications')) {
+            $data['send_logistics_notifications'] = filter_var(
+                $this->input('send_logistics_notifications'), 
+                FILTER_VALIDATE_BOOLEAN, 
+                FILTER_NULL_ON_FAILURE
+            );
+        }
+
         // Merge the converted data
         if (!empty($data)) {
             $this->merge($data);
@@ -69,6 +77,9 @@ class UpdateTenantSettingsRequest extends FormRequest
             'auto_assign_hierarchy' => 'nullable|boolean',
             'hierarchy_conflict_resolution' => 'nullable|string',
             'require_hierarchy_config' => 'nullable|boolean',
+            
+            // Notification settings
+            'send_logistics_notifications' => 'nullable|boolean',
         ];
     }
 

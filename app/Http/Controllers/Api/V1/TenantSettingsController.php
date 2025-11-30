@@ -79,6 +79,9 @@ class TenantSettingsController extends Controller
                     'auto_assign_hierarchy' => $tenant->auto_assign_hierarchy,
                     'hierarchy_conflict_resolution' => $tenant->hierarchy_conflict_resolution,
                     'require_hierarchy_config' => $tenant->require_hierarchy_config,
+                ],
+                'notification_settings' => [
+                    'send_logistics_notifications' => $tenant->send_logistics_notifications,
                 ]
             ]
         ]);
@@ -221,6 +224,9 @@ class TenantSettingsController extends Controller
                     'auto_assign_hierarchy' => $tenant->auto_assign_hierarchy,
                     'hierarchy_conflict_resolution' => $tenant->hierarchy_conflict_resolution,
                     'require_hierarchy_config' => $tenant->require_hierarchy_config,
+                ],
+                'notification_settings' => [
+                    'send_logistics_notifications' => $tenant->send_logistics_notifications,
                 ]
             ],
             'message' => 'Tenant settings updated successfully'

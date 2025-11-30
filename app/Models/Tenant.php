@@ -51,6 +51,8 @@ class Tenant extends Model
         'social_auto_sync_enabled',
         'social_sync_interval_minutes',
         'social_last_synced_at',
+        // Notification settings
+        'send_logistics_notifications',
     ];
 
     protected $casts = [
@@ -64,6 +66,7 @@ class Tenant extends Model
         'youtube_enabled' => 'boolean',
         'social_auto_sync_enabled' => 'boolean',
         'social_last_synced_at' => 'datetime',
+        'send_logistics_notifications' => 'boolean',
         // Note: start_date and expiration_date use custom mutators/accessors
         // to preserve exact datetime without timezone conversion
     ];

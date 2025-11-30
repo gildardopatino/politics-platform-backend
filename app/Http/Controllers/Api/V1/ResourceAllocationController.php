@@ -177,7 +177,7 @@ class ResourceAllocationController extends Controller
                 $resource->update(['total_cost' => $totalCost]);
             }
 
-            // Enviar notificación de WhatsApp al planificador si la asignación está asociada a una reunión
+            // Enviar notificación de WhatsApp al Responsable politico si la asignación está asociada a una reunión
             $whatsappSent = false;
             if ($resource->meeting_id) {
                 $resource->load(['meeting.planner', 'items.resourceItem']);
