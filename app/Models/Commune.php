@@ -15,6 +15,7 @@ class Commune extends Model
         'nombre',
         'latitude',
         'longitude',
+        'path',
     ];
 
     protected $casts = [
