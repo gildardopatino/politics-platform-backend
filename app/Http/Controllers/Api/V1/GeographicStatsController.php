@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\Barrio;
+use App\Models\Commune;
 use App\Models\Corregimiento;
 use App\Models\Vereda;
 use App\Models\Municipality;
@@ -24,12 +25,12 @@ class GeographicStatsController extends Controller
     {
         $request->validate([
             'type' => 'required|in:compromisos,reuniones',
-            'geographic_type' => 'required|in:municipio,barrio,corregimiento,vereda',
+            'geographic_type' => 'required|in:municipio,comuna,barrio,corregimiento,vereda',
         ], [
             'type.required' => 'El tipo de estadística es obligatorio.',
             'type.in' => 'El tipo debe ser: compromisos o reuniones.',
             'geographic_type.required' => 'El tipo geográfico es obligatorio.',
-            'geographic_type.in' => 'El tipo geográfico debe ser: municipio, barrio, corregimiento o vereda.',
+            'geographic_type.in' => 'El tipo geográfico debe ser: municipio, comuna, barrio, corregimiento o vereda.',
         ]);
 
         $type = $request->input('type');
@@ -55,6 +56,18 @@ class GeographicStatsController extends Controller
         switch ($geographicType) {
             case 'municipio':
                 $locations = Municipality::whereNotNull('path')
+                    ->with(['meetings' => function($query) {
+                        $query->whereNull('deleted_at')
+                              ->with(['commitments' => function($q) {
+                                  $q->whereNull('deleted_at')
+                                    ->with(['assignedUser:id,name', 'priority:id,name']);
+                              }]);
+                    }])
+                    ->get();
+                break;
+
+            case 'comuna':
+                $locations = Commune::whereNotNull('path')
                     ->with(['meetings' => function($query) {
                         $query->whereNull('deleted_at')
                               ->with(['commitments' => function($q) {
@@ -170,6 +183,15 @@ class GeographicStatsController extends Controller
         switch ($geographicType) {
             case 'municipio':
                 $locations = Municipality::whereNotNull('path')
+                    ->with(['meetings' => function($query) {
+                        $query->whereNull('deleted_at')
+                              ->with(['planner:id,name', 'attendees']);
+                    }])
+                    ->get();
+                break;
+
+            case 'comuna':
+                $locations = Commune::whereNotNull('path')
                     ->with(['meetings' => function($query) {
                         $query->whereNull('deleted_at')
                               ->with(['planner:id,name', 'attendees']);

@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Models\MeetingAttendee;
+use App\Observers\MeetingAttendeeObserver;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -31,6 +33,6 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         // Register observers
-        \App\Models\MeetingAttendee::observe(\App\Observers\MeetingAttendeeObserver::class);
+        MeetingAttendee::observe(MeetingAttendeeObserver::class);
     }
 }

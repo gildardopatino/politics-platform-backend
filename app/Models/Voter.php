@@ -32,6 +32,7 @@ class Voter extends Model implements Auditable
         'puesto_votacion',
         'direccion_votacion',
         'mesa_votacion',
+        'voting_place_id',
         'has_multiple_records',
         'created_by',
     ];
@@ -79,6 +80,11 @@ class Voter extends Model implements Auditable
     public function vereda(): BelongsTo
     {
         return $this->belongsTo(Vereda::class);
+    }
+
+    public function votingPlace(): BelongsTo
+    {
+        return $this->belongsTo(VotingPlace::class);
     }
 
     public function createdBy(): BelongsTo
