@@ -24,11 +24,11 @@ class GeographicStatsController extends Controller
     public function index(Request $request)
     {
         $request->validate([
-            'type' => 'required|in:compromisos,reuniones',
+            'type' => 'required|in:compromisos,reuniones,electores',
             'geographic_type' => 'required|in:municipio,comuna,barrio,corregimiento,vereda',
         ], [
             'type.required' => 'El tipo de estadística es obligatorio.',
-            'type.in' => 'El tipo debe ser: compromisos o reuniones.',
+            'type.in' => 'El tipo debe ser: compromisos, reuniones o electores.',
             'geographic_type.required' => 'El tipo geográfico es obligatorio.',
             'geographic_type.in' => 'El tipo geográfico debe ser: municipio, comuna, barrio, corregimiento o vereda.',
         ]);
@@ -40,6 +40,8 @@ class GeographicStatsController extends Controller
             return $this->getCommitmentsStats($geographicType);
         } elseif ($type === 'reuniones') {
             return $this->getMeetingsStats($geographicType);
+        } elseif ($type === 'electores') {
+            return $this->getVotersStats($geographicType);
         }
     }
 
@@ -273,6 +275,210 @@ class GeographicStatsController extends Controller
                 'geographic_type' => $geographicType,
                 'total_locations' => count($json),
                 'total_count' => $totalMeetings
+            ]
+        ]);
+    }
+
+    /**
+     * Obtener estadísticas de electores (voters) por ubicación geográfica
+     * 
+     * @param string $geographicType
+     * @return \Illuminate\Http\JsonResponse
+     */
+    private function getVotersStats($geographicType)
+    {
+        $json = [];
+
+        switch ($geographicType) {
+            case 'municipio':
+                $locations = Municipality::whereNotNull('path')->get();
+                
+                foreach ($locations as $location) {
+                    // Contar voters en barrios de este municipio
+                    $votersCount = \App\Models\Voter::whereHas('barrio', function($q) use ($location) {
+                        $q->where('municipality_id', $location->id);
+                    })->count();
+
+                    $voters = [];
+                    if ($votersCount > 0) {
+                        $voters = \App\Models\Voter::whereHas('barrio', function($q) use ($location) {
+                                $q->where('municipality_id', $location->id);
+                            })
+                            ->get()
+                            ->map(function($voter) {
+                                return [
+                                    'cedula' => $voter->cedula,
+                                    'nombres' => $voter->nombres,
+                                    'apellidos' => $voter->apellidos,
+                                ];
+                            })
+                            ->toArray();
+                    }
+
+                    $color = $votersCount > 0 ? '#13db2dff' : '#F54927';
+
+                    $json[] = [
+                        'id' => "id{$location->id}",
+                        'name' => $location->nombre,
+                        'path' => $location->path,
+                        'value' => $votersCount,
+                        'color' => $color,
+                        'voters' => $voters
+                    ];
+                }
+                break;
+
+            case 'comuna':
+                $locations = Commune::whereNotNull('path')->get();
+                
+                foreach ($locations as $location) {
+                    // Contar voters en barrios de esta comuna
+                    $votersCount = \App\Models\Voter::whereHas('barrio', function($q) use ($location) {
+                        $q->where('commune_id', $location->id);
+                    })->count();
+
+                    $voters = [];
+                    if ($votersCount > 0) {
+                        $voters = \App\Models\Voter::whereHas('barrio', function($q) use ($location) {
+                                $q->where('commune_id', $location->id);
+                            })
+                            ->get()
+                            ->map(function($voter) {
+                                return [
+                                    'cedula' => $voter->cedula,
+                                    'nombres' => $voter->nombres,
+                                    'apellidos' => $voter->apellidos,
+                                ];
+                            })
+                            ->toArray();
+                    }
+
+                    $color = $votersCount > 0 ? '#13db2dff' : '#F54927';
+
+                    $json[] = [
+                        'id' => "id{$location->id}",
+                        'name' => $location->nombre,
+                        'path' => $location->path,
+                        'value' => $votersCount,
+                        'color' => $color,
+                        'voters' => $voters
+                    ];
+                }
+                break;
+
+            case 'barrio':
+                $locations = Barrio::whereNotNull('path')->get();
+                
+                foreach ($locations as $location) {
+                    // Contar voters directamente en este barrio
+                    $votersCount = \App\Models\Voter::where('barrio_id', $location->id)->count();
+
+                    $voters = [];
+                    if ($votersCount > 0) {
+                        $voters = \App\Models\Voter::where('barrio_id', $location->id)
+                            ->get()
+                            ->map(function($voter) {
+                                return [
+                                    'cedula' => $voter->cedula,
+                                    'nombres' => $voter->nombres,
+                                    'apellidos' => $voter->apellidos,
+                                ];
+                            })
+                            ->toArray();
+                    }
+
+                    $color = $votersCount > 0 ? '#13db2dff' : '#F54927';
+
+                    $json[] = [
+                        'id' => "id{$location->id}",
+                        'name' => $location->nombre,
+                        'path' => $location->path,
+                        'value' => $votersCount,
+                        'color' => $color,
+                        'voters' => $voters
+                    ];
+                }
+                break;
+
+            case 'corregimiento':
+                $locations = Corregimiento::whereNotNull('path')->get();
+                
+                foreach ($locations as $location) {
+                    // Contar voters directamente en este corregimiento
+                    $votersCount = \App\Models\Voter::where('corregimiento_id', $location->id)->count();
+
+                    $voters = [];
+                    if ($votersCount > 0) {
+                        $voters = \App\Models\Voter::where('corregimiento_id', $location->id)
+                            ->get()
+                            ->map(function($voter) {
+                                return [
+                                    'cedula' => $voter->cedula,
+                                    'nombres' => $voter->nombres,
+                                    'apellidos' => $voter->apellidos,
+                                ];
+                            })
+                            ->toArray();
+                    }
+
+                    $color = $votersCount > 0 ? '#13db2dff' : '#F54927';
+
+                    $json[] = [
+                        'id' => "id{$location->id}",
+                        'name' => $location->nombre,
+                        'path' => $location->path,
+                        'value' => $votersCount,
+                        'color' => $color,
+                        'voters' => $voters
+                    ];
+                }
+                break;
+
+            case 'vereda':
+                $locations = Vereda::whereNotNull('path')->get();
+                
+                foreach ($locations as $location) {
+                    // Contar voters directamente en esta vereda
+                    $votersCount = \App\Models\Voter::where('vereda_id', $location->id)->count();
+
+                    $voters = [];
+                    if ($votersCount > 0) {
+                        $voters = \App\Models\Voter::where('vereda_id', $location->id)
+                            ->get()
+                            ->map(function($voter) {
+                                return [
+                                    'cedula' => $voter->cedula,
+                                    'nombres' => $voter->nombres,
+                                    'apellidos' => $voter->apellidos,
+                                ];
+                            })
+                            ->toArray();
+                    }
+
+                    $color = $votersCount > 0 ? '#13db2dff' : '#F54927';
+
+                    $json[] = [
+                        'id' => "id{$location->id}",
+                        'name' => $location->nombre,
+                        'path' => $location->path,
+                        'value' => $votersCount,
+                        'color' => $color,
+                        'voters' => $voters
+                    ];
+                }
+                break;
+        }
+
+        $totalVoters = collect($json)->sum('value');
+
+        return response()->json([
+            'success' => true,
+            'data' => $json,
+            'meta' => [
+                'type' => 'electores',
+                'geographic_type' => $geographicType,
+                'total_locations' => count($json),
+                'total_count' => $totalVoters
             ]
         ]);
     }
