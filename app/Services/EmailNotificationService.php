@@ -100,6 +100,8 @@ class EmailNotificationService
      */
     protected function buildWelcomeMessage(string $name, string $email, string $password): string
     {
+        $frontendUrl = config('app.frontend_url', 'http://localhost:3000');
+        
         return "
             <!DOCTYPE html>
             <html>
@@ -146,7 +148,7 @@ class EmailNotificationService
                         </div>
                         
                         <p style='text-align: center;'>
-                            <a href='#' class='button' style='color:white'>Iniciar Sesión</a>
+                            <a href='{$frontendUrl}' class='button' style='color:white'>Iniciar Sesión</a>
                         </p>
                         
                         <p>Si tienes alguna pregunta o necesitas ayuda, no dudes en contactar a tu supervisor o al equipo de soporte.</p>
