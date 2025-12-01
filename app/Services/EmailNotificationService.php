@@ -22,7 +22,7 @@ class EmailNotificationService
         try {
             $message = $this->buildWelcomeMessage($name, $email, $password);
             
-            return $this->sendEmail($email, $message, $userToken, 'Bienvenido a Campaign Manager - Cuenta Creada');
+            return $this->sendEmail($email, $message, $userToken, 'Bienvenido a Political Manager - Cuenta Creada');
         } catch (\Exception $e) {
             Log::error('Failed to send welcome email', [
                 'email' => $email,
@@ -123,12 +123,12 @@ class EmailNotificationService
             <body>
                 <div class='container'>
                     <div class='header'>
-                        <h1>🎉 Bienvenido a Campaign Manager</h1>
+                        <h1>🎉 Bienvenido a Political Manager</h1>
                     </div>
                     <div class='content'>
                         <p>Hola <strong>{$name}</strong>,</p>
                         
-                        <p>Tu cuenta en <strong>Campaign Manager</strong> ha sido creada exitosamente. Ya puedes acceder a la plataforma con las siguientes credenciales:</p>
+                        <p>Tu cuenta en <strong>Political Manager</strong> ha sido creada exitosamente. Ya puedes acceder a la plataforma con las siguientes credenciales:</p>
                         
                         <div class='credentials'>
                             <div class='credential-item'>
@@ -146,16 +146,16 @@ class EmailNotificationService
                         </div>
                         
                         <p style='text-align: center;'>
-                            <a href='#' class='button'>Iniciar Sesión</a>
+                            <a href='#' class='button' style='color:white'>Iniciar Sesión</a>
                         </p>
                         
                         <p>Si tienes alguna pregunta o necesitas ayuda, no dudes en contactar a tu supervisor o al equipo de soporte.</p>
                         
-                        <p>Saludos,<br><strong>Equipo de Campaign Manager</strong></p>
+                        <p>Saludos,<br><strong>Equipo de Political Manager</strong></p>
                     </div>
                     <div class='footer'>
                         <p>Este es un correo automático, por favor no respondas a este mensaje.</p>
-                        <p>&copy; " . date('Y') . " Campaign Manager. Todos los derechos reservados.</p>
+                        <p>&copy; " . date('Y') . " Political Manager. Todos los derechos reservados.</p>
                     </div>
                 </div>
             </body>

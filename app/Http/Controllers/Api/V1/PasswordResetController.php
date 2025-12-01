@@ -55,7 +55,7 @@ class PasswordResetController extends Controller
             $user->email, 
             $message, 
             $n8nToken,
-            'Recuperación de contraseña - Campaign Manager'
+            'Recuperación de contraseña - Political Manager'
         );
 
         if (!$sent) {
