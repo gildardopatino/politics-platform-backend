@@ -17,7 +17,12 @@ class VoterController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $this->authorize('viewAny', Voter::class);
+        $user = auth()->user();
+        if (!$user || !$user->can('viewAny', Voter::class)) {
+            return response()->json([
+                'message' => 'No tienes permiso para ver los votantes.'
+            ], 403);
+        }
 
         $perPage = $request->input('per_page', 15);
         $search = $request->input('search');
@@ -54,7 +59,12 @@ class VoterController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
-        $this->authorize('create', Voter::class);
+        $user = auth()->user();
+        if (!$user || !$user->can('create', Voter::class)) {
+            return response()->json([
+                'message' => 'No tienes permiso para crear votantes.'
+            ], 403);
+        }
 
         $validator = Validator::make($request->all(), [
             'cedula' => 'required|string|max:20|unique:voters,cedula,NULL,id,tenant_id,' . auth()->user()->tenant_id,
@@ -103,7 +113,12 @@ class VoterController extends Controller
      */
     public function show(Voter $voter): JsonResponse
     {
-        $this->authorize('view', $voter);
+        $user = auth()->user();
+        if (!$user || !$user->can('view', $voter)) {
+            return response()->json([
+                'message' => 'No tienes permiso para ver este votante.'
+            ], 403);
+        }
 
         $voter->load([
             'barrio.commune',
@@ -126,7 +141,12 @@ class VoterController extends Controller
      */
     public function update(Request $request, Voter $voter): JsonResponse
     {
-        $this->authorize('update', $voter);
+        $user = auth()->user();
+        if (!$user || !$user->can('update', $voter)) {
+            return response()->json([
+                'message' => 'No tienes permiso para actualizar este votante.'
+            ], 403);
+        }
 
         $validator = Validator::make($request->all(), [
             'cedula' => 'required|string|max:20|unique:voters,cedula,' . $voter->id . ',id,tenant_id,' . auth()->user()->tenant_id,
@@ -169,7 +189,12 @@ class VoterController extends Controller
      */
     public function destroy(Voter $voter): JsonResponse
     {
-        $this->authorize('delete', $voter);
+        $user = auth()->user();
+        if (!$user || !$user->can('delete', $voter)) {
+            return response()->json([
+                'message' => 'No tienes permiso para eliminar este votante.'
+            ], 403);
+        }
 
         $voter->delete();
 
