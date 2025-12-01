@@ -17,6 +17,8 @@ class VoterController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
+        $this->authorize('viewAny', Voter::class);
+
         $perPage = $request->input('per_page', 15);
         $search = $request->input('search');
         $hasMultipleRecords = $request->input('has_multiple_records');
@@ -52,6 +54,8 @@ class VoterController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
+        $this->authorize('create', Voter::class);
+
         $validator = Validator::make($request->all(), [
             'cedula' => 'required|string|max:20|unique:voters,cedula,NULL,id,tenant_id,' . auth()->user()->tenant_id,
             'nombres' => 'required|string|max:255',
@@ -99,6 +103,8 @@ class VoterController extends Controller
      */
     public function show(Voter $voter): JsonResponse
     {
+        $this->authorize('view', $voter);
+
         $voter->load([
             'barrio.commune',
             'corregimiento',
@@ -120,6 +126,8 @@ class VoterController extends Controller
      */
     public function update(Request $request, Voter $voter): JsonResponse
     {
+        $this->authorize('update', $voter);
+
         $validator = Validator::make($request->all(), [
             'cedula' => 'required|string|max:20|unique:voters,cedula,' . $voter->id . ',id,tenant_id,' . auth()->user()->tenant_id,
             'nombres' => 'required|string|max:255',
@@ -161,6 +169,8 @@ class VoterController extends Controller
      */
     public function destroy(Voter $voter): JsonResponse
     {
+        $this->authorize('delete', $voter);
+
         $voter->delete();
 
         return response()->json([
