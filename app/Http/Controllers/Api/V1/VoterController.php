@@ -12,6 +12,11 @@ use Illuminate\Support\Facades\Validator;
 
 class VoterController extends Controller
 {
+    public function __construct()
+    {
+        $this->middleware('permission:ver_electores');
+    }
+
     /**
      * Display a listing of voters with filters
      */
