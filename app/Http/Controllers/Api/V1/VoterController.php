@@ -16,13 +16,7 @@ class VoterController extends Controller
      * Display a listing of voters with filters
      */
     public function index(Request $request): JsonResponse
-    {
-        $user = auth()->user();
-        if (!$user || !$user->can('viewAny', Voter::class)) {
-            return response()->json([
-                'message' => 'No tienes permiso para ver los votantes.'
-            ], 403);
-        }
+    {      
 
         $perPage = $request->input('per_page', 15);
         $search = $request->input('search');
