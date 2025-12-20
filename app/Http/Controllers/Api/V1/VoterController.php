@@ -22,7 +22,7 @@ class VoterController extends Controller
         $search = $request->input('search');
         $hasMultipleRecords = $request->input('has_multiple_records');
 
-        $query = Voter::with(['barrio', 'corregimiento', 'vereda', 'meeting', 'createdBy']);
+        $query = Voter::with(['barrio', 'corregimiento', 'vereda', 'meeting', 'createdBy', 'tipoVotante']);
 
         if ($search) {
             $query->search($search);
@@ -70,6 +70,7 @@ class VoterController extends Controller
             'barrio_id' => 'nullable|exists:barrios,id',
             'corregimiento_id' => 'nullable|exists:corregimientos,id',
             'vereda_id' => 'nullable|exists:veredas,id',
+            'tipo_votante_id' => 'nullable|exists:tipo_votante,id',
             'meeting_id' => 'nullable|exists:meetings,id',
             'departamento_votacion' => 'nullable|string|max:255',
             'municipio_votacion' => 'nullable|string|max:255',
@@ -85,15 +86,21 @@ class VoterController extends Controller
             ], 422);
         }
 
+        $data = $validator->validated();
+
+        if (empty($data['tipo_votante_id'])) {
+            $data['tipo_votante_id'] = 1; // Elector por defecto
+        }
+
         $voter = Voter::create(array_merge(
-            $validator->validated(),
+            $data,
             [
                 'tenant_id' => auth()->user()->tenant_id,
                 'created_by' => auth()->id(),
             ]
         ));
 
-        $voter->load(['barrio', 'corregimiento', 'vereda', 'meeting']);
+        $voter->load(['barrio', 'corregimiento', 'vereda', 'meeting', 'tipoVotante']);
 
         return response()->json([
             'success' => true,
@@ -158,6 +165,7 @@ class VoterController extends Controller
             'puesto_votacion' => 'nullable|string|max:255',
             'direccion_votacion' => 'nullable|string|max:500',
             'mesa_votacion' => 'nullable|string|max:20',
+            'tipo_votante_id' => 'nullable|exists:tipo_votante,id',
             'has_multiple_records' => 'nullable|boolean',
         ]);
 
@@ -168,8 +176,14 @@ class VoterController extends Controller
             ], 422);
         }
 
-        $voter->update($validator->validated());
-        $voter->load(['barrio', 'corregimiento', 'vereda', 'meeting']);
+        $data = $validator->validated();
+
+        if (array_key_exists('tipo_votante_id', $data) && empty($data['tipo_votante_id'])) {
+            $data['tipo_votante_id'] = 1; // Elector por defecto si viene vacío
+        }
+
+        $voter->update($data);
+        $voter->load(['barrio', 'corregimiento', 'vereda', 'meeting', 'tipoVotante']);
 
         return response()->json([
             'success' => true,
@@ -239,7 +253,7 @@ class VoterController extends Controller
         }
 
         $voter = Voter::where('cedula', $request->cedula)
-            ->with(['barrio', 'corregimiento', 'vereda', 'meeting'])
+            ->with(['barrio', 'corregimiento', 'vereda', 'meeting', 'tipoVotante'])
             ->first();
 
         if (!$voter) {

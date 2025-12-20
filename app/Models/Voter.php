@@ -26,6 +26,7 @@ class Voter extends Model implements Auditable
         'barrio_id',
         'corregimiento_id',
         'vereda_id',
+        'tipo_votante_id',
         'meeting_id',
         'departamento_votacion',
         'municipio_votacion',
@@ -80,6 +81,11 @@ class Voter extends Model implements Auditable
     public function vereda(): BelongsTo
     {
         return $this->belongsTo(Vereda::class);
+    }
+
+    public function tipoVotante(): BelongsTo
+    {
+        return $this->belongsTo(TipoVotante::class, 'tipo_votante_id');
     }
 
     public function votingPlace(): BelongsTo

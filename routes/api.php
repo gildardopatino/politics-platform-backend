@@ -44,6 +44,7 @@ use App\Http\Controllers\Api\V1\TenantSettingsController;
 use App\Http\Controllers\Api\V1\UserController;
 use App\Http\Controllers\Api\V1\VeredaController;
 use App\Http\Controllers\Api\V1\VoterController;
+use App\Http\Controllers\Api\V1\TipoVotanteController;
 use App\Http\Controllers\Api\V1\MercadoPagoController;
 use App\Http\Controllers\Api\V1\PasswordResetController;
 use App\Http\Controllers\Api\V1\VotingPlaceController;
@@ -238,6 +239,11 @@ Route::prefix('v1')->group(function () {
             Route::get('/reports/resources', [ReportController::class, 'resources']);
             Route::get('/reports/team-performance', [ReportController::class, 'teamPerformance']);
             
+            // Voter Types (Tipo Votante)
+            Route::apiResource('voter-types', TipoVotanteController::class)->only([
+                'index', 'store', 'show', 'update', 'destroy',
+            ]);
+
             // Voters
             Route::apiResource('voters', VoterController::class);
             Route::get('/voters/search/by-cedula', [VoterController::class, 'searchByCedula']);
