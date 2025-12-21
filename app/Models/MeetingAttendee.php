@@ -23,6 +23,9 @@ class MeetingAttendee extends Model
         'direccion',
         'telefono',
         'email',
+        'genero',
+        'fecha_nacimiento',
+        'referido_por',
         'extra_fields',
         'checked_in',
         'checked_in_at',
@@ -32,6 +35,7 @@ class MeetingAttendee extends Model
         'extra_fields' => 'array',
         'checked_in' => 'boolean',
         'checked_in_at' => 'datetime',
+        'fecha_nacimiento' => 'date',
     ];
 
     protected static function boot()

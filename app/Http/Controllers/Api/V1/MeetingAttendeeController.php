@@ -116,6 +116,9 @@ class MeetingAttendeeController extends Controller
             'apellidos' => 'required|string|max:255',
             'telefono' => 'nullable|string|max:20',
             'email' => 'nullable|email',
+            'genero' => 'nullable|string|max:50',
+            'fecha_nacimiento' => 'nullable|date',
+            'referido_por' => 'nullable|string|max:255',
             'extra_fields' => 'nullable|array',
         ]);
 
@@ -150,6 +153,9 @@ class MeetingAttendeeController extends Controller
             'apellidos' => 'sometimes|string|max:255',
             'telefono' => 'nullable|string|max:20',
             'email' => 'nullable|email',
+            'genero' => 'nullable|string|max:50',
+            'fecha_nacimiento' => 'nullable|date',
+            'referido_por' => 'nullable|string|max:255',
             'extra_fields' => 'nullable|array',
             'checked_in' => 'sometimes|boolean',
         ]);
