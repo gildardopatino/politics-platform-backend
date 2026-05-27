@@ -12,6 +12,11 @@ class GeographySeeder extends Seeder
      */
     public function run(): void
     {
+        // Idempotent guard: geography is reference data; seed only once.
+        if (\App\Models\Department::count() > 0) {
+            return;
+        }
+
         // Ejemplo: Departamentos de Colombia
         $antioquia = \App\Models\Department::create([
             'codigo' => '05',

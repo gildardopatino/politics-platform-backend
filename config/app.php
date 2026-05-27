@@ -147,5 +147,7 @@ return [
     */
 
     'superadmin_email' => env('SUPERADMIN_EMAIL', 'admin@politics-platform.com'),
+    'superadmin_name' => env('SUPERADMIN_NAME', 'Super Administrator'),
+    'superadmin_password' => env('SUPERADMIN_PASSWORD', 'ChangeMe123!'),
 
 ];

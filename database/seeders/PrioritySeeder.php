@@ -2,13 +2,14 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
 class PrioritySeeder extends Seeder
 {
     /**
      * Run the database seeds.
+     *
+     * Idempotent: firstOrCreate by name, safe to re-run on every boot.
      */
     public function run(): void
     {
@@ -20,7 +21,10 @@ class PrioritySeeder extends Seeder
         ];
 
         foreach ($priorities as $priority) {
-            \App\Models\Priority::create($priority);
+            \App\Models\Priority::firstOrCreate(
+                ['name' => $priority['name']],
+                ['color' => $priority['color'], 'order' => $priority['order']]
+            );
         }
     }
 }

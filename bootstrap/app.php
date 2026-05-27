@@ -13,6 +13,10 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Behind nginx + Cloudflare Tunnel: trust forwarded headers so Laravel
+        // detects the real client IP, host and HTTPS scheme.
+        $middleware->trustProxies(at: '*');
+
         $middleware->alias([
             'jwt.auth' => \App\Http\Middleware\JwtMiddleware::class,
             'tenant' => \App\Http\Middleware\EnsureTenant::class,
