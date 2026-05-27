@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use App\Scopes\TenantScope;
+use App\Traits\HasTenant;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Survey extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, HasTenant, SoftDeletes;
 
     protected $fillable = [
         'tenant_id',
@@ -33,14 +33,6 @@ class Survey extends Model
         'questions_count',
         'is_current',
     ];
-
-    /**
-     * Boot method
-     */
-    protected static function booted(): void
-    {
-        static::addGlobalScope(new TenantScope);
-    }
 
     /**
      * Relaciones
@@ -76,15 +68,15 @@ class Survey extends Model
     public function getIsCurrentAttribute(): bool
     {
         $now = now();
-        
+
         if ($this->starts_at && $now->lt($this->starts_at)) {
             return false;
         }
-        
+
         if ($this->ends_at && $now->gt($this->ends_at)) {
             return false;
         }
-        
+
         return (bool) $this->is_active;
     }
 
@@ -99,14 +91,15 @@ class Survey extends Model
     public function scopeCurrent($query)
     {
         $now = now();
+
         return $query->where('is_active', true)
             ->where(function ($q) use ($now) {
                 $q->whereNull('starts_at')
-                  ->orWhere('starts_at', '<=', $now);
+                    ->orWhere('starts_at', '<=', $now);
             })
             ->where(function ($q) use ($now) {
                 $q->whereNull('ends_at')
-                  ->orWhere('ends_at', '>=', $now);
+                    ->orWhere('ends_at', '>=', $now);
             });
     }
 }

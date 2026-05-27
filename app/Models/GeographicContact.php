@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use App\Scopes\TenantScope;
+use App\Traits\HasTenant;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
@@ -11,7 +11,7 @@ use OwenIt\Auditing\Contracts\Auditable;
 
 class GeographicContact extends Model implements Auditable
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, HasTenant, SoftDeletes;
     use \OwenIt\Auditing\Auditable;
 
     protected $fillable = [
@@ -28,14 +28,6 @@ class GeographicContact extends Model implements Auditable
     protected $appends = [
         'nombre_completo',
     ];
-
-    /**
-     * Boot method
-     */
-    protected static function booted(): void
-    {
-        static::addGlobalScope(new TenantScope);
-    }
 
     /**
      * Relación polimórfica a la entidad geográfica
@@ -58,7 +50,7 @@ class GeographicContact extends Model implements Auditable
      */
     public function getNombreCompletoAttribute(): string
     {
-        return trim($this->nombres . ' ' . $this->apellidos);
+        return trim($this->nombres.' '.$this->apellidos);
     }
 
     /**

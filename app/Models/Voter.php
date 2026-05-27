@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use App\Scopes\TenantScope;
+use App\Traits\HasTenant;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -12,7 +12,7 @@ use OwenIt\Auditing\Contracts\Auditable;
 
 class Voter extends Model implements Auditable
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, HasTenant, SoftDeletes;
     use \OwenIt\Auditing\Auditable;
 
     protected $fillable = [
@@ -46,14 +46,6 @@ class Voter extends Model implements Auditable
         'full_name',
         'location_type',
     ];
-
-    /**
-     * Boot method
-     */
-    protected static function booted(): void
-    {
-        static::addGlobalScope(new TenantScope);
-    }
 
     /**
      * Relaciones
@@ -113,14 +105,21 @@ class Voter extends Model implements Auditable
      */
     public function getFullNameAttribute(): string
     {
-        return trim($this->nombres . ' ' . $this->apellidos);
+        return trim($this->nombres.' '.$this->apellidos);
     }
 
     public function getLocationTypeAttribute(): ?string
     {
-        if ($this->barrio_id) return 'barrio';
-        if ($this->corregimiento_id) return 'corregimiento';
-        if ($this->vereda_id) return 'vereda';
+        if ($this->barrio_id) {
+            return 'barrio';
+        }
+        if ($this->corregimiento_id) {
+            return 'corregimiento';
+        }
+        if ($this->vereda_id) {
+            return 'vereda';
+        }
+
         return null;
     }
 
@@ -136,10 +135,10 @@ class Voter extends Model implements Auditable
     {
         return $query->where(function ($q) use ($search) {
             $q->where('cedula', 'like', "%{$search}%")
-              ->orWhere('nombres', 'like', "%{$search}%")
-              ->orWhere('apellidos', 'like', "%{$search}%")
-              ->orWhere('email', 'like', "%{$search}%")
-              ->orWhere('telefono', 'like', "%{$search}%");
+                ->orWhere('nombres', 'like', "%{$search}%")
+                ->orWhere('apellidos', 'like', "%{$search}%")
+                ->orWhere('email', 'like', "%{$search}%")
+                ->orWhere('telefono', 'like', "%{$search}%");
         });
     }
 }

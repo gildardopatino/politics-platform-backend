@@ -3,122 +3,70 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Models\Voter;
+use App\Http\Requests\Api\V1\Voter\StoreVoterRequest;
+use App\Http\Requests\Api\V1\Voter\UpdateVoterRequest;
+use App\Http\Resources\Api\V1\VoterResource;
 use App\Models\Lead;
+use App\Models\Voter;
+use App\Models\VotingPlace;
 use App\Services\PisamiService;
+use App\Traits\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
 class VoterController extends Controller
 {
+    use ApiResponse;
+
     /**
-     * Display a listing of voters with filters
+     * Display a listing of voters with filters.
      */
     public function index(Request $request): JsonResponse
-    {      
-
-        $perPage = $request->input('per_page', 15);
-        $search = $request->input('search');
-        $hasMultipleRecords = $request->input('has_multiple_records');
-
+    {
         $query = Voter::with(['barrio', 'corregimiento', 'vereda', 'meeting', 'createdBy', 'tipoVotante']);
 
-        if ($search) {
+        if ($search = $request->input('search')) {
             $query->search($search);
         }
 
-        if ($hasMultipleRecords !== null) {
-            $query->where('has_multiple_records', $hasMultipleRecords);
+        if ($request->input('has_multiple_records') !== null) {
+            $query->where('has_multiple_records', $request->boolean('has_multiple_records'));
         }
 
-        $voters = $query->latest()->paginate($perPage);
+        $voters = $query->latest()->paginate($this->resolvePerPage());
 
-        return response()->json([
-            'success' => true,
-            'data' => $voters->items(),
-            'pagination' => [
-                'total' => $voters->total(),
-                'per_page' => $voters->perPage(),
-                'current_page' => $voters->currentPage(),
-                'last_page' => $voters->lastPage(),
-                'from' => $voters->firstItem(),
-                'to' => $voters->lastItem(),
-            ],
-        ]);
+        return $this->respondPaginated($voters, VoterResource::class);
     }
 
     /**
-     * Store a newly created voter
+     * Store a newly created voter.
      */
-    public function store(Request $request): JsonResponse
+    public function store(StoreVoterRequest $request): JsonResponse
     {
-        $user = auth()->user();
-        if (!$user || !$user->can('create', Voter::class)) {
-            return response()->json([
-                'message' => 'No tienes permiso para crear votantes.'
-            ], 403);
-        }
-
-        $validator = Validator::make($request->all(), [
-            'cedula' => 'required|string|max:20|unique:voters,cedula,NULL,id,tenant_id,' . auth()->user()->tenant_id,
-            'nombres' => 'required|string|max:255',
-            'apellidos' => 'required|string|max:255',
-            'email' => 'nullable|email|max:255',
-            'telefono' => 'nullable|string|max:20',
-            'direccion' => 'nullable|string|max:500',
-            'barrio_id' => 'nullable|exists:barrios,id',
-            'corregimiento_id' => 'nullable|exists:corregimientos,id',
-            'vereda_id' => 'nullable|exists:veredas,id',
-            'tipo_votante_id' => 'nullable|exists:tipo_votante,id',
-            'meeting_id' => 'nullable|exists:meetings,id',
-            'departamento_votacion' => 'nullable|string|max:255',
-            'municipio_votacion' => 'nullable|string|max:255',
-            'puesto_votacion' => 'nullable|string|max:255',
-            'direccion_votacion' => 'nullable|string|max:500',
-            'mesa_votacion' => 'nullable|string|max:20',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'errors' => $validator->errors(),
-            ], 422);
-        }
-
-        $data = $validator->validated();
+        $data = $request->validated();
 
         if (empty($data['tipo_votante_id'])) {
             $data['tipo_votante_id'] = 1; // Elector por defecto
         }
 
-        $voter = Voter::create(array_merge(
-            $data,
-            [
-                'tenant_id' => auth()->user()->tenant_id,
-                'created_by' => auth()->id(),
-            ]
-        ));
+        // tenant_id is auto-filled by the HasTenant trait; created_by is set here.
+        $voter = Voter::create(array_merge($data, [
+            'created_by' => auth()->id(),
+        ]));
 
         $voter->load(['barrio', 'corregimiento', 'vereda', 'meeting', 'tipoVotante']);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Votante creado exitosamente',
-            'data' => $voter,
-        ], 201);
+        return $this->respondData(new VoterResource($voter), 'Votante creado exitosamente', 201);
     }
 
     /**
-     * Display the specified voter
+     * Display the specified voter.
      */
     public function show(Voter $voter): JsonResponse
     {
-        $user = auth()->user();
-        if (!$user || !$user->can('view', $voter)) {
-            return response()->json([
-                'message' => 'No tienes permiso para ver este votante.'
-            ], 403);
+        if (! auth()->user()?->can('view', $voter)) {
+            return $this->respondError('No tienes permiso para ver este votante.', 403);
         }
 
         $voter->load([
@@ -129,54 +77,18 @@ class VoterController extends Controller
             'calls.survey',
             'calls.user',
             'createdBy',
+            'tipoVotante',
         ]);
 
-        return response()->json([
-            'success' => true,
-            'data' => $voter,
-        ]);
+        return $this->respondData(new VoterResource($voter));
     }
 
     /**
-     * Update the specified voter
+     * Update the specified voter.
      */
-    public function update(Request $request, Voter $voter): JsonResponse
+    public function update(UpdateVoterRequest $request, Voter $voter): JsonResponse
     {
-        $user = auth()->user();
-        if (!$user || !$user->can('update', $voter)) {
-            return response()->json([
-                'message' => 'No tienes permiso para actualizar este votante.'
-            ], 403);
-        }
-
-        $validator = Validator::make($request->all(), [
-            'cedula' => 'required|string|max:20|unique:voters,cedula,' . $voter->id . ',id,tenant_id,' . auth()->user()->tenant_id,
-            'nombres' => 'required|string|max:255',
-            'apellidos' => 'required|string|max:255',
-            'email' => 'nullable|email|max:255',
-            'telefono' => 'nullable|string|max:20',
-            'direccion' => 'nullable|string|max:500',
-            'barrio_id' => 'nullable|exists:barrios,id',
-            'corregimiento_id' => 'nullable|exists:corregimientos,id',
-            'vereda_id' => 'nullable|exists:veredas,id',
-            'meeting_id' => 'nullable|exists:meetings,id',
-            'departamento_votacion' => 'nullable|string|max:255',
-            'municipio_votacion' => 'nullable|string|max:255',
-            'puesto_votacion' => 'nullable|string|max:255',
-            'direccion_votacion' => 'nullable|string|max:500',
-            'mesa_votacion' => 'nullable|string|max:20',
-            'tipo_votante_id' => 'nullable|exists:tipo_votante,id',
-            'has_multiple_records' => 'nullable|boolean',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'errors' => $validator->errors(),
-            ], 422);
-        }
-
-        $data = $validator->validated();
+        $data = $request->validated();
 
         if (array_key_exists('tipo_votante_id', $data) && empty($data['tipo_votante_id'])) {
             $data['tipo_votante_id'] = 1; // Elector por defecto si viene vacío
@@ -185,35 +97,25 @@ class VoterController extends Controller
         $voter->update($data);
         $voter->load(['barrio', 'corregimiento', 'vereda', 'meeting', 'tipoVotante']);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Votante actualizado exitosamente',
-            'data' => $voter,
-        ]);
+        return $this->respondData(new VoterResource($voter), 'Votante actualizado exitosamente');
     }
 
     /**
-     * Remove the specified voter
+     * Remove the specified voter.
      */
     public function destroy(Voter $voter): JsonResponse
     {
-        $user = auth()->user();
-        if (!$user || !$user->can('delete', $voter)) {
-            return response()->json([
-                'message' => 'No tienes permiso para eliminar este votante.'
-            ], 403);
+        if (! auth()->user()?->can('delete', $voter)) {
+            return $this->respondError('No tienes permiso para eliminar este votante.', 403);
         }
 
         $voter->delete();
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Votante eliminado exitosamente',
-        ]);
+        return $this->respondMessage('Votante eliminado exitosamente');
     }
 
     /**
-     * Get voters statistics
+     * Get voters statistics.
      */
     public function stats(): JsonResponse
     {
@@ -230,93 +132,59 @@ class VoterController extends Controller
             ],
         ];
 
-        return response()->json([
-            'success' => true,
-            'data' => $stats,
-        ]);
+        return $this->respondData($stats);
     }
 
     /**
-     * Search voter by cedula
+     * Search voter by cedula.
      */
     public function searchByCedula(Request $request): JsonResponse
     {
-        $validator = Validator::make($request->all(), [
-            'cedula' => 'required|string',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'errors' => $validator->errors(),
-            ], 422);
-        }
+        $request->validate(['cedula' => 'required|string']);
 
         $voter = Voter::where('cedula', $request->cedula)
             ->with(['barrio', 'corregimiento', 'vereda', 'meeting', 'tipoVotante'])
             ->first();
 
-        if (!$voter) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Votante no encontrado',
-            ], 404);
+        if (! $voter) {
+            return $this->respondError('Votante no encontrado', 404);
         }
 
-        return response()->json([
-            'success' => true,
-            'data' => $voter,
-        ]);
+        return $this->respondData(new VoterResource($voter));
     }
 
     /**
-     * Verify document from external PISAMI API
-     * This endpoint is public (no authentication required)
-     * If not found in PISAMI, searches in local leads table
+     * Verify document from external PISAMI API (public endpoint).
+     * Falls back to the local leads table when not found in PISAMI.
+     *
+     * NOTE: response shape kept as { success, data, source } — consumed by the
+     * public meeting check-in flow; not migrated to the standard envelope.
      */
     public function verifyDocument(Request $request, PisamiService $pisamiService): JsonResponse
     {
-        $validator = Validator::make($request->all(), [
-            'cedula' => 'required|string|max:20',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'errors' => $validator->errors(),
-            ], 422);
-        }
+        $request->validate(['cedula' => 'required|string|max:20']);
 
         $cedula = $request->cedula;
 
-        // 1. Intentar consumir API externa de PISAMI
-        $data = $pisamiService->verifyDocument($cedula);
-
-        if ($data) {
-            return response()->json([
-                'success' => true,
-                'data' => $data,
-                'source' => 'pisami',
-            ]);
+        // 1. External PISAMI API
+        if ($data = $pisamiService->verifyDocument($cedula)) {
+            return response()->json(['success' => true, 'data' => $data, 'source' => 'pisami']);
         }
 
-        // 2. Si no se encuentra en PISAMI, buscar en tabla leads
+        // 2. Local leads table
         $lead = Lead::where('cedula', $cedula)->first();
 
         if ($lead) {
-            // Formatear datos del lead al mismo formato que PISAMI
             $leadData = [
                 'cedula' => $lead->cedula,
-                'nombres' => trim(($lead->nombre1 ?? '') . ' ' . ($lead->nombre2 ?? '')),
-                'apellidos' => trim(($lead->apellido1 ?? '') . ' ' . ($lead->apellido2 ?? '')),
+                'nombres' => trim(($lead->nombre1 ?? '').' '.($lead->nombre2 ?? '')),
+                'apellidos' => trim(($lead->apellido1 ?? '').' '.($lead->apellido2 ?? '')),
                 'nombre_completo' => $lead->full_name,
                 'fecha_nacimiento' => $lead->fecha_nacimiento?->format('Y-m-d'),
                 'telefono' => $lead->telefono,
                 'email' => $lead->email,
                 'direccion' => $lead->direccion,
                 'barrio' => $lead->barrio_otro,
-                
-                // Información electoral
                 'departamento_votacion' => $lead->departamento_votacion,
                 'municipio_votacion' => $lead->municipio_votacion,
                 'puesto_votacion' => $lead->puesto_votacion,
@@ -324,20 +192,13 @@ class VoterController extends Controller
                 'mesa_votacion' => $lead->mesa_votacion,
                 'direccion_votacion' => $lead->direccion_votacion,
                 'locality_name' => $lead->locality_name,
-                
-                // Coordenadas
                 'latitud' => $lead->latitud,
                 'longitud' => $lead->longitud,
             ];
 
-            return response()->json([
-                'success' => true,
-                'data' => $leadData,
-                'source' => 'leads',
-            ]);
+            return response()->json(['success' => true, 'data' => $leadData, 'source' => 'leads']);
         }
 
-        // 3. No se encontró en ninguna fuente
         return response()->json([
             'success' => false,
             'message' => 'No se encontró información para la cédula proporcionada en PISAMI ni en la base de datos local',
@@ -345,78 +206,47 @@ class VoterController extends Controller
     }
 
     /**
-     * Get voters grouped by voting place (puesto_votacion)
-     * Returns count and details per voting place
+     * Get voters grouped by voting place (puesto_votacion).
+     * Tolima voters are grouped; voters outside Tolima are returned as "external".
      */
     public function byVotingPlace(): JsonResponse
     {
-        // Votantes del Tolima agrupados por puesto de votación
-        $votingPlaces = Voter::select('puesto_votacion')
-            ->selectRaw('MIN(direccion_votacion) as direccion_votacion')
-            ->selectRaw('MIN(departamento_votacion) as departamento_votacion')
-            ->selectRaw('MIN(municipio_votacion) as municipio_votacion')
-            ->selectRaw('COUNT(*) as total_votantes')
+        // Single pass over Tolima voters, grouped in memory (avoids N+1 per place).
+        $tolimaColumns = ['id', 'cedula', 'nombres', 'apellidos', 'email', 'telefono', 'direccion', 'mesa_votacion', 'puesto_votacion', 'direccion_votacion', 'departamento_votacion', 'municipio_votacion'];
+
+        $votingPlaces = Voter::select($tolimaColumns)
             ->whereNotNull('puesto_votacion')
             ->where('puesto_votacion', '!=', '')
-            ->whereNotNull('departamento_votacion')
             ->where('departamento_votacion', 'TOLIMA')
-            ->groupBy('puesto_votacion')
             ->orderBy('puesto_votacion')
+            ->orderBy('apellidos')
+            ->orderBy('nombres')
             ->get()
-            ->map(function ($place) {
-                // Obtener los votantes de ese puesto
-                $voters = Voter::select(
-                    'id',
-                    'cedula',
-                    'nombres',
-                    'apellidos',
-                    'email',
-                    'telefono',
-                    'direccion',
-                    'mesa_votacion'
-                )
-                ->where('puesto_votacion', $place->puesto_votacion)
-                ->where('departamento_votacion', 'TOLIMA')
-                ->orderBy('apellidos')
-                ->orderBy('nombres')
-                ->get()
-                ->map(function ($voter) {
-                    return [
-                        'id' => $voter->id,
-                        'cedula' => $voter->cedula,
-                        'nombre_completo' => trim($voter->nombres . ' ' . $voter->apellidos),
-                        'email' => $voter->email,
-                        'telefono' => $voter->telefono,
-                        'direccion' => $voter->direccion,
-                        'mesa_votacion' => $voter->mesa_votacion,
-                    ];
-                });
+            ->groupBy('puesto_votacion')
+            ->map(function ($voters, $puesto) {
+                $first = $voters->first();
 
                 return [
-                    'puesto_votacion' => $place->puesto_votacion,
-                    'direccion_votacion' => $place->direccion_votacion,
-                    'departamento_votacion' => $place->departamento_votacion,
-                    'municipio_votacion' => $place->municipio_votacion,
-                    'total_votantes' => $place->total_votantes,
-                    'detalle_votacion' => $voters,
+                    'puesto_votacion' => $puesto,
+                    'direccion_votacion' => $first->direccion_votacion,
+                    'departamento_votacion' => $first->departamento_votacion,
+                    'municipio_votacion' => $first->municipio_votacion,
+                    'total_votantes' => $voters->count(),
+                    'detalle_votacion' => $voters->map(fn ($v) => [
+                        'id' => $v->id,
+                        'cedula' => $v->cedula,
+                        'nombre_completo' => trim($v->nombres.' '.$v->apellidos),
+                        'email' => $v->email,
+                        'telefono' => $v->telefono,
+                        'direccion' => $v->direccion,
+                        'mesa_votacion' => $v->mesa_votacion,
+                    ])->values(),
                 ];
-            });
+            })
+            ->values();
 
-        // Votantes externos (fuera del Tolima)
-        $externalVoters = Voter::select(
-                'id',
-                'cedula',
-                'nombres',
-                'apellidos',
-                'email',
-                'telefono',
-                'direccion',
-                'departamento_votacion',
-                'municipio_votacion',
-                'puesto_votacion',
-                'direccion_votacion',
-                'mesa_votacion'
-            )
+        // Voters outside Tolima.
+        $externalVoters = Voter::select(['id', 'cedula', 'nombres', 'apellidos', 'email', 'telefono', 'direccion', 'departamento_votacion', 'municipio_votacion', 'puesto_votacion', 'direccion_votacion', 'mesa_votacion'])
             ->whereNotNull('departamento_votacion')
             ->where('departamento_votacion', '!=', 'TOLIMA')
             ->orderBy('departamento_votacion')
@@ -424,29 +254,96 @@ class VoterController extends Controller
             ->orderBy('apellidos')
             ->orderBy('nombres')
             ->get()
-            ->map(function ($voter) {
-                return [
-                    'id' => $voter->id,
-                    'cedula' => $voter->cedula,
-                    'nombre_completo' => trim($voter->nombres . ' ' . $voter->apellidos),
-                    'email' => $voter->email,
-                    'telefono' => $voter->telefono,
-                    'direccion' => $voter->direccion,
-                    'departamento_votacion' => $voter->departamento_votacion,
-                    'municipio_votacion' => $voter->municipio_votacion,
-                    'puesto_votacion' => $voter->puesto_votacion,
-                    'direccion_votacion' => $voter->direccion_votacion,
-                    'mesa_votacion' => $voter->mesa_votacion,
-                ];
-            });
+            ->map(fn ($v) => [
+                'id' => $v->id,
+                'cedula' => $v->cedula,
+                'nombre_completo' => trim($v->nombres.' '.$v->apellidos),
+                'email' => $v->email,
+                'telefono' => $v->telefono,
+                'direccion' => $v->direccion,
+                'departamento_votacion' => $v->departamento_votacion,
+                'municipio_votacion' => $v->municipio_votacion,
+                'puesto_votacion' => $v->puesto_votacion,
+                'direccion_votacion' => $v->direccion_votacion,
+                'mesa_votacion' => $v->mesa_votacion,
+            ]);
 
-        return response()->json([
-            'success' => true,
-            'data' => $votingPlaces,
+        return $this->respondData([
+            'puestos' => $votingPlaces,
             'total_puestos' => $votingPlaces->count(),
             'total_votantes_tolima' => $votingPlaces->sum('total_votantes'),
             'votantes_externos' => $externalVoters,
             'total_votantes_externos' => $externalVoters->count(),
+        ]);
+    }
+
+    /**
+     * Public webhook (n8n): voters pending registraduría lookup.
+     * Returns a raw array — response shape kept stable for the webhook consumer.
+     */
+    public function pendientesRegistraduria(Request $request): JsonResponse
+    {
+        $voters = Voter::withoutGlobalScope(\App\Scopes\TenantScope::class)
+            ->select('id', 'cedula')
+            ->whereNull('departamento_votacion')
+            ->limit(100)
+            ->get();
+
+        return response()->json($voters);
+    }
+
+    /**
+     * Public webhook (n8n): update voter registraduría data.
+     * Response shape kept as { success, message, data } for the webhook consumer.
+     */
+    public function actualizarRegistraduria(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'id' => 'required|integer|exists:voters,id',
+            'departamento_votacion' => 'required|string|max:255',
+            'municipio_votacion' => 'required|string|max:255',
+            'puesto_votacion' => 'required|string|max:255',
+            'direccion_votacion' => 'nullable|string|max:500',
+            'mesa_votacion' => 'nullable|integer',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+        }
+
+        $data = $validator->validated();
+
+        $votingPlace = VotingPlace::firstOrCreate(
+            [
+                'departamento_votacion' => $data['departamento_votacion'],
+                'municipio_votacion' => $data['municipio_votacion'],
+                'puesto_votacion' => $data['puesto_votacion'],
+            ],
+            [
+                'direccion_votacion' => $data['direccion_votacion'] ?? null,
+            ]
+        );
+
+        // Public webhook has no tenant context; bypass the tenant scope to find the voter.
+        $voter = Voter::withoutGlobalScope(\App\Scopes\TenantScope::class)->find($data['id']);
+
+        if (! $voter) {
+            return response()->json(['success' => false, 'message' => 'Votante no encontrado.'], 404);
+        }
+
+        $voter->update([
+            'departamento_votacion' => $data['departamento_votacion'],
+            'municipio_votacion' => $data['municipio_votacion'],
+            'puesto_votacion' => $data['puesto_votacion'],
+            'direccion_votacion' => $data['direccion_votacion'] ?? null,
+            'mesa_votacion' => $data['mesa_votacion'] ?? null,
+            'voting_place_id' => $votingPlace->id,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Información de registraduría actualizada correctamente.',
+            'data' => $voter->fresh(),
         ]);
     }
 }

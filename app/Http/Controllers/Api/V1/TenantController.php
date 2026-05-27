@@ -6,10 +6,16 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Tenant\StoreTenantRequest;
 use App\Http\Requests\Api\V1\Tenant\UpdateTenantRequest;
 use App\Http\Resources\Api\V1\TenantResource;
+use App\Models\Permission;
+use App\Models\Role;
 use App\Models\Tenant;
 use App\Models\TenantMessagingCredit;
+use App\Models\User;
+use App\Scopes\TenantScope;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Spatie\QueryBuilder\QueryBuilder;
 
@@ -33,7 +39,7 @@ class TenantController extends Controller
                 'current_page' => $tenants->currentPage(),
                 'last_page' => $tenants->lastPage(),
                 'per_page' => $tenants->perPage(),
-            ]
+            ],
         ]);
     }
 
@@ -46,13 +52,18 @@ class TenantController extends Controller
         $user = auth('api')->user();
         if ($user->tenant_id !== null) {
             return response()->json([
-                'message' => 'Solo el superadministrador puede crear tenants'
+                'message' => 'Solo el superadministrador puede crear tenants',
             ], 403);
         }
 
+        $validated = $request->validated();
+        $tenantData = Arr::except($validated, [
+            'admin_name', 'admin_email', 'admin_password', 'initial_emails', 'initial_whatsapp',
+        ]);
+
         DB::beginTransaction();
         try {
-            $tenant = Tenant::create($request->validated());
+            $tenant = Tenant::create($tenantData);
 
             // Initialize messaging credits with values from request or defaults
             $emailsInitial = $request->input('initial_emails', 1000);
@@ -64,8 +75,13 @@ class TenantController extends Controller
                 'whatsapp_available' => $whatsappInitial,
             ]);
 
-            Log::info('Tenant created with messaging credits', [
+            // Provision the tenant's own role set and its initial administrator.
+            $this->provisionTenantRoles($tenant);
+            $admin = $this->createTenantAdmin($tenant, $validated);
+
+            Log::info('Tenant created with admin and messaging credits', [
                 'tenant_id' => $tenant->id,
+                'admin_user_id' => $admin->id,
                 'created_by' => $user->id,
                 'emails' => $emailsInitial,
                 'whatsapp' => $whatsappInitial,
@@ -75,7 +91,12 @@ class TenantController extends Controller
 
             return response()->json([
                 'data' => new TenantResource($tenant->load('messagingCredit')),
-                'message' => 'Tenant created successfully'
+                'admin' => [
+                    'id' => $admin->id,
+                    'name' => $admin->name,
+                    'email' => $admin->email,
+                ],
+                'message' => 'Tenant created successfully',
             ], 201);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -83,12 +104,71 @@ class TenantController extends Controller
                 'error' => $e->getMessage(),
                 'user_id' => $user->id,
             ]);
-            
+
             return response()->json([
                 'message' => 'Error creating tenant',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Clone the global role templates (admin/coordinator/operator/viewer) into
+     * dedicated, tenant-scoped roles so each tenant owns its own role set.
+     */
+    private function provisionTenantRoles(Tenant $tenant): void
+    {
+        $templateNames = ['admin', 'coordinator', 'operator', 'viewer'];
+
+        $globalRoles = Role::withoutGlobalScope(TenantScope::class)
+            ->whereNull('tenant_id')
+            ->where('guard_name', 'api')
+            ->whereIn('name', $templateNames)
+            ->with('permissions')
+            ->get();
+
+        if ($globalRoles->isEmpty()) {
+            // No global templates seeded — at minimum create an admin with every permission.
+            $admin = Role::create(['name' => 'admin', 'guard_name' => 'api', 'tenant_id' => $tenant->id]);
+            $admin->syncPermissions(Permission::all());
+
+            return;
+        }
+
+        foreach ($globalRoles as $template) {
+            $role = Role::create([
+                'name' => $template->name,
+                'guard_name' => 'api',
+                'tenant_id' => $tenant->id,
+            ]);
+            $role->syncPermissions($template->permissions);
+        }
+    }
+
+    /**
+     * Create the tenant's initial administrator and assign its (tenant-scoped) admin role.
+     */
+    private function createTenantAdmin(Tenant $tenant, array $data): User
+    {
+        $admin = User::create([
+            'tenant_id' => $tenant->id,
+            'name' => $data['admin_name'],
+            'email' => $data['admin_email'],
+            'password' => Hash::make($data['admin_password']),
+            'is_super_admin' => false,
+        ]);
+
+        $adminRole = Role::withoutGlobalScope(TenantScope::class)
+            ->where('tenant_id', $tenant->id)
+            ->where('name', 'admin')
+            ->where('guard_name', 'api')
+            ->first();
+
+        if ($adminRole) {
+            $admin->assignRole($adminRole);
+        }
+
+        return $admin;
     }
 
     /**
@@ -98,12 +178,12 @@ class TenantController extends Controller
     {
         return response()->json([
             'data' => new TenantResource($tenant->load([
-                'users', 
-                'meetings', 
-                'campaigns', 
+                'users',
+                'meetings',
+                'campaigns',
                 'messagingCredit',
-                'whatsappInstances'
-            ]))
+                'whatsappInstances',
+            ])),
         ]);
     }
 
@@ -117,9 +197,9 @@ class TenantController extends Controller
         return response()->json([
             'data' => new TenantResource($tenant->load([
                 'messagingCredit',
-                'whatsappInstances'
+                'whatsappInstances',
             ])),
-            'message' => 'Tenant updated successfully'
+            'message' => 'Tenant updated successfully',
         ]);
     }
 
@@ -131,7 +211,7 @@ class TenantController extends Controller
         $tenant->delete();
 
         return response()->json([
-            'message' => 'Tenant deleted successfully'
+            'message' => 'Tenant deleted successfully',
         ]);
     }
 }

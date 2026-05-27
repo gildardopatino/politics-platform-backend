@@ -61,6 +61,8 @@ Route::prefix('v1')->group(function () {
     
     // Public routes
     Route::post('/login', [AuthController::class, 'login']);
+    Route::get('/webhook/political/registraduria/pendientes', [VoterController::class, 'pendientesRegistraduria']);
+    Route::post('/webhook/political/registraduria/actualizar', [VoterController::class, 'actualizarRegistraduria']);
     // Password reset (forgot + reset via n8n email webhook)
     Route::post('/password/forgot', [PasswordResetController::class, 'forgot']);
     Route::post('/password/reset', [PasswordResetController::class, 'reset']);

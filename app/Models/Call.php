@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use App\Scopes\TenantScope;
+use App\Traits\HasTenant;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Call extends Model
 {
-    use HasFactory;
+    use HasFactory, HasTenant;
 
     protected $fillable = [
         'tenant_id',
@@ -31,14 +31,6 @@ class Call extends Model
     protected $appends = [
         'duration_formatted',
     ];
-
-    /**
-     * Boot method
-     */
-    protected static function booted(): void
-    {
-        static::addGlobalScope(new TenantScope);
-    }
 
     /**
      * Relaciones
@@ -73,7 +65,7 @@ class Call extends Model
      */
     public function getDurationFormattedAttribute(): ?string
     {
-        if (!$this->duration_seconds) {
+        if (! $this->duration_seconds) {
             return null;
         }
 
