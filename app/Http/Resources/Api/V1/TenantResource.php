@@ -21,6 +21,8 @@ class TenantResource extends JsonResource
             'nombre' => $this->nombre,
             'tipo_cargo' => $this->tipo_cargo,
             'identificacion' => $this->identificacion,
+            'email_contacto' => $this->email_contacto,
+            'phone_contacto' => $this->phone_contacto,
             'metadata' => $this->metadata,
             
             // Expiration information
