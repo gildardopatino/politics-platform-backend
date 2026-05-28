@@ -11,9 +11,12 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('communes', function (Blueprint $table) {
-            $table->text('path')->nullable()->after('longitude');
-        });
+        // Idempotent: an earlier migration may already have added `path`.
+        if (! Schema::hasColumn('communes', 'path')) {
+            Schema::table('communes', function (Blueprint $table) {
+                $table->text('path')->nullable()->after('longitude');
+            });
+        }
     }
 
     /**
@@ -21,8 +24,10 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('communes', function (Blueprint $table) {
-            $table->dropColumn('path');
-        });
+        if (Schema::hasColumn('communes', 'path')) {
+            Schema::table('communes', function (Blueprint $table) {
+                $table->dropColumn('path');
+            });
+        }
     }
 };
