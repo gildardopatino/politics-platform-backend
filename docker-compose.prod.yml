@@ -39,10 +39,15 @@ services:
     restart: unless-stopped
     env_file: .env.production
     environment:
+      DB_CONNECTION: pgsql
       DB_HOST: db
       DB_PORT: "5432"
+      REDIS_CLIENT: phpredis
       REDIS_HOST: redis
       REDIS_PORT: "6379"
+      CACHE_STORE: redis
+      QUEUE_CONNECTION: redis
+      SESSION_DRIVER: redis
     depends_on:
       db:
         condition: service_healthy
@@ -67,10 +72,15 @@ services:
     restart: unless-stopped
     env_file: .env.production
     environment:
+      DB_CONNECTION: pgsql
       DB_HOST: db
       DB_PORT: "5432"
+      REDIS_CLIENT: phpredis
       REDIS_HOST: redis
       REDIS_PORT: "6379"
+      CACHE_STORE: redis
+      QUEUE_CONNECTION: redis
+      SESSION_DRIVER: redis
     command: ["php", "artisan", "queue:work", "--tries=3", "--timeout=90"]
     depends_on:
       backend:
@@ -86,10 +96,15 @@ services:
     restart: unless-stopped
     env_file: .env.production
     environment:
+      DB_CONNECTION: pgsql
       DB_HOST: db
       DB_PORT: "5432"
+      REDIS_CLIENT: phpredis
       REDIS_HOST: redis
       REDIS_PORT: "6379"
+      CACHE_STORE: redis
+      QUEUE_CONNECTION: redis
+      SESSION_DRIVER: redis
     command: ["php", "artisan", "schedule:work"]
     depends_on:
       backend:
