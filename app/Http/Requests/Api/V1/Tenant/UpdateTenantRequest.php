@@ -28,6 +28,8 @@ class UpdateTenantRequest extends FormRequest
             'nombre' => 'sometimes|string|max:255',
             'tipo_cargo' => 'sometimes|in:Gobernacion,Alcaldia,Concejo,Congresista,Diputado,Otro,Representante',
             'identificacion' => 'sometimes|string|max:50|unique:tenants,identificacion,' . $tenantId,
+            'email_contacto' => 'sometimes|email|max:255',
+            'phone_contacto' => 'nullable|string|max:30',
             'metadata' => 'nullable|array',
             'start_date' => 'nullable|date',
             'expiration_date' => 'nullable|date|after:start_date',

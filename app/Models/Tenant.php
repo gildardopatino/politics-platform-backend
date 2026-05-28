@@ -17,6 +17,8 @@ class Tenant extends Model
         'nombre',
         'tipo_cargo',
         'identificacion',
+        'email_contacto',
+        'phone_contacto',
         'metadata',
         'biografia_data',
         's3_bucket',

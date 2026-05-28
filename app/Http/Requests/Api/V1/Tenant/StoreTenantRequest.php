@@ -26,6 +26,8 @@ class StoreTenantRequest extends FormRequest
             'nombre' => 'required|string|max:255',
             'tipo_cargo' => 'required|in:Gobernacion,Alcaldia,Concejo,Congresista,Diputado,Otro,Representante',
             'identificacion' => 'required|string|max:50|unique:tenants,identificacion',
+            'email_contacto' => 'required|email|max:255',
+            'phone_contacto' => 'nullable|string|max:30',
 
             // Initial tenant administrator (created together with the tenant)
             'admin_name' => 'required|string|max:255',
