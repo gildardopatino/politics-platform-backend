@@ -2,6 +2,8 @@ version: '3.8'
 
 services:
   app:
+    env_file:
+      - .env.docker
     build:
       context: .
       dockerfile: Dockerfile
@@ -24,6 +26,8 @@ services:
     depends_on:
       - postgres
       - redis
+    user: "${UID:-1000}:${GID:-1000}"
+    
 
   nginx:
     image: nginx:alpine
@@ -62,6 +66,8 @@ services:
       - politics_network
 
   queue:
+    env_file:
+      - .env.docker
     build:
       context: .
       dockerfile: Dockerfile
@@ -85,6 +91,7 @@ services:
       - postgres
       - redis
       - app
+    user: "${UID:-1000}:${GID:-1000}"
 
 networks:
   politics_network:
