@@ -30,6 +30,7 @@ use App\Http\Controllers\Api\V1\OrganizationController;
 use App\Http\Controllers\Api\V1\PriorityController;
 use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\TenantWhatsAppInstanceController;
+use App\Http\Controllers\Api\V1\TenantAdminController;
 use App\Http\Controllers\Api\V1\ResourceAllocationController;
 use App\Http\Controllers\Api\V1\ResourceItemController;
 use App\Http\Controllers\Api\V1\ResourceAllocationItemController;
@@ -120,6 +121,14 @@ Route::prefix('v1')->group(function () {
             
             // Also allow listing all instances across all tenants
             Route::get('/whatsapp-instances', [TenantWhatsAppInstanceController::class, 'index']);
+
+            // Tenant administrators management (super admin, cross-tenant)
+            Route::prefix('tenants/{tenantId}/admins')->group(function () {
+                Route::get('/', [TenantAdminController::class, 'index']);
+                Route::post('/', [TenantAdminController::class, 'store']);
+                Route::put('/{userId}', [TenantAdminController::class, 'update']);
+                Route::delete('/{userId}', [TenantAdminController::class, 'destroy']);
+            });
         });
 
         // Tenant-scoped routes (with expiration check)
