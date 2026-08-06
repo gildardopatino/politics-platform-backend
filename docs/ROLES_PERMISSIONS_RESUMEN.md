@@ -127,8 +127,95 @@ es trabajo de campo; `viewer` es solo lectura.
   `constants/permissions.ts`. Nunca escribir el string a mano en rutas o
   componentes (Constitución, Art. IV).
 
-> Nota: hoy el backend **no aplica** estos permisos por ruta (no hay middleware
-> `permission:`); el gating vive en el frontend. Lo corrige la **Spec 0005**.
+---
+
+## Enforcement por ruta (Spec 0005)
+
+`routes/api.php` **sí** aplica autorización desde la Spec 0005. Antes no había
+ningún `permission:` y el gating vivía solo en el frontend: cualquier usuario
+autenticado del tenant llegaba por API a endpoints para los que la UI le ocultaba
+el botón.
+
+**Fuente del mapa:** `platform-politics-frontend/src/App.tsx`
+(`requiredPermission` / `requiredRole` por pantalla). El backend refleja esa
+intención; no se inventaron permisos ni se amplió la granularidad.
+
+### Cómo se asigna
+
+| Caso | Regla |
+| --- | --- |
+| Módulo con CRUD completo en el catálogo | Un permiso por verbo: `index`/`show` → `view_*`, `store` → `create_*`, `update` → `edit_*`, `destroy` → `delete_*` |
+| Módulo con un solo permiso (`view_*` / `manage_*`) | Ese permiso gatea **todas** sus acciones |
+| Pantalla que el frontend marca `requiredRole="admin"` | `role:admin` |
+| Endpoint de acción (`/complete`, `/send`, `/cancel`) | `edit_*` del módulo si cambia estado; `view_*` si solo lee |
+| Pantalla sin permiso en el frontend | Sin `permission:`: abierta a cualquier usuario del tenant |
+
+### Mapa
+
+| Rutas | Autorización |
+| --- | --- |
+| `users` (apiResource), `users/{u}/team` | `view/create/edit/delete_users` por verbo |
+| `meetings` (apiResource), `meetings/hierarchy/tree`, `meetings/{m}/qr-code` | `view/create/edit/delete_meetings` por verbo |
+| `meetings/{m}/complete`, `meetings/{m}/cancel` | `edit_meetings` |
+| `attendees/*`, `meetings/{m}/attendees*` | permisos de meetings según el verbo |
+| `attendee-hierarchies/*` | `view_meetings` (lectura) · `edit_meetings` / `delete_meetings` |
+| `geographic-stats` | `view_meetings` (alimenta la página de Geografía) |
+| `campaigns` (apiResource), `campaigns/{c}/recipients` | `view/create/edit/delete_campaigns` por verbo |
+| `campaigns/{c}/send`, `campaigns/{c}/cancel` | `edit_campaigns` |
+| `commitments` (apiResource), `commitments/overdue`, `meetings/{m}/commitments` | `view/create/edit/delete_commitments` por verbo |
+| `commitments/{c}/complete` | `edit_commitments` |
+| `resource-allocations`, `resource-items`, `resource-allocation-items`, `resource-items-low-stock` | `view/create/edit/delete_resources` por verbo |
+| `voters` (apiResource), `voters/search/by-cedula`, `voters-stats`, `voters-by-voting-place`, `voter-types` | `view_voters` |
+| `surveys`, `surveys.questions`, `calls`, `calls-stats`, `voters/{v}/calls`, `surveys-active` | `view_calls` |
+| `geographic-contacts` (+`/tree`, `/all`) | `manage_liaisons` |
+| `landingpage/admin/*` | `manage_landingpage` |
+| `audits/*` | `view_audits` |
+| `reports/*` | `view_reports` |
+| `roles` (apiResource), `roles/{r}/assign-permissions`, `permissions` | `role:admin` |
+| `meeting-templates` (apiResource) | `role:admin` |
+| `municipalities`, `communes`, `barrios`, `corregimientos`, `veredas` (CRUD) | `role:admin` |
+| `priorities` (apiResource) | lectura abierta · `role:admin` para escribir |
+
+### Rutas deliberadamente abiertas al tenant
+
+Sin `permission:`, porque el frontend tampoco las gatea (solo `excludeSuperAdmin`)
+o porque son datos de apoyo de los formularios:
+
+`dashboard` · `calendar` · `organization/*` · `tenant/settings*` · `geocode` ·
+`messaging/*` · `mercadopago/*` · `settings/social-media/*` · y las **lecturas**
+de geografía (`/departments`, `/municipalities/{m}/communes`, …), que alimentan
+los selectores de casi todos los formularios.
+
+### Super admin
+
+`Gate::before` en `AuthServiceProvider` da paso a `is_super_admin`. Va en el Gate
+y no en cada middleware porque así cubre de una vez el middleware de Spatie (usa
+`canAny()`), las policies y cualquier `$user->can()` de los controllers.
+
+El alias `role:` usa `App\Http\Middleware\EnsureRole` en vez del de Spatie: aquel
+resuelve con `hasAnyRole()`, que **no pasa por el Gate**, así que el bypass no le
+llegaría y un super admin recibiría 403.
+
+### Respuestas
+
+| Situación | Código | Cuerpo |
+| --- | --- | --- |
+| Sin token | `401` | el de `jwt.auth` (corre antes que `permission:`) |
+| Permiso o rol insuficiente | `403` | `{"message": "No tienes permiso para realizar esta acción.", "error": "FORBIDDEN"}` |
+
+El 403 se renderiza en `bootstrap/app.php` a partir de la `UnauthorizedException`
+de Spatie, que trae el mensaje en inglés (Constitución, Art. IX).
+
+### Cobertura de pruebas
+
+Representativa, no exhaustiva (la auditoría ruta por ruta es la Spec 0006):
+
+- `tests/Feature/Authorization/RoutePermissionEnforcementTest.php` — meetings por
+  verbo, voters view-only, geografía/roles/plantillas por rol, rutas abiertas.
+- `tests/Feature/Authorization/PermissionEnforcementTest.php` — commitments.
+- `tests/Feature/Authorization/SuperAdminBypassTest.php` — bypass.
+- `tests/Feature/Authorization/PublicAndSuperAdminRoutesTest.php` — no-regresión
+  de rutas públicas y del grupo `superadmin`.
 
 ---
 
