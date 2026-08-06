@@ -103,7 +103,7 @@ liaisons    : manage_liaisons
 landing     : manage_landingpage
 reports     : view_reports
 audits      : view_audits
-dashboard   : view_comovamos, view_dashboardmap
+dashboard   : view_progress, view_dashboard_map
 ```
 
 Renombrados por la Spec 0002 (no queda ninguno en español):

@@ -16,8 +16,12 @@ class PermissionNamingTest extends TestCase
      * @var array<string, string> viejo => nuevo
      */
     private const RENOMBRADOS = [
+        // Spec 0002
         'ver_electores' => 'view_voters',
         'gestion_enlaces' => 'manage_liaisons',
+        // Spec 0003 (addendum): coherencia de nombres del dashboard
+        'view_comovamos' => 'view_progress',
+        'view_dashboardmap' => 'view_dashboard_map',
     ];
 
     /**

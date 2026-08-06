@@ -92,9 +92,9 @@ final class Permissions
     public const VIEW_AUDITS = 'view_audits';
 
     // Pestañas del dashboard
-    public const VIEW_COMOVAMOS = 'view_comovamos';
+    public const VIEW_PROGRESS = 'view_progress';
 
-    public const VIEW_DASHBOARDMAP = 'view_dashboardmap';
+    public const VIEW_DASHBOARD_MAP = 'view_dashboard_map';
 
     /**
      * Catálogo agrupado por módulo.
@@ -117,7 +117,7 @@ final class Permissions
             'landing' => [self::MANAGE_LANDINGPAGE],
             'reports' => [self::VIEW_REPORTS],
             'audits' => [self::VIEW_AUDITS],
-            'dashboard' => [self::VIEW_COMOVAMOS, self::VIEW_DASHBOARDMAP],
+            'dashboard' => [self::VIEW_PROGRESS, self::VIEW_DASHBOARD_MAP],
         ];
     }
 
@@ -155,7 +155,7 @@ final class Permissions
                 self::VIEW_RESOURCES, self::CREATE_RESOURCES, self::EDIT_RESOURCES,
                 self::VIEW_VOTERS, self::VIEW_CALLS, self::VIEW_CONTACTS, self::VIEW_EVENTS,
                 self::MANAGE_LIAISONS, self::MANAGE_LANDINGPAGE,
-                self::VIEW_REPORTS, self::VIEW_COMOVAMOS, self::VIEW_DASHBOARDMAP,
+                self::VIEW_REPORTS, self::VIEW_PROGRESS, self::VIEW_DASHBOARD_MAP,
             ],
 
             'operator' => [
@@ -172,7 +172,7 @@ final class Permissions
                 self::VIEW_COMMITMENTS,
                 self::VIEW_RESOURCES,
                 self::VIEW_VOTERS, self::VIEW_CALLS, self::VIEW_CONTACTS, self::VIEW_EVENTS,
-                self::VIEW_REPORTS, self::VIEW_COMOVAMOS,
+                self::VIEW_REPORTS, self::VIEW_PROGRESS,
             ],
         ];
     }

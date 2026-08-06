@@ -37,14 +37,17 @@ class PermissionCatalogTest extends TestCase
         'landing' => ['manage_landingpage'],
         'reports' => ['view_reports'],
         'audits' => ['view_audits'],
-        'dashboard' => ['view_comovamos', 'view_dashboardmap'],
+        'dashboard' => ['view_progress', 'view_dashboard_map'],
     ];
 
     /**
      * Nombres retirados por la Spec 0002. No deben quedar en la base ni en el
      * código (el grep del código lo cubre `PermissionNamingTest`).
      */
-    private const RETIRADOS = ['ver_electores', 'gestion_enlaces'];
+    private const RETIRADOS = [
+        'ver_electores', 'gestion_enlaces',        // Spec 0002
+        'view_comovamos', 'view_dashboardmap',     // Spec 0003 (addendum)
+    ];
 
     public function test_el_catalogo_de_la_aplicacion_coincide_con_el_esperado(): void
     {
