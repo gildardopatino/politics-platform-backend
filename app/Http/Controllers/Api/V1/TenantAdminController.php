@@ -134,7 +134,14 @@ class TenantAdminController extends Controller
             ->first();
 
         if (! $role) {
-            $role = Role::create(['name' => 'admin', 'guard_name' => 'api', 'tenant_id' => $tenantId]);
+            // `Role::query()->create()` y no `Role::create()`: el de Spatie
+            // rechaza cualquier rol cuyo par (name, guard_name) ya exista,
+            // ignorando `tenant_id`. Aquí no hay contexto de tenant enlazado
+            // (grupo superadmin), así que `TenantScope` no filtra y esa
+            // comprobación encontraba el `admin` GLOBAL: crear el admin de un
+            // tenant reventaba con RoleAlreadyExists. La clave única real es
+            // (tenant_id, name, guard_name) — ver `fix_roles_unique_for_tenants`.
+            $role = Role::query()->create(['name' => 'admin', 'guard_name' => 'api', 'tenant_id' => $tenantId]);
             $role->syncPermissions(Permission::where('guard_name', 'api')->get());
         }
 

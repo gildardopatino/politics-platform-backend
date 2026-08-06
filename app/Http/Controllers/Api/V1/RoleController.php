@@ -17,7 +17,7 @@ class RoleController extends Controller
     public function index(Request $request): JsonResponse
     {
         $perPage = $request->input('per_page', 15);
-        
+
         $query = Role::with('permissions:id,name');
 
         if ($request->has('search')) {
@@ -47,7 +47,7 @@ class RoleController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'name' => 'required|string|max:255|unique:roles,name,NULL,id,tenant_id,' . auth()->user()->tenant_id,
+            'name' => 'required|string|max:255|unique:roles,name,NULL,id,tenant_id,'.auth()->user()->tenant_id,
             'permissions' => 'nullable|array',
             'permissions.*' => 'exists:permissions,id',
         ], [
@@ -62,7 +62,13 @@ class RoleController extends Controller
             ], 422);
         }
 
-        $role = Role::create([
+        // `Role::query()->create()` y no `Role::create()`: el de Spatie valida
+        // unicidad por (name, guard_name) ignorando `tenant_id`. Aquí sí hay
+        // `current_tenant_id` enlazado (grupo tenant), así que hoy no colisiona,
+        // pero la unicidad correcta ya la garantizan la validación de arriba y la
+        // clave (tenant_id, name, guard_name) de la tabla. No dependemos de que
+        // el middleware haya enlazado el contexto.
+        $role = Role::query()->create([
             'name' => $request->name,
             'guard_name' => 'api',
             'tenant_id' => auth()->user()->tenant_id,
@@ -89,7 +95,7 @@ class RoleController extends Controller
     {
         $role->load([
             'permissions:id,name',
-            'users:id,name,email'
+            'users:id,name,email',
         ]);
 
         // Count users with this role
@@ -107,7 +113,7 @@ class RoleController extends Controller
     public function update(Request $request, Role $role): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'name' => 'required|string|max:255|unique:roles,name,' . $role->id . ',id,tenant_id,' . auth()->user()->tenant_id,
+            'name' => 'required|string|max:255|unique:roles,name,'.$role->id.',id,tenant_id,'.auth()->user()->tenant_id,
             'permissions' => 'nullable|array',
             'permissions.*' => 'exists:permissions,id',
         ], [
@@ -147,7 +153,7 @@ class RoleController extends Controller
     {
         // Check if role has users assigned
         $usersCount = $role->users()->count();
-        
+
         if ($usersCount > 0) {
             return response()->json([
                 'success' => false,
