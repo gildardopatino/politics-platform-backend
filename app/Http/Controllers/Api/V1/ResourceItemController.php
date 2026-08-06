@@ -7,8 +7,9 @@ use App\Http\Requests\StoreResourceItemRequest;
 use App\Http\Requests\UpdateResourceItemRequest;
 use App\Http\Resources\ResourceItemResource;
 use App\Models\ResourceItem;
-use Illuminate\Http\Request;
+use App\Support\DatabaseExpressions;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 class ResourceItemController extends Controller
 {
@@ -39,10 +40,11 @@ class ResourceItemController extends Controller
             $query->lowStock();
         }
 
-        // Búsqueda por nombre
+        // Búsqueda por nombre. `ILIKE` es exclusivo de PostgreSQL; el operador
+        // equivalente por driver vive en App\Support\DatabaseExpressions.
         if ($request->has('search')) {
             $search = $request->input('search');
-            $query->where('name', 'ILIKE', "%{$search}%");
+            $query->where('name', DatabaseExpressions::caseInsensitiveLike(), "%{$search}%");
         }
 
         // Ordenamiento
@@ -71,7 +73,7 @@ class ResourceItemController extends Controller
     public function store(StoreResourceItemRequest $request): JsonResponse
     {
         $data = $request->validated();
-        
+
         // Asegurar valores por defecto
         $data['currency'] = $data['currency'] ?? 'COP';
         $data['is_active'] = $data['is_active'] ?? true;

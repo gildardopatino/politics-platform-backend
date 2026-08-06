@@ -9,6 +9,7 @@ use App\Models\Meeting;
 use App\Models\MeetingAttendee;
 use App\Models\ResourceAllocation;
 use App\Models\User;
+use App\Support\DatabaseExpressions;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 
@@ -20,7 +21,7 @@ class DashboardController extends Controller
     public function index(): JsonResponse
     {
         $user = request()->user();
-        
+
         // Stats generales
         $stats = [
             // Contadores principales
@@ -41,7 +42,7 @@ class DashboardController extends Controller
                 'users' => User::count(),
                 'team_leaders' => User::where('is_team_leader', true)->count(),
             ],
-            
+
             // Compromisos por prioridad
             'commitments_by_priority' => Commitment::select('priority_id', DB::raw('count(*) as total'))
                 ->with('priority:id,name,color')
@@ -55,13 +56,13 @@ class DashboardController extends Controller
                         'total' => $item->total,
                     ];
                 }),
-            
+
             // Reuniones por mes (últimos 12 meses)
             'meetings_by_month' => Meeting::select(
-                    DB::raw('EXTRACT(YEAR FROM starts_at) as year'),
-                    DB::raw('EXTRACT(MONTH FROM starts_at) as month'),
-                    DB::raw('count(*) as total')
-                )
+                DatabaseExpressions::year('starts_at'),
+                DatabaseExpressions::month('starts_at'),
+                DB::raw('count(*) as total')
+            )
                 ->where('starts_at', '>=', now()->subMonths(12))
                 ->groupBy('year', 'month')
                 ->orderBy('year', 'asc')
@@ -75,13 +76,13 @@ class DashboardController extends Controller
                         'total' => $item->total,
                     ];
                 }),
-            
+
             // Asistentes por mes (últimos 12 meses)
             'attendees_by_month' => MeetingAttendee::select(
-                    DB::raw('EXTRACT(YEAR FROM created_at) as year'),
-                    DB::raw('EXTRACT(MONTH FROM created_at) as month'),
-                    DB::raw('count(*) as total')
-                )
+                DatabaseExpressions::year('created_at'),
+                DatabaseExpressions::month('created_at'),
+                DB::raw('count(*) as total')
+            )
                 ->where('created_at', '>=', now()->subMonths(12))
                 ->groupBy('year', 'month')
                 ->orderBy('year', 'asc')
@@ -95,19 +96,19 @@ class DashboardController extends Controller
                         'total' => $item->total,
                     ];
                 }),
-            
+
             // Promedio de asistentes por reunión
             'avg_attendees_per_meeting' => round(
                 MeetingAttendee::count() / max(Meeting::count(), 1),
                 2
             ),
-            
+
             // Promedio de compromisos por reunión
             'avg_commitments_per_meeting' => round(
                 Commitment::count() / max(Meeting::count(), 1),
                 2
             ),
-            
+
             // Top 5 reuniones con más asistentes
             'top_meetings_by_attendees' => Meeting::select('meetings.*', DB::raw('count(meeting_attendees.id) as attendees_count'))
                 ->leftJoin('meeting_attendees', 'meetings.id', '=', 'meeting_attendees.meeting_id')
@@ -123,7 +124,7 @@ class DashboardController extends Controller
                         'attendees_count' => $meeting->attendees_count,
                     ];
                 }),
-            
+
             // Top 5 usuarios con más compromisos asignados
             'top_users_by_commitments' => User::select('users.*', DB::raw('count(commitments.id) as commitments_count'))
                 ->leftJoin('commitments', 'users.id', '=', 'commitments.assigned_user_id')
@@ -138,16 +139,16 @@ class DashboardController extends Controller
                         'commitments_count' => $user->commitments_count,
                     ];
                 }),
-            
+
             // Tasa de cumplimiento de compromisos
             'commitment_completion_rate' => [
                 'total' => Commitment::count(),
                 'completed' => Commitment::where('status', 'completed')->count(),
-                'rate' => Commitment::count() > 0 
+                'rate' => Commitment::count() > 0
                     ? round((Commitment::where('status', 'completed')->count() / Commitment::count()) * 100, 2)
                     : 0,
             ],
-            
+
             // Distribución de recursos por tipo
             'resources_by_type' => ResourceAllocation::select('type', DB::raw('count(*) as total'), DB::raw('sum(amount) as total_amount'))
                 ->groupBy('type')
@@ -159,17 +160,17 @@ class DashboardController extends Controller
                         'total_amount' => $item->total_amount ?? 0,
                     ];
                 }),
-            
+
             // Total presupuesto asignado
             'total_budget' => ResourceAllocation::where('type', 'cash')->sum('amount'),
-            
+
             // Próximas reuniones (5)
             'upcoming_meetings' => Meeting::where('starts_at', '>', now())
                 ->where('status', 'scheduled')
                 ->orderBy('starts_at', 'asc')
                 ->limit(5)
                 ->get(['id', 'title', 'starts_at', 'lugar_nombre']),
-            
+
             // Compromisos vencidos recientes
             'recent_overdue_commitments' => Commitment::overdue()
                 ->with(['meeting:id,title', 'assignedUser:id,name', 'priority:id,name,color'])
@@ -197,12 +198,12 @@ class DashboardController extends Controller
                     ];
                 }),
         ];
-        
+
         return response()->json([
-            'data' => $stats
+            'data' => $stats,
         ]);
     }
-    
+
     /**
      * Get calendar events (meetings and commitments)
      */
@@ -210,15 +211,15 @@ class DashboardController extends Controller
     {
         $start = request('start');
         $end = request('end');
-        
+
         // Query base para reuniones
         $meetingsQuery = Meeting::with(['planner:id,name', 'municipality:id,nombre']);
-        
+
         // Si se proporciona rango de fechas, filtrar reuniones
         if ($start && $end) {
             $meetingsQuery->whereBetween('starts_at', [$start, $end]);
         }
-        
+
         $meetings = $meetingsQuery->get()
             ->map(function ($meeting) {
                 return [
@@ -238,15 +239,15 @@ class DashboardController extends Controller
                     'color' => $this->getMeetingColor($meeting->status),
                 ];
             });
-        
+
         // Query base para compromisos - TODOS los del tenant
         $commitmentsQuery = Commitment::with(['meeting:id,title', 'assignedUser:id,name', 'priority:id,name,color']);
-        
+
         // Si se proporciona rango de fechas, filtrar compromisos (OPCIONAL)
         if ($start && $end) {
             $commitmentsQuery->whereBetween('due_date', [$start, $end]);
         }
-        
+
         $commitments = $commitmentsQuery->get()
             ->map(function ($commitment) {
                 return [
@@ -273,22 +274,22 @@ class DashboardController extends Controller
                     'color' => $commitment->priority?->color ?? '#808080',
                 ];
             });
-        
+
         return response()->json([
             'data' => [
                 'meetings' => $meetings,
                 'commitments' => $commitments,
                 'all_events' => $meetings->concat($commitments)->sortBy('start')->values(),
-            ]
+            ],
         ]);
     }
-    
+
     /**
      * Get color based on meeting status
      */
     private function getMeetingColor(string $status): string
     {
-        return match($status) {
+        return match ($status) {
             'scheduled' => '#3B82F6', // Azul
             'in_progress' => '#F59E0B', // Naranja
             'completed' => '#10B981', // Verde

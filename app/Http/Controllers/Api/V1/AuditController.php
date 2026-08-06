@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Api\V1\Audit\AuditResource;
+use App\Support\DatabaseExpressions;
 use App\Support\Permissions;
 use Illuminate\Http\Request;
 use OwenIt\Auditing\Models\Audit;
@@ -32,9 +33,11 @@ class AuditController extends Controller
             if ($tenant) {
                 $tenantId = $tenant->id;
                 $query->where(function ($q) use ($tenantId) {
-                    // PostgreSQL: convertir TEXT a JSONB primero
-                    $q->whereRaw("(new_values::jsonb->>'tenant_id')::int = ?", [$tenantId])
-                        ->orWhereRaw("(old_values::jsonb->>'tenant_id')::int = ?", [$tenantId]);
+                    // `new_values`/`old_values` son TEXT con JSON dentro: se leen
+                    // con la función JSON del driver (en pgsql, el mismo
+                    // `::jsonb->>` de siempre). Ver App\Support\DatabaseExpressions.
+                    $q->whereRaw(DatabaseExpressions::jsonInteger('new_values', 'tenant_id'), [$tenantId])
+                        ->orWhereRaw(DatabaseExpressions::jsonInteger('old_values', 'tenant_id'), [$tenantId]);
                 });
             }
         } catch (\Exception $e) {
@@ -208,8 +211,8 @@ class AuditController extends Controller
             if ($tenant) {
                 $tenantId = $tenant->id;
                 $query->where(function ($q) use ($tenantId) {
-                    $q->whereRaw("(new_values::jsonb->>'tenant_id')::int = ?", [$tenantId])
-                        ->orWhereRaw("(old_values::jsonb->>'tenant_id')::int = ?", [$tenantId]);
+                    $q->whereRaw(DatabaseExpressions::jsonInteger('new_values', 'tenant_id'), [$tenantId])
+                        ->orWhereRaw(DatabaseExpressions::jsonInteger('old_values', 'tenant_id'), [$tenantId]);
                 });
             }
         } catch (\Exception $e) {
