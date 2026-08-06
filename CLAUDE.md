@@ -56,12 +56,14 @@ Consequences when writing code:
 
 JWT via `tymon/jwt-auth`; the `api` guard uses the `jwt` driver. `User implements JWTSubject`. Middleware aliases (registered in `bootstrap/app.php`):
 
-- `jwt.auth` → `JwtMiddleware` — authenticates the request.
+- `jwt.auth` → authenticates the request. Note: the alias is declared in `bootstrap/app.php` as `App\Http\Middleware\JwtMiddleware`, but `tymon/jwt-auth`'s service provider re-registers it during `boot()` (after bootstrap), so at runtime it resolves to `Tymon\JWTAuth\Http\Middleware\Authenticate` and `JwtMiddleware` never runs.
 - `superadmin` → `CheckSuperAdmin` — global super-admin-only routes (tenant CRUD, cross-tenant WhatsApp instances, messaging credit approval).
 - `tenant` → `EnsureTenant` — establishes tenant context (see above).
 - `tenant.active` → `CheckTenantExpiration` — blocks expired tenants.
 
 Route structure: public routes first (login, password reset, public meeting check-in by QR, MercadoPago + registraduria webhooks, landing page public reads, voting-place image gen). Then `jwt.auth` group wrapping a `superadmin` subgroup and a `['tenant','tenant.active']` subgroup that holds the bulk of the app.
+
+**Middleware order is load-bearing.** `bootstrap/app.php` declares an explicit `$middleware->priority([...])` so a tenant route runs `throttle → jwt.auth → tenant → tenant.active → SubstituteBindings → …`. Without it, `SubstituteBindings` (from the `api` group) resolved implicit route bindings *before* `EnsureTenant` bound `current_tenant_id`, so `TenantScope` did not filter and `GET/PUT/DELETE /<resource>/{id}` returned another tenant's records. Keep any new auth/tenant middleware ahead of `SubstituteBindings` in that list, and see `docs/TESTING.md` before changing it — `tests/Feature/Middleware/MiddlewarePriorityTest.php` pins the order.
 
 ## Layout & layered conventions
 

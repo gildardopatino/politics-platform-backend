@@ -40,9 +40,9 @@ $this->actingAsTenantUser($user, $token)
 
 ## Factories
 
-`TenantFactory` (con `expired()`), `MeetingFactory` y `CommitmentFactory` (ambas
-con `forTenant()`; `CommitmentFactory` además `overdue()` y `completed()`), más
-`UserFactory` ampliada con `forTenant()` y `superAdmin()`.
+`TenantFactory` (con `expired()`), `MeetingFactory`, `CommitmentFactory` y
+`VoterFactory` (todas con `forTenant()`; `CommitmentFactory` además `overdue()` y
+`completed()`), más `UserFactory` ampliada con `forTenant()` y `superAdmin()`.
 
 Las factories de `Meeting`/`Commitment` propagan el `tenant_id` a las entidades
 que crean por debajo (planificador, reunión, autor), de modo que un árbol de
@@ -74,18 +74,44 @@ del `apiResource`. Cubierto por `tests/Feature/Commitments/CommitmentOverdueTest
 **Regla general:** en un mismo prefijo, declarar siempre las rutas literales
 antes de las paramétricas.
 
+## Orden de middleware (Spec 0004)
+
+`bootstrap/app.php` declara `$middleware->priority([...])`. **No es cosmético:**
+sin esa lista, `SubstituteBindings` (grupo `api`) se resolvía antes que
+`jwt.auth`/`tenant`, el binding implícito ocurría sin `current_tenant_id` en el
+contenedor, `TenantScope` no filtraba y `GET/PUT/DELETE /<recurso>/{id}` devolvía
+datos de **otro tenant**. Orden garantizado hoy en una ruta de tenant:
+
+```
+throttle → jwt.auth → tenant → tenant.active → SubstituteBindings → resto
+```
+
+Con el tenant ya fijado, el `firstOrFail` del binding responde **404** ante un id
+ajeno. Fijado por `tests/Feature/Middleware/MiddlewarePriorityTest.php`, que
+además comprueba que las rutas públicas y las de super admin siguen bien.
+
+Al tocar la cadena de middleware:
+
+- La lista de prioridad **reemplaza** la de Laravel; si actualizas el framework,
+  compárala con `Illuminate\Foundation\Http\Kernel::$middlewarePriority`.
+- Solo se reordenan entre sí los middleware que aparecen en la lista; el resto
+  conserva su posición.
+- `tymon/jwt-auth` **re-registra el alias `jwt.auth`** en el `boot()` de su
+  service provider, o sea después de `bootstrap/app.php`: en runtime apunta a
+  `Tymon\JWTAuth\Http\Middleware\Authenticate`, no a `App\Http\Middleware\JwtMiddleware`
+  (ese nunca corre). La lista incluye ambas clases para que el orden sea correcto
+  apunte a donde apunte el alias.
+
 ## Pruebas de caracterización (comportamiento defectuoso conocido)
 
-Dos pruebas documentan bugs que **quedan fuera** del alcance de la Spec 0001.
-Están marcadas con el prefijo `test_caracterizacion_*` y fallarán —a propósito—
-cuando se corrijan:
+Las pruebas con prefijo `test_caracteriza_*` fijan comportamiento **defectuoso**
+que queda fuera del alcance de la spec que las escribió; fallarán —a propósito—
+cuando el bug se corrija.
 
-1. **Fuga cross-tenant por binding implícito** — `SubstituteBindings` viene del
-   grupo `api` y corre antes de `jwt.auth`/`tenant`, así que al resolver
-   `{meeting}` todavía no existe `current_tenant_id` y `TenantScope` no filtra:
-   `GET /meetings/{id}` devuelve reuniones de otro tenant. Afecta a todo recurso
-   con binding implícito. → Spec 0004 (fix fuga cross-tenant).
-   `tests/Feature/TenantIsolationTest.php`.
+1. ~~**Fuga cross-tenant por binding implícito**~~ — **RESUELTA por la Spec
+   0004** (ver orden de middleware arriba). La prueba dejó de ser caracterización
+   y es regresión de aislamiento: `tests/Feature/TenantIsolationTest.php` exige
+   404 en GET/PUT/DELETE cross-tenant sobre meetings, commitments y voters.
 2. **Permisos no aplicados en el backend** — `routes/api.php` no usa el
    middleware `permission:` en ninguna ruta; el permiso solo lo comprueba el
    frontend. Un usuario sin `view_commitments` recibe 200. → Spec 0005
