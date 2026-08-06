@@ -43,12 +43,29 @@ class PermissionEnforcementCharacterizationTest extends TestCase
             ->assertStatus(200);
     }
 
-    public function test_caracteriza_que_sin_view_commitments_overdue_responde_200(): void
+    /**
+     * Ya NO es caracterización: `/commitments/overdue` fue la primera ruta que la
+     * Spec 0005 puso bajo `permission:`. Las otras dos siguen documentando el
+     * hueco hasta que la Fase 2 aplique el mapa completo.
+     */
+    public function test_sin_view_commitments_overdue_responde_403(): void
     {
         $tenant = Tenant::factory()->create();
         Commitment::factory()->forTenant($tenant)->overdue()->create();
 
         [$user, $token] = $this->createTenantWithUser([], $tenant);
+
+        $this->actingAsTenantUser($user, $token)
+            ->getJson('/api/v1/commitments/overdue')
+            ->assertStatus(403);
+    }
+
+    public function test_con_view_commitments_overdue_responde_200(): void
+    {
+        $tenant = Tenant::factory()->create();
+        Commitment::factory()->forTenant($tenant)->overdue()->create();
+
+        [$user, $token] = $this->createTenantWithUser(['view_commitments'], $tenant);
 
         $this->actingAsTenantUser($user, $token)
             ->getJson('/api/v1/commitments/overdue')

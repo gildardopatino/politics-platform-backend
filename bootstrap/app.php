@@ -4,6 +4,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Sentry\Laravel\Integration;
+use Spatie\Permission\Exceptions\UnauthorizedException;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -22,6 +23,12 @@ return Application::configure(basePath: dirname(__DIR__))
             'tenant' => \App\Http\Middleware\EnsureTenant::class,
             'superadmin' => \App\Http\Middleware\CheckSuperAdmin::class,
             'tenant.active' => \App\Http\Middleware\CheckTenantExpiration::class,
+            // Autorización por ruta (Spec 0005). spatie/laravel-permission no
+            // registra sus aliases solo. `role` usa middleware propio porque el
+            // de Spatie no pasa por el Gate y se saltaría el bypass de super
+            // admin (ver App\Http\Middleware\EnsureRole).
+            'permission' => \Spatie\Permission\Middleware\PermissionMiddleware::class,
+            'role' => \App\Http\Middleware\EnsureRole::class,
         ]);
 
         // Aislamiento multi-tenant (Constitución, Art. III / Spec 0004).
@@ -54,10 +61,29 @@ return Application::configure(basePath: dirname(__DIR__))
             \App\Http\Middleware\JwtMiddleware::class,
             \App\Http\Middleware\EnsureTenant::class,
             \App\Http\Middleware\CheckTenantExpiration::class,
+            // Autorización después del tenant: los roles del usuario están
+            // scopeados por `TenantScope`, así que sin `current_tenant_id`
+            // enlazado no se resolverían los del tenant correcto.
+            \Spatie\Permission\Middleware\PermissionMiddleware::class,
+            \App\Http\Middleware\EnsureRole::class,
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
             \Illuminate\Auth\Middleware\Authorize::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         Integration::handles($exceptions);
+
+        // Permiso/rol insuficiente (Spec 0005). Spatie lanza su
+        // UnauthorizedException con un mensaje en inglés; la API responde en
+        // español (Constitución, Art. IX) y con una forma estable.
+        $exceptions->render(function (UnauthorizedException $e, $request) {
+            if (! $request->expectsJson() && ! $request->is('api/*')) {
+                return null;
+            }
+
+            return response()->json([
+                'message' => 'No tienes permiso para realizar esta acción.',
+                'error' => 'FORBIDDEN',
+            ], 403);
+        });
     })->create();

@@ -180,7 +180,8 @@ Route::prefix('v1')->group(function () {
             // Commitments
             // Las rutas literales van ANTES del apiResource: si no,
             // GET /commitments/{commitment} captura "overdue" y responde 404.
-            Route::get('/commitments/overdue', [CommitmentController::class, 'overdue']);
+            Route::get('/commitments/overdue', [CommitmentController::class, 'overdue'])
+                ->middleware('permission:view_commitments');
             Route::get('/meetings/{meeting}/commitments', [CommitmentController::class, 'byMeeting']);
             Route::post('/commitments/{commitment}/complete', [CommitmentController::class, 'complete']);
             Route::apiResource('commitments', CommitmentController::class);
