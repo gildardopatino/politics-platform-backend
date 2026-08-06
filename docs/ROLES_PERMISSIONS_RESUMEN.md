@@ -85,15 +85,37 @@ Tenant 2:
 
 ### Permisos Globales
 
+Catálogo canónico (Spec 0002). **Fuente única: `app/Support/Permissions.php`.**
+Todo en inglés, guard `api`. Debe coincidir 1:1 con
+`src/constants/permissions.ts` del frontend; `PermissionCatalogTest` lo verifica.
+
 ```
-Sistema (Global):
-  - view_users, create_users, edit_users, delete_users
-  - view_meetings, create_meetings, edit_meetings, delete_meetings
-  - view_campaigns, create_campaigns, edit_campaigns, delete_campaigns
-  - view_commitments, create_commitments, edit_commitments, delete_commitments
-  - view_resources, create_resources, edit_resources, delete_resources
-  - view_reports
+users       : view_users, create_users, edit_users, delete_users
+meetings    : view_meetings, create_meetings, edit_meetings, delete_meetings
+campaigns   : view_campaigns, create_campaigns, edit_campaigns, delete_campaigns
+commitments : view_commitments, create_commitments, edit_commitments, delete_commitments
+resources   : view_resources, create_resources, edit_resources, delete_resources
+voters      : view_voters
+calls       : view_calls
+contacts    : view_contacts
+events      : view_events
+liaisons    : manage_liaisons
+landing     : manage_landingpage
+reports     : view_reports
+audits      : view_audits
+dashboard   : view_comovamos, view_dashboardmap
 ```
+
+Renombrados por la Spec 0002 (no queda ninguno en español):
+
+| Antes | Ahora |
+| --- | --- |
+| `ver_electores` | `view_voters` |
+| `gestion_enlaces` | `manage_liaisons` |
+
+Reparto por rol plantilla (`Permissions::byRole()`): `admin` recibe el catálogo
+completo; `coordinator` opera la campaña salvo borrados y auditoría; `operator`
+es trabajo de campo; `viewer` es solo lectura.
 
 **Características:**
 - ✅ Definidos a nivel del sistema
@@ -101,6 +123,12 @@ Sistema (Global):
 - ❌ No se pueden crear desde la API
 - ❌ No se pueden eliminar
 - ✅ Se asignan a roles mediante IDs
+- ⚠️ Añadir un permiso implica tocar `Permissions.php`, el catálogo del test y
+  `constants/permissions.ts`. Nunca escribir el string a mano en rutas o
+  componentes (Constitución, Art. IV).
+
+> Nota: hoy el backend **no aplica** estos permisos por ruta (no hay middleware
+> `permission:`); el gating vive en el frontend. Lo corrige la **Spec 0005**.
 
 ---
 
