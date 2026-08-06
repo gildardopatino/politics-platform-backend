@@ -35,7 +35,9 @@ php artisan migrate:fresh --seed
 docker-compose up -d
 ```
 
-Tests run on SQLite `:memory:` with sync queue and array cache/mail (see `phpunit.xml`). Production/dev runtime uses PostgreSQL (`pgsql`), Redis for queue/cache/session, and SMS provider `log` by default. Only `tests/Unit/ExampleTest.php` and `tests/Feature/ExampleTest.php` scaffolds exist — there is no real test suite yet.
+Tests run on SQLite `:memory:` with sync queue and array cache/mail (see `phpunit.xml`); your PHP needs the `pdo_sqlite` and `sqlite3` extensions enabled. Production/dev runtime uses PostgreSQL (`pgsql`), Redis for queue/cache/session, and SMS provider `log` by default.
+
+The test harness lives in `tests/TestCase.php` (`RefreshDatabase` + JWT/tenant helpers) with factories for Tenant/Meeting/Commitment/User — read `docs/TESTING.md` before writing tests. Tests named `test_caracteriza_*` are **characterization** tests: they pin down current *defective* behavior (cross-tenant leak via implicit route-model binding; permissions not enforced on any route) and are meant to fail when those bugs get fixed. Run `./vendor/bin/pint` on the paths you touched, not repo-wide — the repo carries pre-existing formatting debt.
 
 ## Multitenancy — the core architecture
 
