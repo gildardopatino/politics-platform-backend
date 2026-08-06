@@ -84,10 +84,10 @@ cuando se corrijan:
    grupo `api` y corre antes de `jwt.auth`/`tenant`, así que al resolver
    `{meeting}` todavía no existe `current_tenant_id` y `TenantScope` no filtra:
    `GET /meetings/{id}` devuelve reuniones de otro tenant. Afecta a todo recurso
-   con binding implícito. → Spec 0005 (auditoría de rutas).
+   con binding implícito. → Spec 0004 (fix fuga cross-tenant).
    `tests/Feature/TenantIsolationTest.php`.
 2. **Permisos no aplicados en el backend** — `routes/api.php` no usa el
    middleware `permission:` en ninguna ruta; el permiso solo lo comprueba el
-   frontend. Un usuario sin `view_commitments` recibe 200. → Spec 0004
+   frontend. Un usuario sin `view_commitments` recibe 200. → Spec 0005
    (enforcement de permisos).
    `tests/Feature/Authorization/PermissionEnforcementCharacterizationTest.php`.
