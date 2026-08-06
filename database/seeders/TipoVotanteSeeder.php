@@ -2,23 +2,22 @@
 
 namespace Database\Seeders;
 
+use App\Models\TipoVotante;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\DB;
 
 class TipoVotanteSeeder extends Seeder
 {
     /**
      * Run the database seeds.
+     *
+     * Idempotente (firstOrCreate por descripción): `voters.tipo_votante_id` es
+     * NOT NULL con FK a esta tabla y default 1, así que sin estas filas no se
+     * puede crear ningún votante.
      */
     public function run(): void
     {
-        $now = now();
-
-        DB::table('tipo_votante')->insert([
-            ['id' => 1, 'descripcion' => 'Elector', 'created_at' => $now, 'updated_at' => $now],
-            ['id' => 2, 'descripcion' => 'Presidente', 'created_at' => $now, 'updated_at' => $now],
-            ['id' => 3, 'descripcion' => 'Lider', 'created_at' => $now, 'updated_at' => $now],
-            ['id' => 4, 'descripcion' => 'Normal', 'created_at' => $now, 'updated_at' => $now],
-        ]);
+        foreach (['Elector', 'Presidente', 'Lider', 'Normal'] as $descripcion) {
+            TipoVotante::firstOrCreate(['descripcion' => $descripcion]);
+        }
     }
 }

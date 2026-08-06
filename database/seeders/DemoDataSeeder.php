@@ -4,459 +4,444 @@ namespace Database\Seeders;
 
 use App\Models\Barrio;
 use App\Models\Campaign;
-use App\Models\CampaignRecipient;
 use App\Models\Commitment;
-use App\Models\Commune;
-use App\Models\Department;
+use App\Models\LandingBanner;
+use App\Models\LandingEvento;
+use App\Models\LandingPropuesta;
 use App\Models\Meeting;
-use App\Models\Municipality;
 use App\Models\MeetingAttendee;
-use App\Models\MeetingTemplate;
+use App\Models\Municipality;
 use App\Models\Priority;
-use App\Models\ResourceAllocation;
+use App\Models\ResourceItem;
+use App\Models\Role;
 use App\Models\Tenant;
+use App\Models\TipoVotante;
 use App\Models\User;
+use App\Models\Voter;
+use App\Scopes\TenantScope;
+use App\Services\TenantProvisioningService;
+use Carbon\Carbon;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 
+/**
+ * Datos demo para desarrollo y pruebas (Spec 0003).
+ *
+ * Dos claves de diseño:
+ *
+ * 1. **El alta de cada tenant pasa por `TenantProvisioningService`**, el mismo
+ *    que usa `POST /tenants`. Antes este seeder asignaba los roles GLOBALES a
+ *    usuarios de tenant, mientras la API clona un juego de roles por tenant: dos
+ *    caminos divergentes para la misma operación.
+ *
+ * 2. **`tenant_id` explícito en todo `create`**. En un seeder no hay usuario
+ *    autenticado, así que el trait `HasTenant` no autorrellena `tenant_id` y los
+ *    modelos con la columna NOT NULL revientan (era lo que rompía
+ *    `migrate:fresh --seed`). Además se enlaza `current_tenant_id` en el
+ *    contenedor por bloque de tenant, para que `TenantScope` filtre las lecturas
+ *    y para los modelos que sí consultan ese binding (`MeetingAttendee`).
+ *
+ * Fechas fijas: los datos deben ser deterministas para poder aserirlos.
+ *
+ * Credenciales: `docs/DEMO_DATA.md`.
+ */
 class DemoDataSeeder extends Seeder
 {
     /**
-     * Run the database seeds.
+     * Contraseña de todos los usuarios demo. Solo para entornos de desarrollo.
      */
+    public const PASSWORD = 'Demo1234!';
+
+    /**
+     * Ancla temporal de los datos demo. Todo se calcula relativo a ella.
+     */
+    public const FECHA_BASE = '2026-08-01 08:00:00';
+
+    /**
+     * Roles no-admin que recibe cada tenant demo, con su usuario de ejemplo.
+     *
+     * @var array<string, array{nombre: string, prefijo: string}>
+     */
+    private const USUARIOS_POR_ROL = [
+        'coordinator' => ['nombre' => 'Coordinador', 'prefijo' => 'coordinador'],
+        'operator' => ['nombre' => 'Operador', 'prefijo' => 'operador'],
+        'viewer' => ['nombre' => 'Visor', 'prefijo' => 'visor'],
+    ];
+
     public function run(): void
     {
-        // 1. Crear Tenants de prueba
-        $tenant1 = Tenant::create([
-            'slug' => 'alcaldia-medellin',
-            'nombre' => 'Alcaldía de Medellín',
-            'tipo_cargo' => 'Alcaldia',
-            'identificacion' => '1234567890',
-            'phone_contacto' => '6044448500',
-            'email_contacto' => 'contacto@medellin.gov.co',
-            'metadata' => [
-                'ciudad' => 'Medellín',
-                'periodo' => '2024-2027'
-            ]
-        ]);
+        $base = Carbon::parse(self::FECHA_BASE);
 
-        $tenant2 = Tenant::create([
-            'slug' => 'gobernacion-antioquia',
-            'nombre' => 'Gobernación de Antioquia',
-            'tipo_cargo' => 'Gobernacion',
-            'identificacion' => '0987654321',
-            'phone_contacto' => '6043859000',
-            'email_contacto' => 'contacto@antioquia.gov.co',
-            'metadata' => [
-                'departamento' => 'Antioquia',
-                'periodo' => '2024-2027'
-            ]
-        ]);
+        foreach ($this->tenantsDemo() as $definicion) {
+            $tenant = app(TenantProvisioningService::class)->provision($definicion['provision']);
 
-        // 2. Crear Usuarios de prueba
-        $admin1 = User::create([
-            'tenant_id' => $tenant1->id,
-            'name' => 'Carlos Rodríguez',
-            'email' => 'carlos@alcaldiamedellin.gov.co',
-            'password' => Hash::make('password123'),
-            'phone' => '3001234567',
-            'is_team_leader' => true,
-            'is_super_admin' => false,
-        ]);
-        $admin1->assignRole('admin');
+            $this->enContextoDe($tenant, function () use ($tenant, $definicion, $base) {
+                $usuarios = $this->crearUsuarios($tenant, $definicion['dominio']);
 
-        $coordinator1 = User::create([
-            'tenant_id' => $tenant1->id,
-            'name' => 'María García',
-            'email' => 'maria@alcaldiamedellin.gov.co',
-            'password' => Hash::make('password123'),
-            'phone' => '3002345678',
-            'is_team_leader' => true,
-            'is_super_admin' => false,
-            'reports_to' => $admin1->id,
-        ]);
-        $coordinator1->assignRole('coordinator');
-
-        $user1 = User::create([
-            'tenant_id' => $tenant1->id,
-            'name' => 'Juan Pérez',
-            'email' => 'juan@alcaldiamedellin.gov.co',
-            'password' => Hash::make('password123'),
-            'phone' => '3003456789',
-            'is_team_leader' => false,
-            'is_super_admin' => false,
-            'reports_to' => $coordinator1->id,
-        ]);
-        $user1->assignRole('operator');
-
-        $user2 = User::create([
-            'tenant_id' => $tenant1->id,
-            'name' => 'Ana Martínez',
-            'email' => 'ana@alcaldiamedellin.gov.co',
-            'password' => Hash::make('password123'),
-            'phone' => '3004567890',
-            'is_team_leader' => false,
-            'is_super_admin' => false,
-            'reports_to' => $coordinator1->id,
-        ]);
-        $user2->assignRole('viewer');
-
-        $admin2 = User::create([
-            'tenant_id' => $tenant2->id,
-            'name' => 'Luis González',
-            'email' => 'luis@gobantioquia.gov.co',
-            'password' => Hash::make('password123'),
-            'phone' => '3005678901',
-            'is_team_leader' => true,
-            'is_super_admin' => false,
-        ]);
-        $admin2->assignRole('admin');
-
-        // 3. Obtener geografía existente
-        $antioquia = Department::where('codigo', '05')->first();
-        $medellin = Municipality::where('codigo', '05001')->first();
-        $comuna1 = Commune::where('codigo', '01')->first();
-        $barrio1 = Barrio::where('codigo', '0101')->first();
-
-        // 4. Crear Templates de Reuniones
-        $template1 = MeetingTemplate::create([
-            'tenant_id' => $tenant1->id,
-            'created_by' => $admin1->id,
-            'name' => 'Reunión Comunitaria',
-            'description' => 'Plantilla para reuniones con la comunidad',
-            'fields' => [
-                'agenda' => ['Bienvenida', 'Presentación de proyectos', 'Q&A', 'Cierre'],
-                'duracion_estimada' => '2 horas'
-            ]
-        ]);
-
-        $template2 = MeetingTemplate::create([
-            'tenant_id' => $tenant1->id,
-            'created_by' => $admin1->id,
-            'name' => 'Reunión de Coordinación',
-            'description' => 'Plantilla para reuniones internas del equipo',
-            'fields' => [
-                'agenda' => ['Revisión de avances', 'Planificación', 'Asignación de tareas'],
-                'duracion_estimada' => '1 hora'
-            ]
-        ]);
-
-        // Obtener datos de geografía para reuniones
-        $departmentMedellin = Department::where('codigo', '05')->first();
-        $municipalityMedellin = Municipality::where('codigo', '05001')->first();
-        $commune = Commune::where('codigo', '01')->first();
-        $barrio1 = Barrio::where('codigo', '0101')->first();
-
-        // Crear reuniones
-        $meeting1 = Meeting::create([
-            'tenant_id' => $tenant1->id,
-            'planner_user_id' => $coordinator1->id,
-            'title' => 'Reunión Comunitaria - Comuna 1',
-            'description' => 'Socialización de proyectos de infraestructura para la Comuna 1',
-            'starts_at' => now()->addDays(7)->setTime(10, 0),
-            'lugar_nombre' => 'Calle 106 # 51-20',
-            'direccion' => 'Barrio Santo Domingo, Comuna 1',
-            'department_id' => $departmentMedellin->id,
-            'municipality_id' => $municipalityMedellin->id,
-            'commune_id' => $commune->id,
-            'barrio_id' => $barrio1->id,
-            'latitude' => 6.3032,
-            'longitude' => -75.5499,
-            'status' => 'scheduled',
-        ]);
-
-        $meeting2 = Meeting::create([
-            'tenant_id' => $tenant1->id,
-            'planner_user_id' => $coordinator1->id,
-            'title' => 'Reunión Comunitaria - Centro',
-            'description' => 'Reunión informativa sobre servicios de salud',
-            'starts_at' => now()->subDays(2)->setTime(15, 0),
-            'ends_at' => now()->subDays(2)->setTime(17, 0),
-            'lugar_nombre' => 'Plaza Mayor',
-            'direccion' => 'Centro, Medellín',
-            'department_id' => $departmentMedellin->id,
-            'municipality_id' => $municipalityMedellin->id,
-            'latitude' => 6.2518,
-            'longitude' => -75.5636,
-            'status' => 'completed',
-        ]);
-
-        $meeting3 = Meeting::create([
-            'tenant_id' => $tenant2->id,
-            'planner_user_id' => $admin2->id,
-            'title' => 'Reunión de Coordinación Departamental',
-            'description' => 'Coordinación de estrategias departamentales',
-            'starts_at' => now()->addDays(3)->setTime(14, 0),
-            'lugar_nombre' => 'Gobernación de Antioquia',
-            'direccion' => 'Centro Administrativo La Alpujarra, Medellín',
-            'department_id' => $departmentMedellin->id,
-            'municipality_id' => $municipalityMedellin->id,
-            'latitude' => 6.2442,
-            'longitude' => -75.5812,
-            'status' => 'scheduled',
-        ]);
-
-        // 5.1. Generar códigos QR para todas las reuniones
-        $qrCodeService = app(\App\Services\QRCodeService::class);
-        
-        foreach ([$meeting1, $meeting2, $meeting3] as $meeting) {
-            $qrData = $qrCodeService->generateForMeeting(
-                $meeting->id,
-                $meeting->tenant->slug
-            );
-            $meeting->update(['qr_code' => $qrData['code']]);
-            $this->command->info("QR generado para reunión #{$meeting->id}: {$qrData['code']}");
+                $this->crearVotantes($tenant, $definicion['votantes']);
+                $meetings = $this->crearReuniones($tenant, $usuarios, $definicion, $base);
+                $this->crearAsistentes($tenant, $meetings['pasada'], $usuarios['admin'], $definicion['asistentes'], $base);
+                $this->crearCompromisos($tenant, $meetings, $usuarios, $base);
+                $this->crearCampana($tenant, $usuarios['admin'], $definicion, $base);
+                $this->crearRecursos($tenant);
+                $this->crearLanding($tenant, $definicion, $base);
+            });
         }
 
-        // 6. Crear Asistentes
-        MeetingAttendee::create([
-            'meeting_id' => $meeting2->id,
-            'created_by' => $coordinator1->id,
-            'cedula' => '43123456',
-            'nombres' => 'Pedro',
-            'apellidos' => 'Ramírez',
-            'telefono' => '3101234567',
-            'email' => 'pedro.ramirez@example.com',
-            'checked_in' => true,
-            'checked_in_at' => now()->subDays(1)->addHours(1),
-        ]);
+        // Deja el contenedor sin tenant fijado: los seeders posteriores (y las
+        // pruebas que invocan este seeder) no deben heredar el filtro.
+        app()->instance('current_tenant_id', null);
+    }
 
-        MeetingAttendee::create([
-            'meeting_id' => $meeting2->id,
-            'created_by' => $coordinator1->id,
-            'cedula' => '52234567',
-            'nombres' => 'Laura',
-            'apellidos' => 'Gómez',
-            'telefono' => '3112345678',
-            'email' => 'laura.gomez@example.com',
-            'checked_in' => true,
-            'checked_in_at' => now()->subDays(1)->addHours(1),
-        ]);
+    /**
+     * Ejecuta un bloque con el tenant fijado en el contenedor.
+     */
+    private function enContextoDe(Tenant $tenant, callable $bloque): void
+    {
+        app()->instance('current_tenant_id', $tenant->id);
 
-        MeetingAttendee::create([
-            'meeting_id' => $meeting2->id,
-            'created_by' => $coordinator1->id,
-            'cedula' => '1098765432',
-            'nombres' => 'Jorge',
-            'apellidos' => 'Hernández',
-            'telefono' => '3123456789',
-            'checked_in' => false,
-        ]);
+        try {
+            $bloque();
+        } finally {
+            app()->instance('current_tenant_id', null);
+        }
+    }
 
-        // 7. Crear Campañas
-        $campaign1 = Campaign::create([
-            'tenant_id' => $tenant1->id,
-            'created_by' => $coordinator1->id,
-            'title' => 'Invitación Reunión Comuna 1',
-            'message' => 'Te invitamos a la reunión comunitaria el próximo sábado. Conoce los nuevos proyectos para tu barrio.',
-            'channel' => 'both',
-            'filter_json' => [
-                'commune_id' => $commune->id,
-                'age_range' => [18, 65]
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function tenantsDemo(): array
+    {
+        return [
+            [
+                'dominio' => 'medellin.demo',
+                'provision' => [
+                    'slug' => 'alcaldia-medellin',
+                    'nombre' => 'Alcaldía de Medellín',
+                    'tipo_cargo' => 'Alcaldia',
+                    'identificacion' => '1234567890',
+                    'email_contacto' => 'contacto@medellin.demo',
+                    'phone_contacto' => '6044448500',
+                    'metadata' => ['ciudad' => 'Medellín', 'periodo' => '2024-2027'],
+                    'admin_name' => 'Carlos Rodríguez',
+                    'admin_email' => 'admin@medellin.demo',
+                    'admin_password' => self::PASSWORD,
+                    'initial_emails' => 5000,
+                    'initial_whatsapp' => 2000,
+                ],
+                'municipio' => 'Medellín',
+                'lugar' => 'Casa de la Cultura',
+                'campana' => 'Invitación a la asamblea barrial',
+                'votantes' => [
+                    ['cedula' => '71000001', 'nombres' => 'Ana', 'apellidos' => 'Restrepo'],
+                    ['cedula' => '71000002', 'nombres' => 'Julián', 'apellidos' => 'Mesa'],
+                    ['cedula' => '71000003', 'nombres' => 'Sofía', 'apellidos' => 'Cardona'],
+                    ['cedula' => '71000004', 'nombres' => 'Andrés', 'apellidos' => 'Vélez'],
+                ],
+                'asistentes' => [
+                    ['cedula' => '71000001', 'nombres' => 'Ana', 'apellidos' => 'Restrepo', 'checked_in' => true],
+                    ['cedula' => '71000002', 'nombres' => 'Julián', 'apellidos' => 'Mesa', 'checked_in' => true],
+                    ['cedula' => '71000003', 'nombres' => 'Sofía', 'apellidos' => 'Cardona', 'checked_in' => false],
+                ],
             ],
-            'scheduled_at' => now()->addDays(5),
-            'status' => 'scheduled',
-        ]);
-
-        $campaign2 = Campaign::create([
-            'tenant_id' => $tenant1->id,
-            'created_by' => $coordinator1->id,
-            'title' => 'Recordatorio Reunión Centro',
-            'message' => 'Recordamos que mañana tenemos reunión sobre movilidad urbana. ¡Tu opinión cuenta!',
-            'channel' => 'sms',
-            'filter_json' => [
-                'municipality_id' => $municipalityMedellin->id
+            [
+                'dominio' => 'antioquia.demo',
+                'provision' => [
+                    'slug' => 'gobernacion-antioquia',
+                    'nombre' => 'Gobernación de Antioquia',
+                    'tipo_cargo' => 'Gobernacion',
+                    'identificacion' => '0987654321',
+                    'email_contacto' => 'contacto@antioquia.demo',
+                    'phone_contacto' => '6043859000',
+                    'metadata' => ['departamento' => 'Antioquia', 'periodo' => '2024-2027'],
+                    'admin_name' => 'Marta Gómez',
+                    'admin_email' => 'admin@antioquia.demo',
+                    'admin_password' => self::PASSWORD,
+                    'initial_emails' => 3000,
+                    'initial_whatsapp' => 1000,
+                ],
+                'municipio' => 'Medellín',
+                'lugar' => 'Sede Gobernación',
+                'campana' => 'Convocatoria a líderes municipales',
+                'votantes' => [
+                    ['cedula' => '72000001', 'nombres' => 'Beatriz', 'apellidos' => 'Ospina'],
+                    ['cedula' => '72000002', 'nombres' => 'Camilo', 'apellidos' => 'Arango'],
+                    ['cedula' => '72000003', 'nombres' => 'Diana', 'apellidos' => 'Zapata'],
+                    ['cedula' => '72000004', 'nombres' => 'Esteban', 'apellidos' => 'Muñoz'],
+                ],
+                'asistentes' => [
+                    ['cedula' => '72000001', 'nombres' => 'Beatriz', 'apellidos' => 'Ospina', 'checked_in' => true],
+                    ['cedula' => '72000002', 'nombres' => 'Camilo', 'apellidos' => 'Arango', 'checked_in' => false],
+                ],
             ],
-            'scheduled_at' => now()->subDays(2),
-            'sent_at' => now()->subDays(2),
-            'status' => 'sent',
-        ]);
+        ];
+    }
 
-        // 8. Crear Destinatarios de Campaña
-        CampaignRecipient::create([
-            'campaign_id' => $campaign2->id,
-            'recipient_type' => 'phone',
-            'recipient_value' => '3101234567',
-            'status' => 'sent',
-            'sent_at' => now()->subDays(2)->addMinutes(5),
-        ]);
+    /**
+     * El admin lo crea el servicio de aprovisionamiento; aquí se añaden los
+     * usuarios de los demás roles, cada uno con el rol CLONADO de su tenant.
+     *
+     * @return array<string, \App\Models\User>
+     */
+    private function crearUsuarios(Tenant $tenant, string $dominio): array
+    {
+        $usuarios = ['admin' => app(TenantProvisioningService::class)->adminDe($tenant)];
 
-        CampaignRecipient::create([
-            'campaign_id' => $campaign2->id,
-            'recipient_type' => 'phone',
-            'recipient_value' => '3112345678',
-            'status' => 'sent',
-            'sent_at' => now()->subDays(2)->addMinutes(10),
-        ]);
+        foreach (self::USUARIOS_POR_ROL as $rol => $datos) {
+            $usuario = User::withoutGlobalScope(TenantScope::class)->firstOrCreate(
+                ['email' => "{$datos['prefijo']}@{$dominio}"],
+                [
+                    'tenant_id' => $tenant->id,
+                    'name' => "{$datos['nombre']} {$tenant->nombre}",
+                    'password' => Hash::make(self::PASSWORD),
+                    'is_super_admin' => false,
+                    'reports_to' => $usuarios['admin']?->id,
+                ]
+            );
 
-        CampaignRecipient::create([
-            'campaign_id' => $campaign2->id,
-            'recipient_type' => 'phone',
-            'recipient_value' => '3123456789',
-            'status' => 'failed',
-            'error_message' => 'Número no válido',
-        ]);
+            $rolDelTenant = Role::withoutGlobalScope(TenantScope::class)
+                ->where('tenant_id', $tenant->id)
+                ->where('name', $rol)
+                ->where('guard_name', 'api')
+                ->first();
 
-        CampaignRecipient::create([
-            'campaign_id' => $campaign1->id,
-            'recipient_type' => 'email',
-            'recipient_value' => 'vecino1@example.com',
-            'status' => 'pending',
-        ]);
+            if ($rolDelTenant && ! $usuario->hasRole($rolDelTenant)) {
+                $usuario->assignRole($rolDelTenant);
+            }
 
-        // 9. Obtener Prioridades
-        $prioridadAlta = Priority::where('name', 'Alta')->first();
-        $prioridadMedia = Priority::where('name', 'Media')->first();
-        $prioridadBaja = Priority::where('name', 'Baja')->first();
+            $usuarios[$rol] = $usuario;
+        }
 
-        // 10. Crear Compromisos
-        Commitment::create([
-            'tenant_id' => $tenant1->id,
-            'meeting_id' => $meeting2->id,
-            'assigned_user_id' => $user1->id,
-            'priority_id' => $prioridadAlta->id,
-            'description' => 'Elaborar informe de asistencia de la reunión',
-            'due_date' => now()->addDays(3),
-            'status' => 'in_progress',
-            'notes' => 'Incluir análisis demográfico de asistentes',
-            'created_by' => $coordinator1->id,
-        ]);
+        return $usuarios;
+    }
 
-        Commitment::create([
-            'tenant_id' => $tenant1->id,
-            'meeting_id' => $meeting2->id,
-            'assigned_user_id' => $user2->id,
-            'priority_id' => $prioridadAlta->id,
-            'description' => 'Enviar acta de la reunión a todos los asistentes',
-            'due_date' => now()->addDays(2),
-            'status' => 'completed',
-            'notes' => 'Enviado por correo electrónico',
-            'created_by' => $coordinator1->id,
-        ]);
+    /**
+     * @param  array<int, array<string, string>>  $definiciones
+     */
+    private function crearVotantes(Tenant $tenant, array $definiciones): void
+    {
+        $tipo = TipoVotante::firstOrCreate(['descripcion' => 'Elector']);
+        $barrio = Barrio::first();
 
-        Commitment::create([
-            'tenant_id' => $tenant1->id,
-            'meeting_id' => $meeting1->id,
-            'assigned_user_id' => $user1->id,
-            'priority_id' => $prioridadMedia->id,
-            'description' => 'Coordinar logística del evento (sillas, sonido, refrigerio)',
-            'due_date' => now()->addDays(5),
-            'status' => 'pending',
-            'created_by' => $coordinator1->id,
-        ]);
+        foreach ($definiciones as $votante) {
+            Voter::firstOrCreate(
+                ['tenant_id' => $tenant->id, 'cedula' => $votante['cedula']],
+                [
+                    'nombres' => $votante['nombres'],
+                    'apellidos' => $votante['apellidos'],
+                    'email' => strtolower($votante['nombres']).'.'.strtolower($votante['apellidos']).'@votante.demo',
+                    'telefono' => '30'.$votante['cedula'],
+                    'barrio_id' => $barrio?->id,
+                    'tipo_votante_id' => $tipo->id,
+                ]
+            );
+        }
+    }
 
-        Commitment::create([
-            'tenant_id' => $tenant1->id,
-            'meeting_id' => $meeting3->id,
-            'assigned_user_id' => $coordinator1->id,
-            'priority_id' => $prioridadBaja->id,
-            'description' => 'Preparar presentación de resultados del trimestre',
-            'due_date' => now()->addDays(1),
-            'status' => 'pending',
-            'created_by' => $admin1->id,
-        ]);
+    /**
+     * Una reunión ya celebrada y otra por venir, para que el calendario y los
+     * listados tengan ambos estados.
+     *
+     * @param  array<string, \App\Models\User>  $usuarios
+     * @param  array<string, mixed>  $definicion
+     * @return array{pasada: \App\Models\Meeting, proxima: \App\Models\Meeting}
+     */
+    private function crearReuniones(Tenant $tenant, array $usuarios, array $definicion, Carbon $base): array
+    {
+        $municipio = Municipality::where('nombre', $definicion['municipio'])->first();
+        $barrio = Barrio::first();
 
-        Commitment::create([
-            'tenant_id' => $tenant1->id,
-            'meeting_id' => $meeting2->id,
-            'assigned_user_id' => $user2->id,
-            'priority_id' => $prioridadMedia->id,
-            'description' => 'Subir fotos del evento a redes sociales',
-            'due_date' => now()->subDays(2),
-            'status' => 'pending',
-            'created_by' => $coordinator1->id,
-        ]); // Este queda como vencido
+        $comun = [
+            'tenant_id' => $tenant->id,
+            'planner_user_id' => $usuarios['admin']?->id,
+            'lugar_nombre' => $definicion['lugar'],
+            'direccion' => 'Calle 50 #45-30',
+            'municipality_id' => $municipio?->id,
+            'department_id' => $municipio?->department_id,
+            'barrio_id' => $barrio?->id,
+        ];
 
-        // 11. Crear Asignaciones de Recursos
-        ResourceAllocation::create([
-            'tenant_id' => $tenant1->id,
-            'assigned_to_user_id' => $coordinator1->id,
-            'assigned_by_user_id' => $admin1->id,
-            'leader_user_id' => $coordinator1->id,
-            'type' => 'cash',
-            'amount' => 2500000,
-            'details' => [
-                'meeting_id' => $meeting1->id,
-                'description' => 'Presupuesto para refrigerios y materiales'
+        $pasada = Meeting::firstOrCreate(
+            ['tenant_id' => $tenant->id, 'title' => 'Asamblea comunitaria'],
+            $comun + [
+                'description' => 'Encuentro con líderes del territorio.',
+                'starts_at' => $base->copy()->subWeeks(2),
+                'ends_at' => $base->copy()->subWeeks(2)->addHours(2),
+                'status' => 'completed',
+            ]
+        );
+
+        $proxima = Meeting::firstOrCreate(
+            ['tenant_id' => $tenant->id, 'title' => 'Reunión de planeación'],
+            $comun + [
+                'description' => 'Planeación de la siguiente jornada.',
+                'starts_at' => $base->copy()->addWeeks(2),
+                'ends_at' => $base->copy()->addWeeks(2)->addHours(3),
+                'status' => 'scheduled',
+            ]
+        );
+
+        return ['pasada' => $pasada, 'proxima' => $proxima];
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $definiciones
+     */
+    private function crearAsistentes(Tenant $tenant, Meeting $meeting, ?User $creador, array $definiciones, Carbon $base): void
+    {
+        foreach ($definiciones as $asistente) {
+            MeetingAttendee::firstOrCreate(
+                ['meeting_id' => $meeting->id, 'cedula' => $asistente['cedula']],
+                [
+                    'tenant_id' => $tenant->id,
+                    'created_by' => $creador?->id,
+                    'nombres' => $asistente['nombres'],
+                    'apellidos' => $asistente['apellidos'],
+                    'telefono' => '30'.$asistente['cedula'],
+                    'checked_in' => $asistente['checked_in'],
+                    'checked_in_at' => $asistente['checked_in'] ? $base->copy()->subWeeks(2) : null,
+                ]
+            );
+        }
+    }
+
+    /**
+     * Uno vencido, uno en curso y uno cumplido: cubre los tres estados que
+     * consultan los listados y el endpoint `commitments/overdue`.
+     *
+     * @param  array{pasada: \App\Models\Meeting, proxima: \App\Models\Meeting}  $meetings
+     * @param  array<string, \App\Models\User>  $usuarios
+     */
+    private function crearCompromisos(Tenant $tenant, array $meetings, array $usuarios, Carbon $base): void
+    {
+        $alta = Priority::where('name', 'Alta')->first();
+        $media = Priority::where('name', 'Media')->first();
+
+        $compromisos = [
+            [
+                'description' => 'Entregar el censo de líderes del sector',
+                'due_date' => $base->copy()->subWeek()->toDateString(),
+                'status' => 'pending',
+                'priority_id' => $alta?->id,
+                'assigned_user_id' => $usuarios['coordinator']?->id,
+                'meeting_id' => $meetings['pasada']->id,
             ],
-            'allocation_date' => now()->subDays(5),
-            'notes' => 'Para reunión comunitaria Comuna 1',
-        ]);
-
-        ResourceAllocation::create([
-            'tenant_id' => $tenant1->id,
-            'assigned_to_user_id' => $coordinator1->id,
-            'assigned_by_user_id' => $admin1->id,
-            'leader_user_id' => $coordinator1->id,
-            'type' => 'material',
-            'details' => [
-                'meeting_id' => $meeting1->id,
-                'items' => ['Carpas', 'Sillas', 'Equipo de sonido']
+            [
+                'description' => 'Coordinar el transporte de la próxima jornada',
+                'due_date' => $base->copy()->addWeeks(3)->toDateString(),
+                'status' => 'in_progress',
+                'priority_id' => $media?->id,
+                'assigned_user_id' => $usuarios['operator']?->id,
+                'meeting_id' => $meetings['proxima']->id,
             ],
-            'allocation_date' => now()->subDays(5),
-            'notes' => 'Logística reunión Comuna 1',
-        ]);
-
-        ResourceAllocation::create([
-            'tenant_id' => $tenant1->id,
-            'assigned_to_user_id' => $coordinator1->id,
-            'assigned_by_user_id' => $admin1->id,
-            'leader_user_id' => $coordinator1->id,
-            'type' => 'cash',
-            'amount' => 1800000,
-            'details' => [
-                'meeting_id' => $meeting2->id,
-                'description' => 'Presupuesto para publicidad y logística'
+            [
+                'description' => 'Enviar el acta de la asamblea',
+                'due_date' => $base->copy()->subWeeks(1)->toDateString(),
+                'status' => 'completed',
+                'priority_id' => $media?->id,
+                'assigned_user_id' => $usuarios['admin']?->id,
+                'meeting_id' => $meetings['pasada']->id,
             ],
-            'allocation_date' => now()->subDays(10),
-            'status' => 'delivered',
-        ]);
+        ];
 
-        ResourceAllocation::create([
-            'tenant_id' => $tenant1->id,
-            'assigned_to_user_id' => $coordinator1->id,
-            'assigned_by_user_id' => $admin1->id,
-            'leader_user_id' => $coordinator1->id,
-            'type' => 'service',
-            'amount' => 500000,
-            'details' => [
-                'meeting_id' => $meeting3->id,
-                'description' => 'Servicio de streaming y grabación'
+        foreach ($compromisos as $compromiso) {
+            Commitment::firstOrCreate(
+                ['tenant_id' => $tenant->id, 'description' => $compromiso['description']],
+                $compromiso + ['tenant_id' => $tenant->id, 'created_by' => $usuarios['admin']?->id]
+            );
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $definicion
+     */
+    private function crearCampana(Tenant $tenant, ?User $autor, array $definicion, Carbon $base): void
+    {
+        Campaign::firstOrCreate(
+            ['tenant_id' => $tenant->id, 'title' => $definicion['campana']],
+            [
+                'created_by' => $autor?->id,
+                'message' => 'Le esperamos en nuestro próximo encuentro. Confirme su asistencia.',
+                'channel' => 'whatsapp',
+                'status' => 'draft',
+                'scheduled_at' => $base->copy()->addWeek(),
+            ]
+        );
+    }
+
+    private function crearRecursos(Tenant $tenant): void
+    {
+        $items = [
+            ['name' => 'Silla plástica', 'category' => 'furniture', 'unit' => 'unidad', 'unit_cost' => 15000, 'stock_quantity' => 200],
+            ['name' => 'Transporte vehicular', 'category' => 'vehicle', 'unit' => 'viaje', 'unit_cost' => 120000, 'stock_quantity' => null],
+            ['name' => 'Refrigerio', 'category' => 'material', 'unit' => 'persona', 'unit_cost' => 8000, 'stock_quantity' => 500],
+            ['name' => 'Caja menor', 'category' => 'cash', 'unit' => 'COP', 'unit_cost' => 1, 'stock_quantity' => null],
+        ];
+
+        foreach ($items as $item) {
+            ResourceItem::firstOrCreate(
+                ['tenant_id' => $tenant->id, 'name' => $item['name']],
+                $item + ['tenant_id' => $tenant->id, 'is_active' => true]
+            );
+        }
+    }
+
+    /**
+     * Contenido mínimo de landing para que las vistas públicas no salgan vacías.
+     *
+     * @param  array<string, mixed>  $definicion
+     */
+    private function crearLanding(Tenant $tenant, array $definicion, Carbon $base): void
+    {
+        LandingBanner::firstOrCreate(
+            ['tenant_id' => $tenant->id, 'title' => $definicion['provision']['nombre']],
+            [
+                'subtitle' => 'Trabajando por el territorio',
+                'description' => 'Conozca las propuestas y participe en los encuentros.',
+                'image' => 'demo/banner.jpg',
+                'cta_text' => 'Ver propuestas',
+                'cta_link' => '#propuestas',
+                'order' => 1,
+                'is_active' => true,
+            ]
+        );
+
+        $propuestas = [
+            [
+                'categoria' => 'Seguridad',
+                'titulo' => 'Territorios seguros',
+                'descripcion' => 'Más presencia institucional en los barrios.',
+                'puntos_clave' => ['Patrullaje por cuadrantes', 'Cámaras comunitarias'],
+                'icono' => 'shield',
+                'order' => 1,
             ],
-            'allocation_date' => now()->subDays(1),
-        ]);
-
-        ResourceAllocation::create([
-            'tenant_id' => $tenant2->id,
-            'assigned_to_user_id' => $admin2->id,
-            'assigned_by_user_id' => $admin2->id,
-            'leader_user_id' => $admin2->id,
-            'type' => 'cash',
-            'amount' => 15000000,
-            'details' => [
-                'description' => 'Presupuesto general para campañas del mes'
+            [
+                'categoria' => 'Educación',
+                'titulo' => 'Educación con futuro',
+                'descripcion' => 'Becas y jornada complementaria.',
+                'puntos_clave' => ['Becas técnicas', 'Bilingüismo'],
+                'icono' => 'book-open',
+                'order' => 2,
             ],
-            'allocation_date' => now()->startOfMonth(),
-        ]);
+        ];
 
-        $this->command->info('✅ Datos de prueba creados exitosamente!');
-        $this->command->newLine();
-        $this->command->info('📊 Resumen:');
-        $this->command->info('  - 2 Tenants');
-        $this->command->info('  - 6 Usuarios (2 Admin, 1 Coordinador, 3 Usuarios)');
-        $this->command->info('  - 2 Templates de reuniones');
-        $this->command->info('  - 3 Reuniones (1 completada, 2 programadas)');
-        $this->command->info('  - 3 Asistentes');
-        $this->command->info('  - 2 Campañas (1 completada, 1 pendiente)');
-        $this->command->info('  - 4 Destinatarios de campaña');
-        $this->command->info('  - 5 Compromisos (1 completado, 3 pendientes, 1 vencido)');
-        $this->command->info('  - 5 Asignaciones de recursos');
-        $this->command->newLine();
-        $this->command->info('🔑 Credenciales de prueba:');
-        $this->command->info('  Admin Tenant 1: carlos@alcaldiamedellin.gov.co / password123');
-        $this->command->info('  Coordinador: maria@alcaldiamedellin.gov.co / password123');
-        $this->command->info('  Usuario 1: juan@alcaldiamedellin.gov.co / password123');
-        $this->command->info('  Usuario 2: ana@alcaldiamedellin.gov.co / password123');
-        $this->command->info('  Admin Tenant 2: luis@gobantioquia.gov.co / password123');
+        foreach ($propuestas as $propuesta) {
+            LandingPropuesta::firstOrCreate(
+                ['tenant_id' => $tenant->id, 'titulo' => $propuesta['titulo']],
+                $propuesta + ['tenant_id' => $tenant->id, 'is_active' => true]
+            );
+        }
+
+        LandingEvento::firstOrCreate(
+            ['tenant_id' => $tenant->id, 'titulo' => 'Encuentro ciudadano'],
+            [
+                'fecha' => $base->copy()->addWeeks(2)->toDateString(),
+                'hora' => '18:00',
+                'lugar' => $definicion['lugar'],
+                'descripcion' => 'Espacio abierto de participación.',
+                'tipo' => 'comunitario',
+                'is_active' => true,
+            ]
+        );
     }
 }
