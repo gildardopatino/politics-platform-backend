@@ -4,7 +4,7 @@ namespace App\Policies;
 
 use App\Models\Campaign;
 use App\Models\User;
-use Illuminate\Auth\Access\Response;
+use App\Support\Permissions;
 
 class CampaignPolicy
 {
@@ -13,7 +13,7 @@ class CampaignPolicy
      */
     public function viewAny(User $user): bool
     {
-        return $user->hasPermissionTo('view_campaigns');
+        return $user->hasPermissionTo(Permissions::VIEW_CAMPAIGNS);
     }
 
     /**
@@ -21,7 +21,7 @@ class CampaignPolicy
      */
     public function view(User $user, Campaign $campaign): bool
     {
-        return $user->tenant_id === $campaign->tenant_id && $user->hasPermissionTo('view_campaigns');
+        return $user->tenant_id === $campaign->tenant_id && $user->hasPermissionTo(Permissions::VIEW_CAMPAIGNS);
     }
 
     /**
@@ -29,7 +29,7 @@ class CampaignPolicy
      */
     public function create(User $user): bool
     {
-        return $user->hasPermissionTo('create_campaigns');
+        return $user->hasPermissionTo(Permissions::CREATE_CAMPAIGNS);
     }
 
     /**
@@ -37,8 +37,8 @@ class CampaignPolicy
      */
     public function update(User $user, Campaign $campaign): bool
     {
-        return $user->tenant_id === $campaign->tenant_id && 
-               ($user->hasPermissionTo('edit_campaigns') || $campaign->created_by_user_id === $user->id);
+        return $user->tenant_id === $campaign->tenant_id &&
+               ($user->hasPermissionTo(Permissions::EDIT_CAMPAIGNS) || $campaign->created_by_user_id === $user->id);
     }
 
     /**
@@ -46,7 +46,7 @@ class CampaignPolicy
      */
     public function delete(User $user, Campaign $campaign): bool
     {
-        return $user->tenant_id === $campaign->tenant_id && $user->hasPermissionTo('delete_campaigns');
+        return $user->tenant_id === $campaign->tenant_id && $user->hasPermissionTo(Permissions::DELETE_CAMPAIGNS);
     }
 
     /**
@@ -54,7 +54,7 @@ class CampaignPolicy
      */
     public function restore(User $user, Campaign $campaign): bool
     {
-        return $user->tenant_id === $campaign->tenant_id && $user->hasPermissionTo('delete_campaigns');
+        return $user->tenant_id === $campaign->tenant_id && $user->hasPermissionTo(Permissions::DELETE_CAMPAIGNS);
     }
 
     /**
@@ -62,6 +62,6 @@ class CampaignPolicy
      */
     public function forceDelete(User $user, Campaign $campaign): bool
     {
-        return $user->tenant_id === $campaign->tenant_id && $user->hasPermissionTo('delete_campaigns');
+        return $user->tenant_id === $campaign->tenant_id && $user->hasPermissionTo(Permissions::DELETE_CAMPAIGNS);
     }
 }

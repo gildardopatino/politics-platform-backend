@@ -4,7 +4,7 @@ namespace App\Policies;
 
 use App\Models\ResourceAllocation;
 use App\Models\User;
-use Illuminate\Auth\Access\Response;
+use App\Support\Permissions;
 
 class ResourceAllocationPolicy
 {
@@ -13,7 +13,7 @@ class ResourceAllocationPolicy
      */
     public function viewAny(User $user): bool
     {
-        return $user->hasPermissionTo('view_resources');
+        return $user->hasPermissionTo(Permissions::VIEW_RESOURCES);
     }
 
     /**
@@ -21,7 +21,7 @@ class ResourceAllocationPolicy
      */
     public function view(User $user, ResourceAllocation $resourceAllocation): bool
     {
-        return $user->tenant_id === $resourceAllocation->tenant_id && $user->hasPermissionTo('view_resources');
+        return $user->tenant_id === $resourceAllocation->tenant_id && $user->hasPermissionTo(Permissions::VIEW_RESOURCES);
     }
 
     /**
@@ -29,7 +29,7 @@ class ResourceAllocationPolicy
      */
     public function create(User $user): bool
     {
-        return $user->hasPermissionTo('create_resources');
+        return $user->hasPermissionTo(Permissions::CREATE_RESOURCES);
     }
 
     /**
@@ -37,8 +37,8 @@ class ResourceAllocationPolicy
      */
     public function update(User $user, ResourceAllocation $resourceAllocation): bool
     {
-        return $user->tenant_id === $resourceAllocation->tenant_id && 
-               ($user->hasPermissionTo('edit_resources') || $resourceAllocation->allocated_by_user_id === $user->id);
+        return $user->tenant_id === $resourceAllocation->tenant_id &&
+               ($user->hasPermissionTo(Permissions::EDIT_RESOURCES) || $resourceAllocation->allocated_by_user_id === $user->id);
     }
 
     /**
@@ -46,7 +46,7 @@ class ResourceAllocationPolicy
      */
     public function delete(User $user, ResourceAllocation $resourceAllocation): bool
     {
-        return $user->tenant_id === $resourceAllocation->tenant_id && $user->hasPermissionTo('delete_resources');
+        return $user->tenant_id === $resourceAllocation->tenant_id && $user->hasPermissionTo(Permissions::DELETE_RESOURCES);
     }
 
     /**
@@ -54,7 +54,7 @@ class ResourceAllocationPolicy
      */
     public function restore(User $user, ResourceAllocation $resourceAllocation): bool
     {
-        return $user->tenant_id === $resourceAllocation->tenant_id && $user->hasPermissionTo('delete_resources');
+        return $user->tenant_id === $resourceAllocation->tenant_id && $user->hasPermissionTo(Permissions::DELETE_RESOURCES);
     }
 
     /**
@@ -62,6 +62,6 @@ class ResourceAllocationPolicy
      */
     public function forceDelete(User $user, ResourceAllocation $resourceAllocation): bool
     {
-        return $user->tenant_id === $resourceAllocation->tenant_id && $user->hasPermissionTo('delete_resources');
+        return $user->tenant_id === $resourceAllocation->tenant_id && $user->hasPermissionTo(Permissions::DELETE_RESOURCES);
     }
 }

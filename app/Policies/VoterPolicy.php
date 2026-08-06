@@ -2,8 +2,9 @@
 
 namespace App\Policies;
 
-use App\Models\Voter;
 use App\Models\User;
+use App\Models\Voter;
+use App\Support\Permissions;
 
 class VoterPolicy
 {
@@ -12,7 +13,7 @@ class VoterPolicy
      */
     public function viewAny(User $user): bool
     {
-        return $user->hasPermissionTo('ver_electores');
+        return $user->hasPermissionTo(Permissions::VIEW_VOTERS);
     }
 
     /**
@@ -20,7 +21,7 @@ class VoterPolicy
      */
     public function view(User $user, Voter $voter): bool
     {
-        return $user->tenant_id === $voter->tenant_id && $user->hasPermissionTo('ver_electores');
+        return $user->tenant_id === $voter->tenant_id && $user->hasPermissionTo(Permissions::VIEW_VOTERS);
     }
 
     /**
@@ -28,7 +29,7 @@ class VoterPolicy
      */
     public function create(User $user): bool
     {
-        return $user->hasPermissionTo('ver_electores');
+        return $user->hasPermissionTo(Permissions::VIEW_VOTERS);
     }
 
     /**
@@ -36,7 +37,7 @@ class VoterPolicy
      */
     public function update(User $user, Voter $voter): bool
     {
-        return $user->tenant_id === $voter->tenant_id && $user->hasPermissionTo('ver_electores');
+        return $user->tenant_id === $voter->tenant_id && $user->hasPermissionTo(Permissions::VIEW_VOTERS);
     }
 
     /**
@@ -44,7 +45,7 @@ class VoterPolicy
      */
     public function delete(User $user, Voter $voter): bool
     {
-        return $user->tenant_id === $voter->tenant_id && $user->hasPermissionTo('ver_electores');
+        return $user->tenant_id === $voter->tenant_id && $user->hasPermissionTo(Permissions::VIEW_VOTERS);
     }
 
     /**
@@ -52,7 +53,7 @@ class VoterPolicy
      */
     public function restore(User $user, Voter $voter): bool
     {
-        return $user->tenant_id === $voter->tenant_id && $user->hasPermissionTo('ver_electores');
+        return $user->tenant_id === $voter->tenant_id && $user->hasPermissionTo(Permissions::VIEW_VOTERS);
     }
 
     /**
@@ -60,6 +61,6 @@ class VoterPolicy
      */
     public function forceDelete(User $user, Voter $voter): bool
     {
-        return $user->tenant_id === $voter->tenant_id && $user->hasPermissionTo('ver_electores');
+        return $user->tenant_id === $voter->tenant_id && $user->hasPermissionTo(Permissions::VIEW_VOTERS);
     }
 }

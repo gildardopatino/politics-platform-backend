@@ -14,7 +14,7 @@ use Tests\TestCase;
  * `routes/api.php` no usa el middleware `permission:` en ninguna ruta; las
  * únicas comprobaciones reales son `AuditController` (`can('view_audits')`) y
  * dos policies de `VoterController`. En `GeographicContactController` la línea
- * `$this->middleware('permission:gestion_enlaces')` está comentada.
+ * `$this->middleware('permission:manage_liaisons')` está comentada.
  *
  * Consecuencia: los permisos hoy solo los aplica el frontend (`ProtectedRoute`),
  * así que cualquier usuario autenticado del tenant puede llamar por API a

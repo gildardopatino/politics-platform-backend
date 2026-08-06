@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Permissions;
 
+use App\Support\Permissions;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Support\Facades\DB;
 use Spatie\Permission\Models\Permission;
@@ -44,6 +45,15 @@ class PermissionCatalogTest extends TestCase
      * código (el grep del código lo cubre `PermissionNamingTest`).
      */
     private const RETIRADOS = ['ver_electores', 'gestion_enlaces'];
+
+    public function test_el_catalogo_de_la_aplicacion_coincide_con_el_esperado(): void
+    {
+        $this->assertSame(
+            self::CATALOGO,
+            Permissions::byModule(),
+            'App\Support\Permissions divergió del catálogo de la Spec 0002.'
+        );
+    }
 
     public function test_el_seeder_crea_todos_los_permisos_del_catalogo(): void
     {

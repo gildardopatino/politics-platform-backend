@@ -4,7 +4,7 @@ namespace App\Policies;
 
 use App\Models\Commitment;
 use App\Models\User;
-use Illuminate\Auth\Access\Response;
+use App\Support\Permissions;
 
 class CommitmentPolicy
 {
@@ -13,7 +13,7 @@ class CommitmentPolicy
      */
     public function viewAny(User $user): bool
     {
-        return $user->hasPermissionTo('view_commitments');
+        return $user->hasPermissionTo(Permissions::VIEW_COMMITMENTS);
     }
 
     /**
@@ -21,7 +21,7 @@ class CommitmentPolicy
      */
     public function view(User $user, Commitment $commitment): bool
     {
-        return $user->tenant_id === $commitment->tenant_id && $user->hasPermissionTo('view_commitments');
+        return $user->tenant_id === $commitment->tenant_id && $user->hasPermissionTo(Permissions::VIEW_COMMITMENTS);
     }
 
     /**
@@ -29,7 +29,7 @@ class CommitmentPolicy
      */
     public function create(User $user): bool
     {
-        return $user->hasPermissionTo('create_commitments');
+        return $user->hasPermissionTo(Permissions::CREATE_COMMITMENTS);
     }
 
     /**
@@ -37,8 +37,8 @@ class CommitmentPolicy
      */
     public function update(User $user, Commitment $commitment): bool
     {
-        return $user->tenant_id === $commitment->tenant_id && 
-               ($user->hasPermissionTo('edit_commitments') || $commitment->assigned_user_id === $user->id);
+        return $user->tenant_id === $commitment->tenant_id &&
+               ($user->hasPermissionTo(Permissions::EDIT_COMMITMENTS) || $commitment->assigned_user_id === $user->id);
     }
 
     /**
@@ -46,7 +46,7 @@ class CommitmentPolicy
      */
     public function delete(User $user, Commitment $commitment): bool
     {
-        return $user->tenant_id === $commitment->tenant_id && $user->hasPermissionTo('delete_commitments');
+        return $user->tenant_id === $commitment->tenant_id && $user->hasPermissionTo(Permissions::DELETE_COMMITMENTS);
     }
 
     /**
@@ -54,7 +54,7 @@ class CommitmentPolicy
      */
     public function restore(User $user, Commitment $commitment): bool
     {
-        return $user->tenant_id === $commitment->tenant_id && $user->hasPermissionTo('delete_commitments');
+        return $user->tenant_id === $commitment->tenant_id && $user->hasPermissionTo(Permissions::DELETE_COMMITMENTS);
     }
 
     /**
@@ -62,6 +62,6 @@ class CommitmentPolicy
      */
     public function forceDelete(User $user, Commitment $commitment): bool
     {
-        return $user->tenant_id === $commitment->tenant_id && $user->hasPermissionTo('delete_commitments');
+        return $user->tenant_id === $commitment->tenant_id && $user->hasPermissionTo(Permissions::DELETE_COMMITMENTS);
     }
 }

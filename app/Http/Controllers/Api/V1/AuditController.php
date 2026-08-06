@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Api\V1\Audit\AuditResource;
+use App\Support\Permissions;
 use Illuminate\Http\Request;
 use OwenIt\Auditing\Models\Audit;
 
@@ -12,7 +13,6 @@ class AuditController extends Controller
     /**
      * Display a listing of the audits.
      *
-     * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
      */
     public function index(Request $request)
@@ -34,7 +34,7 @@ class AuditController extends Controller
                 $query->where(function ($q) use ($tenantId) {
                     // PostgreSQL: convertir TEXT a JSONB primero
                     $q->whereRaw("(new_values::jsonb->>'tenant_id')::int = ?", [$tenantId])
-                      ->orWhereRaw("(old_values::jsonb->>'tenant_id')::int = ?", [$tenantId]);
+                        ->orWhereRaw("(old_values::jsonb->>'tenant_id')::int = ?", [$tenantId]);
                 });
             }
         } catch (\Exception $e) {
@@ -48,7 +48,7 @@ class AuditController extends Controller
 
         // Filtro por modelo (auditable_type)
         if ($request->filled('model')) {
-            $modelClass = 'App\\Models\\' . $request->model;
+            $modelClass = 'App\\Models\\'.$request->model;
             $query->where('auditable_type', $modelClass);
         }
 
@@ -91,13 +91,13 @@ class AuditController extends Controller
     private function checkPermission()
     {
         $user = auth('api')->user();
-        
-        if (!$user || !$user->can('view_audits')) {
+
+        if (! $user || ! $user->can(Permissions::VIEW_AUDITS)) {
             return response()->json([
-                'message' => 'No tienes permiso para ver las auditorías.'
+                'message' => 'No tienes permiso para ver las auditorías.',
             ], 403);
         }
-        
+
         return null;
     }
 
@@ -121,7 +121,6 @@ class AuditController extends Controller
     /**
      * Get audits for a specific user.
      *
-     * @param  \Illuminate\Http\Request  $request
      * @param  int  $userId
      * @return \Illuminate\Http\JsonResponse
      */
@@ -158,7 +157,6 @@ class AuditController extends Controller
     /**
      * Get audits for a specific model instance.
      *
-     * @param  \Illuminate\Http\Request  $request
      * @param  string  $model
      * @param  int  $id
      * @return \Illuminate\Http\JsonResponse
@@ -169,7 +167,7 @@ class AuditController extends Controller
             return $response;
         }
 
-        $modelClass = 'App\\Models\\' . ucfirst($model);
+        $modelClass = 'App\\Models\\'.ucfirst($model);
 
         $query = Audit::query()
             ->with(['user'])
@@ -194,7 +192,6 @@ class AuditController extends Controller
     /**
      * Get statistics about audits.
      *
-     * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
      */
     public function statistics(Request $request)
@@ -212,7 +209,7 @@ class AuditController extends Controller
                 $tenantId = $tenant->id;
                 $query->where(function ($q) use ($tenantId) {
                     $q->whereRaw("(new_values::jsonb->>'tenant_id')::int = ?", [$tenantId])
-                      ->orWhereRaw("(old_values::jsonb->>'tenant_id')::int = ?", [$tenantId]);
+                        ->orWhereRaw("(old_values::jsonb->>'tenant_id')::int = ?", [$tenantId]);
                 });
             }
         } catch (\Exception $e) {

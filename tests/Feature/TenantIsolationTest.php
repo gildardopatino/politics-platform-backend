@@ -114,7 +114,7 @@ class TenantIsolationTest extends TestCase
 
         $voterB = Voter::factory()->forTenant($tenantB)->create(['nombres' => 'Beatriz']);
 
-        [$user, $token] = $this->createTenantWithUser(['ver_electores'], $tenantA);
+        [$user, $token] = $this->createTenantWithUser(['view_voters'], $tenantA);
 
         $this->actingAsTenantUser($user, $token)
             ->getJson("/api/v1/voters/{$voterB->id}")
@@ -152,7 +152,7 @@ class TenantIsolationTest extends TestCase
         $voter = Voter::factory()->forTenant($tenant)->create();
 
         [$user, $token] = $this->createTenantWithUser(
-            ['view_meetings', 'view_commitments', 'ver_electores'],
+            ['view_meetings', 'view_commitments', 'view_voters'],
             $tenant
         );
 

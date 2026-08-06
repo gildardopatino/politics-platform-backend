@@ -4,7 +4,7 @@ namespace App\Policies;
 
 use App\Models\Meeting;
 use App\Models\User;
-use Illuminate\Auth\Access\Response;
+use App\Support\Permissions;
 
 class MeetingPolicy
 {
@@ -13,7 +13,7 @@ class MeetingPolicy
      */
     public function viewAny(User $user): bool
     {
-        return $user->hasPermissionTo('view_meetings');
+        return $user->hasPermissionTo(Permissions::VIEW_MEETINGS);
     }
 
     /**
@@ -21,7 +21,7 @@ class MeetingPolicy
      */
     public function view(User $user, Meeting $meeting): bool
     {
-        return $user->tenant_id === $meeting->tenant_id && $user->hasPermissionTo('view_meetings');
+        return $user->tenant_id === $meeting->tenant_id && $user->hasPermissionTo(Permissions::VIEW_MEETINGS);
     }
 
     /**
@@ -29,7 +29,7 @@ class MeetingPolicy
      */
     public function create(User $user): bool
     {
-        return $user->hasPermissionTo('create_meetings');
+        return $user->hasPermissionTo(Permissions::CREATE_MEETINGS);
     }
 
     /**
@@ -37,8 +37,8 @@ class MeetingPolicy
      */
     public function update(User $user, Meeting $meeting): bool
     {
-        return $user->tenant_id === $meeting->tenant_id && 
-               ($user->hasPermissionTo('edit_meetings') || $meeting->planned_by_user_id === $user->id);
+        return $user->tenant_id === $meeting->tenant_id &&
+               ($user->hasPermissionTo(Permissions::EDIT_MEETINGS) || $meeting->planned_by_user_id === $user->id);
     }
 
     /**
@@ -46,8 +46,8 @@ class MeetingPolicy
      */
     public function delete(User $user, Meeting $meeting): bool
     {
-        return $user->tenant_id === $meeting->tenant_id && 
-               ($user->hasPermissionTo('delete_meetings') || $meeting->planned_by_user_id === $user->id);
+        return $user->tenant_id === $meeting->tenant_id &&
+               ($user->hasPermissionTo(Permissions::DELETE_MEETINGS) || $meeting->planned_by_user_id === $user->id);
     }
 
     /**
@@ -55,7 +55,7 @@ class MeetingPolicy
      */
     public function restore(User $user, Meeting $meeting): bool
     {
-        return $user->tenant_id === $meeting->tenant_id && $user->hasPermissionTo('delete_meetings');
+        return $user->tenant_id === $meeting->tenant_id && $user->hasPermissionTo(Permissions::DELETE_MEETINGS);
     }
 
     /**
@@ -63,6 +63,6 @@ class MeetingPolicy
      */
     public function forceDelete(User $user, Meeting $meeting): bool
     {
-        return $user->tenant_id === $meeting->tenant_id && $user->hasPermissionTo('delete_meetings');
+        return $user->tenant_id === $meeting->tenant_id && $user->hasPermissionTo(Permissions::DELETE_MEETINGS);
     }
 }

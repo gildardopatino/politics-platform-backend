@@ -3,12 +3,12 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Models\GeographicContact;
-use App\Models\Department;
-use App\Models\Municipality;
-use App\Models\Commune;
 use App\Models\Barrio;
+use App\Models\Commune;
 use App\Models\Corregimiento;
+use App\Models\Department;
+use App\Models\GeographicContact;
+use App\Models\Municipality;
 use App\Models\Vereda;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,7 +21,7 @@ class GeographicContactController extends Controller
      */
     public function __construct()
     {
-        //$this->middleware('permission:gestion_enlaces');
+        // Pendiente Spec 0005 (enforcement): $this->middleware('permission:'.Permissions::MANAGE_LIAISONS);
     }
 
     /**
@@ -38,13 +38,13 @@ class GeographicContactController extends Controller
 
     /**
      * Listar enlaces de una entidad geográfica
-     * 
+     *
      * GET /api/v1/geographic-contacts?type=municipality&id=1
      */
     public function index(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'type' => 'required|in:' . implode(',', array_keys(self::CONTACTABLE_TYPES)),
+            'type' => 'required|in:'.implode(',', array_keys(self::CONTACTABLE_TYPES)),
             'id' => 'required|integer',
         ]);
 
@@ -61,7 +61,7 @@ class GeographicContactController extends Controller
 
         // Verificar que la entidad existe
         $entity = $modelClass::find($id);
-        if (!$entity) {
+        if (! $entity) {
             return response()->json([
                 'success' => false,
                 'message' => 'Entidad geográfica no encontrada',
@@ -103,13 +103,13 @@ class GeographicContactController extends Controller
 
     /**
      * Crear un nuevo enlace para una entidad geográfica
-     * 
+     *
      * POST /api/v1/geographic-contacts
      */
     public function store(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'type' => 'required|in:' . implode(',', array_keys(self::CONTACTABLE_TYPES)),
+            'type' => 'required|in:'.implode(',', array_keys(self::CONTACTABLE_TYPES)),
             'id' => 'required|integer',
             'identificacion' => 'required|string|max:20',
             'nombres' => 'required|string|max:255',
@@ -131,7 +131,7 @@ class GeographicContactController extends Controller
 
         // Verificar que la entidad existe
         $entity = $modelClass::find($id);
-        if (!$entity) {
+        if (! $entity) {
             return response()->json([
                 'success' => false,
                 'message' => 'Entidad geográfica no encontrada',
@@ -214,7 +214,7 @@ class GeographicContactController extends Controller
 
     /**
      * Listar todos los enlaces de todas las entidades (con filtros)
-     * 
+     *
      * GET /api/v1/geographic-contacts/all
      */
     public function all(Request $request): JsonResponse
@@ -234,9 +234,9 @@ class GeographicContactController extends Controller
             $search = $request->input('search');
             $query->where(function ($q) use ($search) {
                 $q->where('identificacion', 'like', "%{$search}%")
-                  ->orWhere('nombres', 'like', "%{$search}%")
-                  ->orWhere('apellidos', 'like', "%{$search}%")
-                  ->orWhere('telefono', 'like', "%{$search}%");
+                    ->orWhere('nombres', 'like', "%{$search}%")
+                    ->orWhere('apellidos', 'like', "%{$search}%")
+                    ->orWhere('telefono', 'like', "%{$search}%");
             });
         }
 
@@ -258,7 +258,7 @@ class GeographicContactController extends Controller
     /**
      * Obtener árbol jerárquico de enlaces
      * Agrupa los enlaces según su jerarquía geográfica real
-     * 
+     *
      * GET /api/v1/geographic-contacts/tree
      */
     public function tree(): JsonResponse
@@ -268,15 +268,17 @@ class GeographicContactController extends Controller
 
         // Crear un mapa de entidades que tienen enlaces
         $entitiesWithContacts = [];
-        
+
         foreach ($contacts as $contact) {
             $entity = $contact->contactable;
-            if (!$entity) continue;
+            if (! $entity) {
+                continue;
+            }
 
             $type = $this->getEntityType($entity);
-            $key = $type . '_' . $entity->id;
+            $key = $type.'_'.$entity->id;
 
-            if (!isset($entitiesWithContacts[$key])) {
+            if (! isset($entitiesWithContacts[$key])) {
                 $entitiesWithContacts[$key] = [
                     'entity_type' => $type,
                     'entity_id' => $entity->id,
@@ -329,7 +331,7 @@ class GeographicContactController extends Controller
      */
     private function buildTreeNode(array $node, array &$allEntities, array &$processed): array
     {
-        $key = $node['entity_type'] . '_' . $node['entity_id'];
+        $key = $node['entity_type'].'_'.$node['entity_id'];
         $processed[] = $key;
 
         $treeNode = [
@@ -348,7 +350,7 @@ class GeographicContactController extends Controller
             }
 
             $parent = $this->findParentWithContact($childNode['entity'], $allEntities);
-            
+
             if ($parent && $parent['entity_type'] === $node['entity_type'] && $parent['entity_id'] === $node['entity_id']) {
                 // Este es un hijo directo
                 $childTreeNode = $this->buildTreeNode($childNode, $allEntities, $processed);
@@ -369,29 +371,29 @@ class GeographicContactController extends Controller
         // Verificar según el tipo de entidad
         if ($entity instanceof Barrio) {
             if ($entity->commune_id) {
-                $parent = $entitiesWithContacts['commune_' . $entity->commune_id] ?? null;
+                $parent = $entitiesWithContacts['commune_'.$entity->commune_id] ?? null;
             }
-            if (!$parent && $entity->municipality_id) {
-                $parent = $entitiesWithContacts['municipality_' . $entity->municipality_id] ?? null;
+            if (! $parent && $entity->municipality_id) {
+                $parent = $entitiesWithContacts['municipality_'.$entity->municipality_id] ?? null;
             }
         } elseif ($entity instanceof Vereda) {
             if ($entity->corregimiento_id) {
-                $parent = $entitiesWithContacts['corregimiento_' . $entity->corregimiento_id] ?? null;
+                $parent = $entitiesWithContacts['corregimiento_'.$entity->corregimiento_id] ?? null;
             }
-            if (!$parent && $entity->municipality_id) {
-                $parent = $entitiesWithContacts['municipality_' . $entity->municipality_id] ?? null;
+            if (! $parent && $entity->municipality_id) {
+                $parent = $entitiesWithContacts['municipality_'.$entity->municipality_id] ?? null;
             }
         } elseif ($entity instanceof Commune) {
             if ($entity->municipality_id) {
-                $parent = $entitiesWithContacts['municipality_' . $entity->municipality_id] ?? null;
+                $parent = $entitiesWithContacts['municipality_'.$entity->municipality_id] ?? null;
             }
         } elseif ($entity instanceof Corregimiento) {
             if ($entity->municipality_id) {
-                $parent = $entitiesWithContacts['municipality_' . $entity->municipality_id] ?? null;
+                $parent = $entitiesWithContacts['municipality_'.$entity->municipality_id] ?? null;
             }
         } elseif ($entity instanceof Municipality) {
             if ($entity->department_id) {
-                $parent = $entitiesWithContacts['department_' . $entity->department_id] ?? null;
+                $parent = $entitiesWithContacts['department_'.$entity->department_id] ?? null;
             }
         }
 
@@ -408,6 +410,7 @@ class GeographicContactController extends Controller
                 return $type;
             }
         }
+
         return 'unknown';
     }
 }
