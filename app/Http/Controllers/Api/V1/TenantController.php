@@ -6,21 +6,16 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Tenant\StoreTenantRequest;
 use App\Http\Requests\Api\V1\Tenant\UpdateTenantRequest;
 use App\Http\Resources\Api\V1\TenantResource;
-use App\Models\Permission;
-use App\Models\Role;
 use App\Models\Tenant;
-use App\Models\TenantMessagingCredit;
-use App\Models\User;
-use App\Scopes\TenantScope;
+use App\Services\TenantProvisioningService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Arr;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Spatie\QueryBuilder\QueryBuilder;
 
 class TenantController extends Controller
 {
+    public function __construct(private readonly TenantProvisioningService $provisioning) {}
+
     /**
      * Display a listing of the resource.
      */
@@ -56,50 +51,28 @@ class TenantController extends Controller
             ], 403);
         }
 
-        $validated = $request->validated();
-        $tenantData = Arr::except($validated, [
-            'admin_name', 'admin_email', 'admin_password', 'initial_emails', 'initial_whatsapp',
-        ]);
-
-        DB::beginTransaction();
         try {
-            $tenant = Tenant::create($tenantData);
-
-            // Initialize messaging credits with values from request or defaults
-            $emailsInitial = $request->input('initial_emails', 1000);
-            $whatsappInitial = $request->input('initial_whatsapp', 500);
-
-            TenantMessagingCredit::create([
-                'tenant_id' => $tenant->id,
-                'emails_available' => $emailsInitial,
-                'whatsapp_available' => $whatsappInitial,
-            ]);
-
-            // Provision the tenant's own role set and its initial administrator.
-            $this->provisionTenantRoles($tenant);
-            $admin = $this->createTenantAdmin($tenant, $validated);
+            // Toda el alta (tenant + créditos + roles clonados + admin inicial)
+            // vive en el servicio, que comparte con DemoDataSeeder (Spec 0003).
+            $tenant = $this->provisioning->provision($request->validated());
+            $admin = $this->provisioning->adminDe($tenant);
 
             Log::info('Tenant created with admin and messaging credits', [
                 'tenant_id' => $tenant->id,
-                'admin_user_id' => $admin->id,
+                'admin_user_id' => $admin?->id,
                 'created_by' => $user->id,
-                'emails' => $emailsInitial,
-                'whatsapp' => $whatsappInitial,
             ]);
-
-            DB::commit();
 
             return response()->json([
                 'data' => new TenantResource($tenant->load('messagingCredit')),
                 'admin' => [
-                    'id' => $admin->id,
-                    'name' => $admin->name,
-                    'email' => $admin->email,
+                    'id' => $admin?->id,
+                    'name' => $admin?->name,
+                    'email' => $admin?->email,
                 ],
                 'message' => 'Tenant created successfully',
             ], 201);
         } catch (\Exception $e) {
-            DB::rollBack();
             Log::error('Error creating tenant', [
                 'error' => $e->getMessage(),
                 'user_id' => $user->id,
@@ -110,65 +83,6 @@ class TenantController extends Controller
                 'error' => $e->getMessage(),
             ], 500);
         }
-    }
-
-    /**
-     * Clone the global role templates (admin/coordinator/operator/viewer) into
-     * dedicated, tenant-scoped roles so each tenant owns its own role set.
-     */
-    private function provisionTenantRoles(Tenant $tenant): void
-    {
-        $templateNames = ['admin', 'coordinator', 'operator', 'viewer'];
-
-        $globalRoles = Role::withoutGlobalScope(TenantScope::class)
-            ->whereNull('tenant_id')
-            ->where('guard_name', 'api')
-            ->whereIn('name', $templateNames)
-            ->with('permissions')
-            ->get();
-
-        if ($globalRoles->isEmpty()) {
-            // No global templates seeded — at minimum create an admin with every permission.
-            $admin = Role::create(['name' => 'admin', 'guard_name' => 'api', 'tenant_id' => $tenant->id]);
-            $admin->syncPermissions(Permission::all());
-
-            return;
-        }
-
-        foreach ($globalRoles as $template) {
-            $role = Role::create([
-                'name' => $template->name,
-                'guard_name' => 'api',
-                'tenant_id' => $tenant->id,
-            ]);
-            $role->syncPermissions($template->permissions);
-        }
-    }
-
-    /**
-     * Create the tenant's initial administrator and assign its (tenant-scoped) admin role.
-     */
-    private function createTenantAdmin(Tenant $tenant, array $data): User
-    {
-        $admin = User::create([
-            'tenant_id' => $tenant->id,
-            'name' => $data['admin_name'],
-            'email' => $data['admin_email'],
-            'password' => Hash::make($data['admin_password']),
-            'is_super_admin' => false,
-        ]);
-
-        $adminRole = Role::withoutGlobalScope(TenantScope::class)
-            ->where('tenant_id', $tenant->id)
-            ->where('name', 'admin')
-            ->where('guard_name', 'api')
-            ->first();
-
-        if ($adminRole) {
-            $admin->assignRole($adminRole);
-        }
-
-        return $admin;
     }
 
     /**
