@@ -1,14 +1,13 @@
 <?php
 
-use Illuminate\Database\Migrations\Migration;
-use Illuminate\Support\Facades\DB;
-use App\Models\User;
+use App\Models\Barrio;
+use App\Models\Commune;
+use App\Models\Corregimiento;
 use App\Models\Department;
 use App\Models\Municipality;
-use App\Models\Commune;
-use App\Models\Barrio;
-use App\Models\Corregimiento;
 use App\Models\Vereda;
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
@@ -18,6 +17,12 @@ return new class extends Migration
      */
     public function up(): void
     {
+        // Migración de datos existentes (usa NOW(), específico de PostgreSQL).
+        // En SQLite (pruebas) la BD arranca vacía: no hay nada que migrar.
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         // Migrate Department assignments
         DB::statement("
             INSERT INTO user_geographic_assignments (user_id, tenant_id, assignable_type, assignable_id, created_at, updated_at)

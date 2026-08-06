@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Models\Tenant;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -24,12 +25,36 @@ class UserFactory extends Factory
     public function definition(): array
     {
         return [
+            // Sin tenant por defecto; usar forTenant()/superAdmin() o pasarlo explícito.
+            'tenant_id' => null,
             'name' => fake()->name(),
             'email' => fake()->unique()->safeEmail(),
             'email_verified_at' => now(),
             'password' => static::$password ??= Hash::make('password'),
             'remember_token' => Str::random(10),
         ];
+    }
+
+    /**
+     * Usuario perteneciente a un tenant.
+     */
+    public function forTenant(Tenant $tenant): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'tenant_id' => $tenant->id,
+        ]);
+    }
+
+    /**
+     * Super admin global: is_super_admin = true y sin tenant, de modo que
+     * EnsureTenant no aplique filtro de TenantScope.
+     */
+    public function superAdmin(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'tenant_id' => null,
+            'is_super_admin' => true,
+        ]);
     }
 
     /**
