@@ -143,51 +143,90 @@ Route::prefix('v1')->group(function () {
             // Geocoding
             Route::post('/geocode', [GeocodeController::class, 'geocode']);
 
-            // Roles & Permissions
-            Route::apiResource('roles', RoleController::class);
-            Route::post('/roles/{role}/assign-permissions', [RoleController::class, 'assignPermissions']);
-            Route::get('/permissions', [PermissionController::class, 'index']);
+            // Roles & Permissions — el frontend marca estas pantallas con
+            // requiredRole="admin" (Spec 0005).
+            Route::apiResource('roles', RoleController::class)->middleware('role:admin');
+            Route::post('/roles/{role}/assign-permissions', [RoleController::class, 'assignPermissions'])
+                ->middleware('role:admin');
+            Route::get('/permissions', [PermissionController::class, 'index'])->middleware('role:admin');
 
             // Users
-            Route::apiResource('users', UserController::class);
-            Route::get('/users/{user}/team', [UserController::class, 'team']);
+            Route::apiResource('users', UserController::class)
+                ->middlewareFor(['index', 'show'], 'permission:view_users')
+                ->middlewareFor('store', 'permission:create_users')
+                ->middlewareFor('update', 'permission:edit_users')
+                ->middlewareFor('destroy', 'permission:delete_users');
+            Route::get('/users/{user}/team', [UserController::class, 'team'])
+                ->middleware('permission:view_users');
 
             // Meeting Templates
-            Route::apiResource('meeting-templates', MeetingTemplateController::class);
+            Route::apiResource('meeting-templates', MeetingTemplateController::class)
+                ->middleware('role:admin');
 
             // Meetings
-            Route::apiResource('meetings', MeetingController::class);
-            Route::get('/meetings/hierarchy/tree', [MeetingController::class, 'getHierarchyTree']);
-            Route::post('/meetings/{meeting}/complete', [MeetingController::class, 'complete']);
-            Route::post('/meetings/{meeting}/cancel', [MeetingController::class, 'cancel']);
-            Route::get('/meetings/{meeting}/qr-code', [MeetingController::class, 'getQRCode']);
+            Route::apiResource('meetings', MeetingController::class)
+                ->middlewareFor(['index', 'show'], 'permission:view_meetings')
+                ->middlewareFor('store', 'permission:create_meetings')
+                ->middlewareFor('update', 'permission:edit_meetings')
+                ->middlewareFor('destroy', 'permission:delete_meetings');
+            Route::get('/meetings/hierarchy/tree', [MeetingController::class, 'getHierarchyTree'])
+                ->middleware('permission:view_meetings');
+            // Endpoints de acción: cambian el estado de la reunión → edit_*.
+            Route::post('/meetings/{meeting}/complete', [MeetingController::class, 'complete'])
+                ->middleware('permission:edit_meetings');
+            Route::post('/meetings/{meeting}/cancel', [MeetingController::class, 'cancel'])
+                ->middleware('permission:edit_meetings');
+            Route::get('/meetings/{meeting}/qr-code', [MeetingController::class, 'getQRCode'])
+                ->middleware('permission:view_meetings');
 
-            // Meeting Attendees
-            Route::get('/attendees/search', [MeetingAttendeeController::class, 'searchAll']);
-            Route::get('/meetings/{meeting}/attendees', [MeetingAttendeeController::class, 'index']);
-            Route::get('/meetings/{meeting}/attendees/search', [MeetingAttendeeController::class, 'search']);
-            Route::post('/meetings/{meeting}/attendees', [MeetingAttendeeController::class, 'store']);
-            Route::get('/attendees/{attendee}', [MeetingAttendeeController::class, 'show']);
-            Route::put('/attendees/{attendee}', [MeetingAttendeeController::class, 'update']);
-            Route::delete('/attendees/{attendee}', [MeetingAttendeeController::class, 'destroy']);
+            // Meeting Attendees — son datos de la reunión: usan sus permisos.
+            Route::get('/attendees/search', [MeetingAttendeeController::class, 'searchAll'])
+                ->middleware('permission:view_meetings');
+            Route::get('/meetings/{meeting}/attendees', [MeetingAttendeeController::class, 'index'])
+                ->middleware('permission:view_meetings');
+            Route::get('/meetings/{meeting}/attendees/search', [MeetingAttendeeController::class, 'search'])
+                ->middleware('permission:view_meetings');
+            Route::post('/meetings/{meeting}/attendees', [MeetingAttendeeController::class, 'store'])
+                ->middleware('permission:create_meetings');
+            Route::get('/attendees/{attendee}', [MeetingAttendeeController::class, 'show'])
+                ->middleware('permission:view_meetings');
+            Route::put('/attendees/{attendee}', [MeetingAttendeeController::class, 'update'])
+                ->middleware('permission:edit_meetings');
+            Route::delete('/attendees/{attendee}', [MeetingAttendeeController::class, 'destroy'])
+                ->middleware('permission:delete_meetings');
 
             // Campaigns
-            Route::apiResource('campaigns', CampaignController::class);
-            Route::post('/campaigns/{campaign}/send', [CampaignController::class, 'send']);
-            Route::post('/campaigns/{campaign}/cancel', [CampaignController::class, 'cancel']);
-            Route::get('/campaigns/{campaign}/recipients', [CampaignController::class, 'recipients']);
+            Route::apiResource('campaigns', CampaignController::class)
+                ->middlewareFor(['index', 'show'], 'permission:view_campaigns')
+                ->middlewareFor('store', 'permission:create_campaigns')
+                ->middlewareFor('update', 'permission:edit_campaigns')
+                ->middlewareFor('destroy', 'permission:delete_campaigns');
+            Route::post('/campaigns/{campaign}/send', [CampaignController::class, 'send'])
+                ->middleware('permission:edit_campaigns');
+            Route::post('/campaigns/{campaign}/cancel', [CampaignController::class, 'cancel'])
+                ->middleware('permission:edit_campaigns');
+            Route::get('/campaigns/{campaign}/recipients', [CampaignController::class, 'recipients'])
+                ->middleware('permission:view_campaigns');
 
             // Commitments
             // Las rutas literales van ANTES del apiResource: si no,
             // GET /commitments/{commitment} captura "overdue" y responde 404.
             Route::get('/commitments/overdue', [CommitmentController::class, 'overdue'])
                 ->middleware('permission:view_commitments');
-            Route::get('/meetings/{meeting}/commitments', [CommitmentController::class, 'byMeeting']);
-            Route::post('/commitments/{commitment}/complete', [CommitmentController::class, 'complete']);
-            Route::apiResource('commitments', CommitmentController::class);
+            Route::get('/meetings/{meeting}/commitments', [CommitmentController::class, 'byMeeting'])
+                ->middleware('permission:view_commitments');
+            Route::post('/commitments/{commitment}/complete', [CommitmentController::class, 'complete'])
+                ->middleware('permission:edit_commitments');
+            Route::apiResource('commitments', CommitmentController::class)
+                ->middlewareFor(['index', 'show'], 'permission:view_commitments')
+                ->middlewareFor('store', 'permission:create_commitments')
+                ->middlewareFor('update', 'permission:edit_commitments')
+                ->middlewareFor('destroy', 'permission:delete_commitments');
 
-            // Priorities
-            Route::apiResource('priorities', PriorityController::class);
+            // Priorities — catálogo que consumen los formularios de compromisos:
+            // la lectura queda abierta, la escritura es de administración.
+            Route::apiResource('priorities', PriorityController::class)
+                ->middlewareFor(['store', 'update', 'destroy'], 'role:admin');
 
             // Dashboard & Calendar
             Route::get('dashboard', [DashboardController::class, 'index']);
@@ -200,26 +239,47 @@ Route::prefix('v1')->group(function () {
             Route::get('organization/chain-of-command', [OrganizationController::class, 'chainOfCommand']);
             Route::get('organization/potential-supervisors', [OrganizationController::class, 'potentialSupervisors']);
 
-            // Attendee Hierarchies
-            Route::get('attendee-hierarchies/tree', [AttendeeHierarchyController::class, 'tree']);
-            Route::get('attendee-hierarchies/relationships', [AttendeeHierarchyController::class, 'relationships']);
-            Route::get('attendee-hierarchies/stats', [AttendeeHierarchyController::class, 'stats']);
-            Route::put('attendee-hierarchies/{attendeeHierarchy}', [AttendeeHierarchyController::class, 'update']);
-            Route::delete('attendee-hierarchies/{attendeeHierarchy}', [AttendeeHierarchyController::class, 'destroy']);
+            // Attendee Hierarchies — jerarquía de asistentes a reuniones; sin
+            // pantalla propia en el frontend, se consume desde el árbol de
+            // reuniones (view_meetings).
+            Route::get('attendee-hierarchies/tree', [AttendeeHierarchyController::class, 'tree'])
+                ->middleware('permission:view_meetings');
+            Route::get('attendee-hierarchies/relationships', [AttendeeHierarchyController::class, 'relationships'])
+                ->middleware('permission:view_meetings');
+            Route::get('attendee-hierarchies/stats', [AttendeeHierarchyController::class, 'stats'])
+                ->middleware('permission:view_meetings');
+            Route::put('attendee-hierarchies/{attendeeHierarchy}', [AttendeeHierarchyController::class, 'update'])
+                ->middleware('permission:edit_meetings');
+            Route::delete('attendee-hierarchies/{attendeeHierarchy}', [AttendeeHierarchyController::class, 'destroy'])
+                ->middleware('permission:delete_meetings');
 
             // Resource Allocations
-            Route::apiResource('resource-allocations', ResourceAllocationController::class);
-            Route::get('/resource-allocations/by-meeting/{meeting}', [ResourceAllocationController::class, 'byMeeting']);
-            Route::get('/resource-allocations/by-leader/{user}', [ResourceAllocationController::class, 'byLeader']);
+            Route::apiResource('resource-allocations', ResourceAllocationController::class)
+                ->middlewareFor(['index', 'show'], 'permission:view_resources')
+                ->middlewareFor('store', 'permission:create_resources')
+                ->middlewareFor('update', 'permission:edit_resources')
+                ->middlewareFor('destroy', 'permission:delete_resources');
+            Route::get('/resource-allocations/by-meeting/{meeting}', [ResourceAllocationController::class, 'byMeeting'])
+                ->middleware('permission:view_resources');
+            Route::get('/resource-allocations/by-leader/{user}', [ResourceAllocationController::class, 'byLeader'])
+                ->middleware('permission:view_resources');
 
             // Resource Items (Catalog)
-            Route::apiResource('resource-items', ResourceItemController::class);
-            Route::get('/resource-items-low-stock', [ResourceItemController::class, 'lowStock']);
+            Route::apiResource('resource-items', ResourceItemController::class)
+                ->middlewareFor(['index', 'show'], 'permission:view_resources')
+                ->middlewareFor('store', 'permission:create_resources')
+                ->middlewareFor('update', 'permission:edit_resources')
+                ->middlewareFor('destroy', 'permission:delete_resources');
+            Route::get('/resource-items-low-stock', [ResourceItemController::class, 'lowStock'])
+                ->middleware('permission:view_resources');
 
             // Resource Allocation Items (Control individual)
-            Route::patch('/resource-allocation-items/{resourceAllocationItem}/status', [ResourceAllocationItemController::class, 'updateStatus']);
-            Route::put('/resource-allocation-items/{resourceAllocationItem}', [ResourceAllocationItemController::class, 'update']);
-            Route::delete('/resource-allocation-items/{resourceAllocationItem}', [ResourceAllocationItemController::class, 'destroy']);
+            Route::patch('/resource-allocation-items/{resourceAllocationItem}/status', [ResourceAllocationItemController::class, 'updateStatus'])
+                ->middleware('permission:edit_resources');
+            Route::put('/resource-allocation-items/{resourceAllocationItem}', [ResourceAllocationItemController::class, 'update'])
+                ->middleware('permission:edit_resources');
+            Route::delete('/resource-allocation-items/{resourceAllocationItem}', [ResourceAllocationItemController::class, 'destroy'])
+                ->middleware('permission:delete_resources');
 
             // Geography
             Route::get('/departments', [GeographyController::class, 'departments']);
@@ -231,58 +291,71 @@ Route::prefix('v1')->group(function () {
             Route::get('/corregimientos/{corregimiento}/veredas', [GeographyController::class, 'veredasByCorregimiento']);
             Route::get('/municipalities/{municipality}/veredas', [GeographyController::class, 'veredasByMunicipality']);
 
-            // Geography CRUD
-            Route::apiResource('municipalities', MunicipalityController::class);
-            Route::apiResource('communes', CommuneController::class);
-            Route::apiResource('barrios', BarrioController::class);
-            Route::apiResource('corregimientos', CorregimientoController::class);
-            Route::apiResource('veredas', VeredaController::class);
+            // Geography CRUD — el frontend lo marca con requiredRole="admin".
+            // (Las lecturas de geografía de arriba quedan abiertas: las usan los
+            // selectores de casi todos los formularios.)
+            Route::apiResource('municipalities', MunicipalityController::class)->middleware('role:admin');
+            Route::apiResource('communes', CommuneController::class)->middleware('role:admin');
+            Route::apiResource('barrios', BarrioController::class)->middleware('role:admin');
+            Route::apiResource('corregimientos', CorregimientoController::class)->middleware('role:admin');
+            Route::apiResource('veredas', VeredaController::class)->middleware('role:admin');
 
-            // Geographic Statistics
-            Route::get('/geographic-stats', [GeographicStatsController::class, 'index']);
+            // Geographic Statistics — alimenta la página de Geografía.
+            Route::get('/geographic-stats', [GeographicStatsController::class, 'index'])
+                ->middleware('permission:view_meetings');
 
             // Geographic Contacts (Enlaces)
-            Route::get('/geographic-contacts/tree', [GeographicContactController::class, 'tree']);
-            Route::get('/geographic-contacts/all', [GeographicContactController::class, 'all']);
-            Route::apiResource('geographic-contacts', GeographicContactController::class);
+            Route::get('/geographic-contacts/tree', [GeographicContactController::class, 'tree'])
+                ->middleware('permission:manage_liaisons');
+            Route::get('/geographic-contacts/all', [GeographicContactController::class, 'all'])
+                ->middleware('permission:manage_liaisons');
+            Route::apiResource('geographic-contacts', GeographicContactController::class)
+                ->middleware('permission:manage_liaisons');
 
             // Reports
-            Route::get('/reports/meetings', [ReportController::class, 'meetings']);
-            Route::get('/reports/campaigns', [ReportController::class, 'campaigns']);
-            Route::get('/reports/commitments', [ReportController::class, 'commitments']);
-            Route::get('/reports/resources', [ReportController::class, 'resources']);
-            Route::get('/reports/team-performance', [ReportController::class, 'teamPerformance']);
+            Route::middleware('permission:view_reports')->group(function () {
+                Route::get('/reports/meetings', [ReportController::class, 'meetings']);
+                Route::get('/reports/campaigns', [ReportController::class, 'campaigns']);
+                Route::get('/reports/commitments', [ReportController::class, 'commitments']);
+                Route::get('/reports/resources', [ReportController::class, 'resources']);
+                Route::get('/reports/team-performance', [ReportController::class, 'teamPerformance']);
+            });
 
-            // Voter Types (Tipo Votante)
-            Route::apiResource('voter-types', TipoVotanteController::class)->only([
-                'index', 'store', 'show', 'update', 'destroy',
-            ]);
+            // Voter Types (Tipo Votante) — catálogo del módulo de votantes.
+            Route::apiResource('voter-types', TipoVotanteController::class)
+                ->only(['index', 'store', 'show', 'update', 'destroy'])
+                ->middleware('permission:view_voters');
 
-            // Voters
-            Route::apiResource('voters', VoterController::class);
-            Route::get('/voters/search/by-cedula', [VoterController::class, 'searchByCedula']);
-            Route::get('/voters-stats', [VoterController::class, 'stats']);
-            Route::get('/voters-by-voting-place', [VoterController::class, 'byVotingPlace']);
+            // Voters — módulo de permiso único: `view_voters` gatea todo.
+            Route::apiResource('voters', VoterController::class)->middleware('permission:view_voters');
+            Route::get('/voters/search/by-cedula', [VoterController::class, 'searchByCedula'])
+                ->middleware('permission:view_voters');
+            Route::get('/voters-stats', [VoterController::class, 'stats'])
+                ->middleware('permission:view_voters');
+            Route::get('/voters-by-voting-place', [VoterController::class, 'byVotingPlace'])
+                ->middleware('permission:view_voters');
 
-            // Surveys
-            Route::apiResource('surveys', SurveyController::class);
-            Route::post('/surveys/{survey}/activate', [SurveyController::class, 'activate']);
-            Route::post('/surveys/{survey}/deactivate', [SurveyController::class, 'deactivate']);
-            Route::post('/surveys/{survey}/clone', [SurveyController::class, 'cloneSurvey']);
-            Route::get('/surveys-active', [SurveyController::class, 'active']);
+            // Call center (encuestas y llamadas) — permiso único `view_calls`.
+            Route::middleware('permission:view_calls')->group(function () {
+                Route::apiResource('surveys', SurveyController::class);
+                Route::post('/surveys/{survey}/activate', [SurveyController::class, 'activate']);
+                Route::post('/surveys/{survey}/deactivate', [SurveyController::class, 'deactivate']);
+                Route::post('/surveys/{survey}/clone', [SurveyController::class, 'cloneSurvey']);
+                Route::get('/surveys-active', [SurveyController::class, 'active']);
 
-            // Survey Questions (nested resource)
-            Route::apiResource('surveys.questions', SurveyQuestionController::class)
-                ->shallow()
-                ->except(['index']);
+                // Survey Questions (nested resource)
+                Route::apiResource('surveys.questions', SurveyQuestionController::class)
+                    ->shallow()
+                    ->except(['index']);
 
-            // Calls
-            Route::apiResource('calls', CallController::class);
-            Route::get('/voters/{voter}/calls', [CallController::class, 'byVoter']);
-            Route::get('/calls-stats', [CallController::class, 'stats']);
+                // Calls
+                Route::apiResource('calls', CallController::class);
+                Route::get('/voters/{voter}/calls', [CallController::class, 'byVoter']);
+                Route::get('/calls-stats', [CallController::class, 'stats']);
+            });
 
             // Landing Page Admin Routes (Protected)
-            Route::prefix('landingpage/admin')->group(function () {
+            Route::prefix('landingpage/admin')->middleware('permission:manage_landingpage')->group(function () {
                 Route::apiResource('banners', LandingBannerAdminController::class);
                 Route::apiResource('propuestas', LandingPropuestaAdminController::class);
                 Route::apiResource('eventos', LandingEventoAdminController::class);
@@ -308,8 +381,9 @@ Route::prefix('v1')->group(function () {
                 Route::post('/sync/{platform}', [SocialMediaSettingsController::class, 'syncPlatform']);
             });
 
-            // Audits (Activity Logs)
-            Route::prefix('audits')->group(function () {
+            // Audits (Activity Logs) — el controller ya comprobaba view_audits
+            // a mano; ahora además lo exige la ruta.
+            Route::prefix('audits')->middleware('permission:view_audits')->group(function () {
                 Route::get('/', [AuditController::class, 'index']);
                 Route::get('/statistics', [AuditController::class, 'statistics']);
                 Route::get('/user/{userId}', [AuditController::class, 'byUser']);
