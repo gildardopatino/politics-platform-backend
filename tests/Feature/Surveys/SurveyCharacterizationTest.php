@@ -15,9 +15,11 @@ use Tests\TestCase;
  * Las encuestas van bajo `view_calls`, no bajo un permiso propio: el módulo de
  * call center es un bloque único. Las preguntas cuelgan de la encuesta pero sus
  * rutas son `shallow()`, así que `GET/PUT/DELETE /questions/{id}` se resuelven
- * solo por id — y `SurveyQuestion` **no** usa `HasTenant`.
+ * solo por id: desde la Spec 0031 el binding filtra por tenant porque
+ * `SurveyQuestion` usa `HasTenant`.
  *
- * No se corrige nada: los hallazgos van a `known-issues.md`.
+ * Los `test_hueco_*` que quedan son rarezas de contrato pendientes de spec
+ * propia (ver `known-issues.md`); la fuga cross-tenant ya es enforcement.
  */
 class SurveyCharacterizationTest extends TestCase
 {
@@ -149,9 +151,8 @@ class SurveyCharacterizationTest extends TestCase
     public function test_actualizar_reemplaza_el_juego_de_preguntas(): void
     {
         $encuesta = Survey::factory()->forTenant($this->tenant)->create();
-        $vieja = SurveyQuestion::create([
-            'survey_id' => $encuesta->id, 'question_text' => 'Vieja',
-            'question_type' => 'text', 'order' => 1,
+        $vieja = SurveyQuestion::factory()->forSurvey($encuesta)->create([
+            'question_text' => 'Vieja',
         ]);
 
         $this->putJson("/api/v1/surveys/{$encuesta->id}", [
@@ -169,9 +170,8 @@ class SurveyCharacterizationTest extends TestCase
     {
         // Borrado DURO: `SurveyQuestion` no usa SoftDeletes.
         $encuesta = Survey::factory()->forTenant($this->tenant)->create();
-        $sobrante = SurveyQuestion::create([
-            'survey_id' => $encuesta->id, 'question_text' => 'Sobrante',
-            'question_type' => 'text', 'order' => 1,
+        $sobrante = SurveyQuestion::factory()->forSurvey($encuesta)->create([
+            'question_text' => 'Sobrante',
         ]);
 
         $this->putJson("/api/v1/surveys/{$encuesta->id}", [
@@ -185,9 +185,8 @@ class SurveyCharacterizationTest extends TestCase
     public function test_actualizar_sin_la_clave_questions_deja_las_preguntas_intactas(): void
     {
         $encuesta = Survey::factory()->forTenant($this->tenant)->create();
-        SurveyQuestion::create([
-            'survey_id' => $encuesta->id, 'question_text' => 'Se queda',
-            'question_type' => 'text', 'order' => 1,
+        SurveyQuestion::factory()->forSurvey($encuesta)->create([
+            'question_text' => 'Se queda',
         ]);
 
         $this->putJson("/api/v1/surveys/{$encuesta->id}", ['titulo' => 'Solo el título'])
@@ -199,10 +198,7 @@ class SurveyCharacterizationTest extends TestCase
     public function test_borrar_la_encuesta_es_en_blando_y_no_toca_sus_preguntas(): void
     {
         $encuesta = Survey::factory()->forTenant($this->tenant)->create();
-        $pregunta = SurveyQuestion::create([
-            'survey_id' => $encuesta->id, 'question_text' => '¿?',
-            'question_type' => 'text', 'order' => 1,
-        ]);
+        $pregunta = SurveyQuestion::factory()->forSurvey($encuesta)->create();
 
         $this->deleteJson("/api/v1/surveys/{$encuesta->id}")->assertStatus(200);
 
@@ -231,9 +227,8 @@ class SurveyCharacterizationTest extends TestCase
     public function test_clonar_copia_las_preguntas_y_deja_la_copia_inactiva(): void
     {
         $encuesta = Survey::factory()->forTenant($this->tenant)->create(['titulo' => 'Original']);
-        SurveyQuestion::create([
-            'survey_id' => $encuesta->id, 'question_text' => '¿Va a votar?',
-            'question_type' => 'yes_no', 'order' => 1,
+        SurveyQuestion::factory()->forSurvey($encuesta)->create([
+            'question_text' => '¿Va a votar?', 'question_type' => 'yes_no',
         ]);
 
         $respuesta = $this->postJson("/api/v1/surveys/{$encuesta->id}/clone")->assertStatus(201);
@@ -304,9 +299,8 @@ class SurveyCharacterizationTest extends TestCase
     public function test_el_orden_de_una_pregunta_nueva_continua_el_maximo(): void
     {
         $encuesta = Survey::factory()->forTenant($this->tenant)->create();
-        SurveyQuestion::create([
-            'survey_id' => $encuesta->id, 'question_text' => 'Primera',
-            'question_type' => 'text', 'order' => 7,
+        SurveyQuestion::factory()->forSurvey($encuesta)->create([
+            'question_text' => 'Primera', 'order' => 7,
         ]);
 
         $this->postJson("/api/v1/surveys/{$encuesta->id}/questions", [
@@ -317,10 +311,7 @@ class SurveyCharacterizationTest extends TestCase
     public function test_mostrar_actualizar_y_borrar_una_pregunta(): void
     {
         $encuesta = Survey::factory()->forTenant($this->tenant)->create();
-        $pregunta = SurveyQuestion::create([
-            'survey_id' => $encuesta->id, 'question_text' => '¿?',
-            'question_type' => 'text', 'order' => 1,
-        ]);
+        $pregunta = SurveyQuestion::factory()->forSurvey($encuesta)->create();
 
         $this->getJson("/api/v1/questions/{$pregunta->id}")
             ->assertStatus(200)
@@ -349,41 +340,33 @@ class SurveyCharacterizationTest extends TestCase
         $this->postJson("/api/v1/surveys/{$ajena->id}/clone")->assertStatus(404);
     }
 
-    public function test_hueco_las_preguntas_de_otro_tenant_se_leen_y_se_escriben(): void
+    public function test_las_preguntas_de_otro_tenant_no_se_leen_ni_se_escriben(): void
     {
-        // `SurveyQuestion` no usa `HasTenant` y las rutas son `shallow()`: el
-        // binding resuelve por id contra toda la tabla. La encuesta madre está
-        // protegida, la pregunta no.
+        // Spec 0031: `SurveyQuestion` ya usa `HasTenant` (columna `tenant_id`
+        // heredada de la encuesta), así que las rutas `shallow()` resuelven el
+        // binding dentro del tenant. Detalle en
+        // `tests/Feature/Surveys/SurveyQuestionTenantIsolationTest.php`.
         $ajena = Survey::factory()->forTenant(Tenant::factory()->create())->create();
-        $preguntaAjena = SurveyQuestion::create([
-            'survey_id' => $ajena->id,
+        $preguntaAjena = SurveyQuestion::factory()->forSurvey($ajena)->create([
             'question_text' => 'Pregunta de otra campaña',
-            'question_type' => 'text',
-            'order' => 1,
         ]);
 
-        $this->getJson("/api/v1/questions/{$preguntaAjena->id}")
-            ->assertStatus(200)
-            ->assertJsonPath('data.question_text', 'Pregunta de otra campaña')
-            // La encuesta madre sí queda tapada: `Survey` usa `HasTenant`, así
-            // que la relación se carga vacía. El enunciado de la pregunta —que
-            // es el contenido— viaja igual.
-            ->assertJsonPath('data.survey', null);
+        $this->getJson("/api/v1/questions/{$preguntaAjena->id}")->assertStatus(404);
 
         $this->putJson("/api/v1/questions/{$preguntaAjena->id}", [
             'question_text' => 'Editada desde otra campaña', 'question_type' => 'text',
-        ])->assertStatus(200);
+        ])->assertStatus(404);
 
-        $this->assertSame('Editada desde otra campaña', $preguntaAjena->fresh()->question_text);
+        $this->assertSame('Pregunta de otra campaña', $preguntaAjena->fresh()->question_text);
 
-        $this->deleteJson("/api/v1/questions/{$preguntaAjena->id}")->assertStatus(200);
-        $this->assertDatabaseMissing('survey_questions', ['id' => $preguntaAjena->id]);
+        $this->deleteJson("/api/v1/questions/{$preguntaAjena->id}")->assertStatus(404);
+        $this->assertDatabaseHas('survey_questions', ['id' => $preguntaAjena->id]);
     }
 
-    public function test_hueco_se_pueden_agregar_preguntas_a_una_encuesta_ajena_no(): void
+    public function test_no_se_pueden_agregar_preguntas_a_una_encuesta_ajena(): void
     {
-        // El alta SÍ está protegida: cuelga de `surveys/{survey}`, que es
-        // tenant-scoped. Solo las rutas shallow quedan expuestas.
+        // El alta siempre estuvo protegida: cuelga de `surveys/{survey}`, que
+        // es tenant-scoped.
         $ajena = Survey::factory()->forTenant(Tenant::factory()->create())->create();
 
         $this->postJson("/api/v1/surveys/{$ajena->id}/questions", [

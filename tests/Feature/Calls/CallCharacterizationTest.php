@@ -77,9 +77,8 @@ class CallCharacterizationTest extends TestCase
     {
         $votante = Voter::factory()->forTenant($this->tenant)->create();
         $encuesta = Survey::factory()->forTenant($this->tenant)->create();
-        $pregunta = SurveyQuestion::create([
-            'survey_id' => $encuesta->id, 'question_text' => '¿Va a votar?',
-            'question_type' => 'yes_no', 'order' => 1,
+        $pregunta = SurveyQuestion::factory()->forSurvey($encuesta)->create([
+            'question_text' => '¿Va a votar?', 'question_type' => 'yes_no',
         ]);
 
         $respuesta = $this->postJson('/api/v1/calls', [

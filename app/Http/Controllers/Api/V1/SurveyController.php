@@ -84,6 +84,7 @@ class SurveyController extends Controller
             // Crear preguntas
             foreach ($request->questions as $index => $questionData) {
                 SurveyQuestion::create([
+                    'tenant_id' => $survey->tenant_id,
                     'survey_id' => $survey->id,
                     'question_text' => $questionData['question_text'],
                     'question_type' => $questionData['question_type'],
@@ -105,6 +106,7 @@ class SurveyController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
+
             return response()->json([
                 'success' => false,
                 'message' => 'Error al crear la encuesta',
@@ -185,6 +187,7 @@ class SurveyController extends Controller
                     } else {
                         // Crear nueva pregunta
                         $newQuestion = SurveyQuestion::create([
+                            'tenant_id' => $survey->tenant_id,
                             'survey_id' => $survey->id,
                             'question_text' => $questionData['question_text'],
                             'question_type' => $questionData['question_type'],
@@ -214,6 +217,7 @@ class SurveyController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
+
             return response()->json([
                 'success' => false,
                 'message' => 'Error al actualizar la encuesta',
@@ -273,7 +277,7 @@ class SurveyController extends Controller
 
             $newSurvey = Survey::create([
                 'tenant_id' => $survey->tenant_id,
-                'titulo' => $request->input('titulo', $survey->titulo . ' - Copia'),
+                'titulo' => $request->input('titulo', $survey->titulo.' - Copia'),
                 'descripcion' => $survey->descripcion,
                 'is_active' => false, // Nueva encuesta inactiva por defecto
                 'starts_at' => null,
@@ -284,6 +288,7 @@ class SurveyController extends Controller
             // Copiar preguntas
             foreach ($survey->questions as $question) {
                 SurveyQuestion::create([
+                    'tenant_id' => $newSurvey->tenant_id,
                     'survey_id' => $newSurvey->id,
                     'question_text' => $question->question_text,
                     'question_type' => $question->question_type,
@@ -305,6 +310,7 @@ class SurveyController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
+
             return response()->json([
                 'success' => false,
                 'message' => 'Error al clonar la encuesta',

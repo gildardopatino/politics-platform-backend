@@ -5,6 +5,7 @@ namespace Tests\Feature\Surveys;
 use App\Models\Survey;
 use App\Models\SurveyQuestion;
 use App\Models\Tenant;
+use App\Scopes\TenantScope;
 use Tests\TestCase;
 
 /**
@@ -120,6 +121,36 @@ class SurveyQuestionTenantIsolationTest extends TestCase
         $this->deleteJson("/api/v1/questions/{$id}")->assertStatus(200);
 
         $this->assertDatabaseMissing('survey_questions', ['id' => $id]);
+    }
+
+    public function test_toda_pregunta_nueva_hereda_el_tenant_de_su_encuesta(): void
+    {
+        // Los cuatro caminos de alta: encuesta nueva con preguntas, ruta
+        // anidada, `PUT` de la encuesta y clonado.
+        $encuesta = $this->postJson('/api/v1/surveys', [
+            'titulo' => 'Intención de voto',
+            'questions' => [['question_text' => 'Anidada', 'question_type' => 'text']],
+        ])->assertStatus(201)->json('data');
+
+        $this->postJson("/api/v1/surveys/{$encuesta['id']}/questions", [
+            'question_text' => 'Por su ruta', 'question_type' => 'text',
+        ])->assertStatus(201);
+
+        $this->putJson("/api/v1/surveys/{$encuesta['id']}", [
+            'titulo' => 'Intención de voto',
+            'questions' => [['question_text' => 'Por el PUT', 'question_type' => 'text']],
+        ])->assertStatus(200);
+
+        $this->postJson("/api/v1/surveys/{$encuesta['id']}/clone")->assertStatus(201);
+
+        $this->assertSame(
+            0,
+            SurveyQuestion::withoutGlobalScope(TenantScope::class)
+                ->where('survey_id', '!=', $this->preguntaAjena->survey_id)
+                ->where('tenant_id', '!=', $this->tenant->id)
+                ->count(),
+            'Alguna pregunta quedó con el tenant equivocado.'
+        );
     }
 
     public function test_la_encuesta_propia_lista_solo_sus_preguntas(): void

@@ -32,6 +32,8 @@ class SurveyQuestionController extends Controller
         }
 
         $question = SurveyQuestion::create([
+            // La pregunta hereda el tenant de su encuesta, no el del usuario.
+            'tenant_id' => $survey->tenant_id,
             'survey_id' => $survey->id,
             'question_text' => $request->question_text,
             'question_type' => $request->question_type,
