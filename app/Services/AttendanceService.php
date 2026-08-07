@@ -6,6 +6,8 @@ use App\Models\Meeting;
 use App\Models\MeetingAttendee;
 use App\Models\TipoVotante;
 use App\Models\Voter;
+use App\Scopes\TenantScope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -139,6 +141,65 @@ class AttendanceService
     }
 
     /**
+     * Cuánta gente NUEVA llegó a esta reunión.
+     *
+     * **Nuevo** = esta reunión es la primera asistencia de esa persona en el
+     * tenant, ordenando por `checked_in_at` y, a igualdad, por id. No es "no
+     * estaba en `voters`": alguien puede llevar años en la base electoral y
+     * pisar su primera reunión hoy, y eso es justo lo que mide la métrica.
+     *
+     * La persona se identifica por cédula normalizada, no por `voter_id`: la
+     * asistencia anterior a esta spec puede no tener votante ligado y aun así
+     * cuenta como visita previa.
+     *
+     * @return array<string, int>
+     */
+    public function estadisticasDeReunion(Meeting $meeting): array
+    {
+        $deLaReunion = $this->asistenciaDelTenant($meeting->tenant_id)
+            ->where('meeting_id', $meeting->id)
+            ->get();
+
+        $personas = $deLaReunion
+            ->map(fn (MeetingAttendee $fila) => self::normalizarCedula($fila->cedula))
+            ->filter()
+            ->unique();
+
+        if ($personas->isEmpty()) {
+            return [
+                'meeting_id' => $meeting->id,
+                'total_check_ins' => $deLaReunion->count(),
+                'unique_attendees' => 0,
+                'new_attendees' => 0,
+                'recurring_attendees' => 0,
+                'linked_to_voter' => 0,
+            ];
+        }
+
+        // Todo el historial de esas personas en la campaña, para saber dónde
+        // estrenó cada una.
+        $primeraVisita = $this->asistenciaDelTenant($meeting->tenant_id)
+            ->get()
+            ->groupBy(fn (MeetingAttendee $fila) => self::normalizarCedula($fila->cedula))
+            ->map(fn ($filas) => $filas->sort(
+                fn ($a, $b) => $this->ordenDeVisita($a) <=> $this->ordenDeVisita($b)
+            )->first());
+
+        $nuevos = $personas->filter(
+            fn (string $cedula) => $primeraVisita[$cedula]?->meeting_id === $meeting->id
+        );
+
+        return [
+            'meeting_id' => $meeting->id,
+            'total_check_ins' => $deLaReunion->count(),
+            'unique_attendees' => $personas->count(),
+            'new_attendees' => $nuevos->count(),
+            'recurring_attendees' => $personas->count() - $nuevos->count(),
+            'linked_to_voter' => $deLaReunion->whereNotNull('voter_id')->count(),
+        ];
+    }
+
+    /**
      * Sin puntos, espacios ni guiones: "71.000.001", "71 000 001" y "71000001"
      * son la misma persona. En mayúsculas por los documentos con letra.
      */
@@ -148,6 +209,31 @@ class AttendanceService
     }
 
     // ------------------------------------------------------------------
+
+    /**
+     * Asistencia acotada al tenant de la reunión, sin depender de que el
+     * llamador haya enlazado `current_tenant_id`. No cruza tenants: lo fija.
+     */
+    private function asistenciaDelTenant(int $tenantId): Builder
+    {
+        return MeetingAttendee::withoutGlobalScope(TenantScope::class)
+            ->where('tenant_id', $tenantId);
+    }
+
+    /**
+     * Cuándo pisó la persona esa reunión. `checked_in_at` es lo que importa;
+     * `created_at` cubre las filas dadas de alta sin check-in, y el id desempata
+     * para que el resultado no dependa del orden en que vuelva la consulta.
+     *
+     * @return array{int, int}
+     */
+    private function ordenDeVisita(MeetingAttendee $fila): array
+    {
+        return [
+            ($fila->checked_in_at ?? $fila->created_at)?->getTimestamp() ?? 0,
+            $fila->id,
+        ];
+    }
 
     private function resolverVotante(Meeting $meeting, string $cedula, array $datos, ?int $createdBy): ?Voter
     {
@@ -175,7 +261,7 @@ class AttendanceService
 
     private function buscarVotante(int $tenantId, string $cedula, ?string $original): ?Voter
     {
-        return Voter::withoutGlobalScope(\App\Scopes\TenantScope::class)
+        return Voter::withoutGlobalScope(TenantScope::class)
             ->where('tenant_id', $tenantId)
             ->whereIn('cedula', $this->cedulasEquivalentes($cedula, ['cedula' => $original]))
             ->first();

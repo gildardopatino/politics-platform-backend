@@ -351,6 +351,20 @@ class MeetingController extends Controller
     }
 
     /**
+     * Nuevos vs recurrentes de una reunión (Spec 0022).
+     *
+     * «Nuevo» = esta reunión es la primera asistencia de esa persona en la
+     * campaña. Se cuenta por cédula normalizada, no por filas. El binding de
+     * ruta ya está acotado al tenant, así que una reunión ajena da 404.
+     */
+    public function attendanceStats(Meeting $meeting, AttendanceService $asistencia): JsonResponse
+    {
+        return response()->json([
+            'data' => $asistencia->estadisticasDeReunion($meeting),
+        ]);
+    }
+
+    /**
      * Get meetings hierarchy tree based on attendees requesting meetings
      * Returns a tree structure of people and their requested meetings
      */

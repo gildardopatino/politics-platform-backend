@@ -186,6 +186,9 @@ Route::prefix('v1')->group(function () {
             // Meeting Attendees — son datos de la reunión: usan sus permisos.
             Route::get('/attendees/search', [MeetingAttendeeController::class, 'searchAll'])
                 ->middleware('permission:view_meetings');
+            // Nuevos vs recurrentes por cédula (Spec 0022).
+            Route::get('/meetings/{meeting}/attendance-stats', [MeetingController::class, 'attendanceStats'])
+                ->middleware('permission:view_meetings');
             Route::get('/meetings/{meeting}/attendees', [MeetingAttendeeController::class, 'index'])
                 ->middleware('permission:view_meetings');
             Route::get('/meetings/{meeting}/attendees/search', [MeetingAttendeeController::class, 'search'])
