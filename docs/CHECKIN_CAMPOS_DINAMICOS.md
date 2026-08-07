@@ -6,6 +6,17 @@
 
 **Endpoint:** `GET /api/v1/meetings/public/{qr_code}`
 
+> **Corregido por la Spec 0021.** Antes este documento mostraba `titulo` y
+> `descripcion` con valor, pero el controller los leía del modelo con esos
+> nombres —donde en realidad son `title` y `description`— así que **siempre
+> llegaban `null`** (hallazgo F3 de la caracterización 0010). Ya se mapean bien.
+>
+> El payload es ahora el de `PublicMeetingResource`, compartido con
+> `GET /meetings/check-in/{qr_code}`. Al ser rutas **sin autenticación** no
+> incluye `tenant_id`, `metadata`, `qr_code` ni el correo o teléfono de quien
+> organiza: del planner solo va el nombre (hallazgo F6). Los campos `objetivo`,
+> `lugar_tipo` y `lugar_url` se retiraron porque no existen en el modelo.
+
 **Respuesta del Backend:**
 
 ```json
@@ -15,13 +26,13 @@
         "id": 36,
         "titulo": "Reunión Centenario",
         "descripcion": "Descripción de la reunión",
-        "starts_at": "2025-11-15T10:00:00.000000Z",
+        "starts_at": "2025-11-15T10:00:00-05:00",
+        "ends_at": null,
         "status": "scheduled",
+        "lugar_nombre": "Salón comunal",
+        "lugar_direccion": "Calle 50 #45-30",
         "planner": {
-            "id": 1,
-            "name": "Juan Organizador",
-            "email": "organizador@example.com",
-            "phone": "3001234567"
+            "name": "Juan Organizador"
         },
         "location": {
             "department": "Antioquia",

@@ -7,7 +7,7 @@ use App\Http\Requests\Api\V1\Meeting\CheckInRequest;
 use App\Http\Requests\Api\V1\Meeting\StoreMeetingRequest;
 use App\Http\Requests\Api\V1\Meeting\UpdateMeetingRequest;
 use App\Http\Resources\Api\V1\MeetingResource;
-use App\Jobs\Meetings\GenerateQRCodeJob;
+use App\Http\Resources\Api\V1\PublicMeetingResource;
 use App\Jobs\SendMeetingReminderJob;
 use App\Models\Barrio;
 use App\Models\Commune;
@@ -46,7 +46,7 @@ class MeetingController extends Controller
                 'current_page' => $meetings->currentPage(),
                 'last_page' => $meetings->lastPage(),
                 'per_page' => $meetings->perPage(),
-            ]
+            ],
         ]);
     }
 
@@ -58,15 +58,15 @@ class MeetingController extends Controller
         try {
             /** @var \App\Models\User $user */
             $user = $request->user();
-            
+
             Log::info('Creating meeting', [
                 'tenant_id' => $user->tenant_id,
-                'validated_data' => $request->validated()
+                'validated_data' => $request->validated(),
             ]);
-            
+
             $meeting = Meeting::create([
                 'tenant_id' => $user->tenant_id,
-                ...$request->validated()
+                ...$request->validated(),
             ]);
 
             Log::info('Meeting created', ['meeting_id' => $meeting->id]);
@@ -97,8 +97,8 @@ class MeetingController extends Controller
             $logisticsSent = false;
             $tenant = app('tenant');
             $meeting->load('logisticsResponsible');
-            if ($tenant->send_logistics_notifications && 
-                $meeting->logisticsResponsible && 
+            if ($tenant->send_logistics_notifications &&
+                $meeting->logisticsResponsible &&
                 $meeting->logisticsResponsible->phone) {
                 $logisticsSent = $this->sendLogisticsResponsibleNotification($meeting, $whatsappService, $user);
             }
@@ -112,11 +112,11 @@ class MeetingController extends Controller
         } catch (\Exception $e) {
             Log::error('Error creating meeting', [
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
             ]);
-            
+
             return response()->json([
-                'message' => 'Error creating meeting: ' . $e->getMessage()
+                'message' => 'Error creating meeting: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -127,9 +127,9 @@ class MeetingController extends Controller
     public function show(Meeting $meeting): JsonResponse
     {
         $meeting->load(['planner', 'logisticsResponsible', 'template', 'attendees', 'commitments', 'department', 'municipality', 'commune', 'barrio', 'corregimiento', 'vereda', 'activeReminder', 'resourceAllocations.items.resourceItem']);
-        
+
         return response()->json([
-            'data' => new MeetingResource($meeting)
+            'data' => new MeetingResource($meeting),
         ]);
     }
 
@@ -140,7 +140,7 @@ class MeetingController extends Controller
     {
         /** @var \App\Models\User $user */
         $user = $request->user();
-        
+
         $meeting->update($request->validated());
 
         // Handle reminder updates
@@ -157,7 +157,7 @@ class MeetingController extends Controller
 
         return response()->json([
             'data' => new MeetingResource($meeting->load(['planner', 'logisticsResponsible', 'department', 'municipality', 'commune', 'barrio', 'template', 'activeReminder'])),
-            'message' => 'Meeting updated successfully'
+            'message' => 'Meeting updated successfully',
         ]);
     }
 
@@ -174,7 +174,7 @@ class MeetingController extends Controller
         $meeting->delete();
 
         return response()->json([
-            'message' => 'Meeting deleted successfully'
+            'message' => 'Meeting deleted successfully',
         ]);
     }
 
@@ -185,7 +185,7 @@ class MeetingController extends Controller
     {
         $meeting->update([
             'status' => 'completed',
-            'ends_at' => now()
+            'ends_at' => now(),
         ]);
 
         // Procesar jerarquías de asistentes si está configurado
@@ -193,7 +193,7 @@ class MeetingController extends Controller
 
         return response()->json([
             'data' => new MeetingResource($meeting->load(['planner', 'department', 'municipality', 'commune', 'barrio', 'template'])),
-            'message' => 'Meeting marked as completed'
+            'message' => 'Meeting marked as completed',
         ]);
     }
 
@@ -206,7 +206,7 @@ class MeetingController extends Controller
 
         return response()->json([
             'data' => new MeetingResource($meeting->load(['planner', 'department', 'municipality', 'commune', 'barrio', 'template'])),
-            'message' => 'Meeting cancelled'
+            'message' => 'Meeting cancelled',
         ]);
     }
 
@@ -215,9 +215,9 @@ class MeetingController extends Controller
      */
     public function getQRCode(Meeting $meeting, QRCodeService $qrCodeService): JsonResponse
     {
-        if (!$meeting->qr_code) {
+        if (! $meeting->qr_code) {
             return response()->json([
-                'message' => 'QR code not generated yet'
+                'message' => 'QR code not generated yet',
             ], 404);
         }
 
@@ -238,12 +238,32 @@ class MeetingController extends Controller
      */
     public function showByQR(string $qrCode): JsonResponse
     {
-        $meeting = Meeting::where('qr_code', $qrCode)->firstOrFail();
-        $meeting->load(['planner', 'department', 'municipality', 'commune', 'barrio', 'template']);
+        // Ruta pública: se sirve la vista reducida, no el MeetingResource
+        // completo (Spec 0021, F6).
+        $meeting = Meeting::where('qr_code', $qrCode)
+            ->with($this->relacionesPublicas())
+            ->firstOrFail();
 
         return response()->json([
-            'data' => new MeetingResource($meeting)
+            'data' => new PublicMeetingResource($meeting),
         ]);
+    }
+
+    /**
+     * Relaciones que necesita la vista pública de una reunión.
+     *
+     * @return array<int, string>
+     */
+    private function relacionesPublicas(): array
+    {
+        return [
+            'planner:id,name',
+            'department:id,nombre',
+            'municipality:id,nombre',
+            'commune:id,nombre',
+            'barrio:id,nombre',
+            'template:id,name,description,fields',
+        ];
     }
 
     /**
@@ -253,51 +273,12 @@ class MeetingController extends Controller
     public function getPublicInfo(string $qrCode): JsonResponse
     {
         $meeting = Meeting::where('qr_code', $qrCode)
-            ->with([
-                'planner:id,name,email,phone',
-                'department:id,nombre',
-                'municipality:id,nombre', 
-                'commune:id,nombre',
-                'barrio:id,nombre',
-                'template:id,name,description,fields'
-            ])
+            ->with($this->relacionesPublicas())
             ->firstOrFail();
 
         return response()->json([
             'success' => true,
-            'data' => [
-                'id' => $meeting->id,
-                'titulo' => $meeting->titulo,
-                'descripcion' => $meeting->descripcion,
-                'objetivo' => $meeting->objetivo,
-                'starts_at' => $meeting->starts_at,
-                'ends_at' => $meeting->ends_at,
-                'status' => $meeting->status,
-                'lugar_tipo' => $meeting->lugar_tipo,
-                'lugar_nombre' => $meeting->lugar_nombre,
-                'lugar_direccion' => $meeting->lugar_direccion,
-                'lugar_url' => $meeting->lugar_url,
-                'planner' => $meeting->planner ? [
-                    'id' => $meeting->planner->id,
-                    'name' => $meeting->planner->name,
-                    'email' => $meeting->planner->email,
-                    'phone' => $meeting->planner->phone,
-                ] : null,
-                'location' => [
-                    'department' => $meeting->department?->nombre,
-                    'municipality' => $meeting->municipality?->nombre,
-                    'commune' => $meeting->commune?->nombre,
-                    'barrio' => $meeting->barrio?->nombre,
-                ],
-                'template' => $meeting->template ? [
-                    'id' => $meeting->template->id,
-                    'nombre' => $meeting->template->name,
-                    'descripcion' => $meeting->template->description,
-                    'fields' => $meeting->template->fields,
-                ] : null,
-                'attendees_count' => $meeting->attendees()->count(),
-                'checked_in_count' => $meeting->attendees()->where('checked_in', true)->count(),
-            ]
+            'data' => new PublicMeetingResource($meeting),
         ]);
     }
 
@@ -312,12 +293,12 @@ class MeetingController extends Controller
             ...$request->validated(),
             'created_by' => $request->user()?->id,
             'checked_in' => true,
-            'checked_in_at' => now()
+            'checked_in_at' => now(),
         ]);
 
         return response()->json([
             'data' => $attendee,
-            'message' => 'Check-in successful'
+            'message' => 'Check-in successful',
         ], 201);
     }
 
@@ -335,14 +316,14 @@ class MeetingController extends Controller
             'planner:id,name,cedula',
             'attendees:id,meeting_id,cedula,nombres,apellidos,telefono,email',
             'barrio:id,nombre',
-            'commune:id,nombre'
+            'commune:id,nombre',
         ])->get();
 
         // Construir un mapa de cédulas a reuniones solicitadas
         $cedulaToMeetings = [];
         foreach ($meetings as $meeting) {
             if ($meeting->assigned_to_cedula) {
-                if (!isset($cedulaToMeetings[$meeting->assigned_to_cedula])) {
+                if (! isset($cedulaToMeetings[$meeting->assigned_to_cedula])) {
                     $cedulaToMeetings[$meeting->assigned_to_cedula] = [];
                 }
                 $cedulaToMeetings[$meeting->assigned_to_cedula][] = $meeting;
@@ -350,8 +331,10 @@ class MeetingController extends Controller
         }
 
         // Función recursiva para construir el árbol
-        $buildTree = function($cedula, $depth = 0) use (&$buildTree, $cedulaToMeetings, $meetings, $includeAttendees) {
-            if ($depth > 10) return []; // Prevenir recursión infinita
+        $buildTree = function ($cedula, $depth = 0) use (&$buildTree, $cedulaToMeetings, $meetings, $includeAttendees) {
+            if ($depth > 10) {
+                return [];
+            } // Prevenir recursión infinita
 
             $result = [];
 
@@ -367,7 +350,7 @@ class MeetingController extends Controller
                                 'cedula' => $attendee->cedula,
                                 'nombres' => $attendee->nombres,
                                 'apellidos' => $attendee->apellidos,
-                                'full_name' => $attendee->nombres . ' ' . $attendee->apellidos,
+                                'full_name' => $attendee->nombres.' '.$attendee->apellidos,
                                 'telefono' => $attendee->telefono,
                                 'email' => $attendee->email,
                             ];
@@ -390,18 +373,18 @@ class MeetingController extends Controller
                             'attendees_count' => $meeting->attendees->count(),
                         ],
                         'requester' => $requester,
-                        'children' => []
+                        'children' => [],
                     ];
 
                     // Agregar lista de asistentes si el flag está activado
                     if ($includeAttendees) {
-                        $meetingData['meeting']['attendees'] = $meeting->attendees->map(function($attendee) {
+                        $meetingData['meeting']['attendees'] = $meeting->attendees->map(function ($attendee) {
                             return [
                                 'id' => $attendee->id,
                                 'cedula' => $attendee->cedula,
                                 'nombres' => $attendee->nombres,
                                 'apellidos' => $attendee->apellidos,
-                                'full_name' => $attendee->nombres . ' ' . $attendee->apellidos,
+                                'full_name' => $attendee->nombres.' '.$attendee->apellidos,
                                 'telefono' => $attendee->telefono,
                                 'email' => $attendee->email,
                             ];
@@ -411,9 +394,9 @@ class MeetingController extends Controller
                     // Buscar reuniones solicitadas por los asistentes de esta reunión
                     foreach ($meeting->attendees as $attendee) {
                         $childrenMeetings = $buildTree($attendee->cedula, $depth + 1);
-                        if (!empty($childrenMeetings)) {
+                        if (! empty($childrenMeetings)) {
                             $meetingData['children'] = array_merge(
-                                $meetingData['children'], 
+                                $meetingData['children'],
                                 $childrenMeetings
                             );
                         }
@@ -433,7 +416,7 @@ class MeetingController extends Controller
                 'planner:id,name,cedula',
                 'attendees:id,meeting_id,cedula,nombres,apellidos,telefono,email',
                 'barrio:id,nombre',
-                'commune:id,nombre'
+                'commune:id,nombre',
             ])
             ->get();
 
@@ -458,20 +441,20 @@ class MeetingController extends Controller
                     'nombres' => $meeting->planner->name,
                     'apellidos' => '',
                     'full_name' => $meeting->planner->name,
-                    'type' => 'planner'
+                    'type' => 'planner',
                 ] : null,
-                'children' => []
+                'children' => [],
             ];
 
             // Agregar lista de asistentes si el flag está activado
             if ($includeAttendees) {
-                $meetingNode['meeting']['attendees'] = $meeting->attendees->map(function($attendee) {
+                $meetingNode['meeting']['attendees'] = $meeting->attendees->map(function ($attendee) {
                     return [
                         'id' => $attendee->id,
                         'cedula' => $attendee->cedula,
                         'nombres' => $attendee->nombres,
                         'apellidos' => $attendee->apellidos,
-                        'full_name' => $attendee->nombres . ' ' . $attendee->apellidos,
+                        'full_name' => $attendee->nombres.' '.$attendee->apellidos,
                         'telefono' => $attendee->telefono,
                         'email' => $attendee->email,
                     ];
@@ -481,9 +464,9 @@ class MeetingController extends Controller
             // Buscar reuniones solicitadas por los asistentes
             foreach ($meeting->attendees as $attendee) {
                 $childrenMeetings = $buildTree($attendee->cedula);
-                if (!empty($childrenMeetings)) {
+                if (! empty($childrenMeetings)) {
                     $meetingNode['children'] = array_merge(
-                        $meetingNode['children'], 
+                        $meetingNode['children'],
                         $childrenMeetings
                     );
                 }
@@ -499,7 +482,7 @@ class MeetingController extends Controller
                 'total_meetings' => $meetings->count(),
                 'root_meetings' => $rootMeetings->count(),
                 'include_attendees' => $includeAttendees,
-            ]
+            ],
         ]);
     }
 
@@ -516,12 +499,13 @@ class MeetingController extends Controller
 
             // Validate reminder datetime
             $meetingStart = Carbon::parse($meeting->starts_at);
-            
+
             if ($reminderDatetime >= $meetingStart) {
                 Log::warning('Reminder datetime must be before meeting start', [
                     'reminder_datetime' => $reminderDatetime,
                     'meeting_start' => $meetingStart,
                 ]);
+
                 return null;
             }
 
@@ -531,6 +515,7 @@ class MeetingController extends Controller
                     'meeting_start' => $meetingStart,
                     'minimum_time' => $meetingStart->copy()->subHours(5),
                 ]);
+
                 return null;
             }
 
@@ -543,10 +528,11 @@ class MeetingController extends Controller
                 $userId = $recipientInput['user_id'];
                 $dbUser = $users->get($userId);
 
-                if (!$dbUser) {
+                if (! $dbUser) {
                     Log::warning('User not found for reminder recipient', [
                         'user_id' => $userId,
                     ]);
+
                     continue;
                 }
 
@@ -556,6 +542,7 @@ class MeetingController extends Controller
                         'user_id' => $userId,
                         'user_name' => $dbUser->name,
                     ]);
+
                     continue;
                 }
 
@@ -571,6 +558,7 @@ class MeetingController extends Controller
                 Log::warning('No valid recipients with phone numbers', [
                     'meeting_id' => $meeting->id,
                 ]);
+
                 return null;
             }
 
@@ -607,6 +595,7 @@ class MeetingController extends Controller
                 'meeting_id' => $meeting->id,
                 'error' => $e->getMessage(),
             ]);
+
             return null;
         }
     }
@@ -618,15 +607,15 @@ class MeetingController extends Controller
     {
         try {
             $meetingDate = Carbon::parse($meeting->datetime)->format('d/m/Y H:i');
-            
+
             $message = "🗓️ *Nueva Reunión Asignada*\n\n";
             $message .= "*Título:* {$meeting->title}\n";
             $message .= "*Fecha:* {$meetingDate}\n";
-            
+
             if ($meeting->location) {
                 $message .= "*Lugar:* {$meeting->location}\n";
             }
-            
+
             $message .= "\nHas sido asignado como *Responsable político* de esta reunión.";
 
             $success = $whatsappService->sendMessage(
@@ -647,7 +636,7 @@ class MeetingController extends Controller
                     'planner_id' => $meeting->planner_user_id,
                 ]);
             }
-            
+
             return $success;
         } catch (\Exception $e) {
             Log::error('Failed to send meeting assignment notification', [
@@ -655,6 +644,7 @@ class MeetingController extends Controller
                 'planner_id' => $meeting->planner_user_id,
                 'error' => $e->getMessage(),
             ]);
+
             return false;
         }
     }
@@ -666,29 +656,29 @@ class MeetingController extends Controller
     {
         try {
             $meetingDate = Carbon::parse($meeting->datetime)->format('d/m/Y H:i');
-            
+
             $message = "📋 *Nueva Reunión - Responsable Logístico*\n\n";
             $message .= "*Título:* {$meeting->title}\n";
             $message .= "*Fecha:* {$meetingDate}\n";
-            
+
             if ($meeting->location) {
                 $message .= "*Lugar:* {$meeting->location}\n";
             }
 
             // Buscar enlaces del barrio o comuna
             $enlaces = $this->getEnlacesForMeeting($meeting);
-            
-            if (!empty($enlaces)) {
+
+            if (! empty($enlaces)) {
                 $message .= "\n👥 *Enlaces de Apoyo Disponibles:*\n";
                 foreach ($enlaces as $index => $enlace) {
-                    $message .= "\n" . ($index + 1) . ". {$enlace['nombre_completo']}\n";
+                    $message .= "\n".($index + 1).". {$enlace['nombre_completo']}\n";
                     $message .= "   📞 {$enlace['telefono']}\n";
                 }
                 $message .= "\n_Puedes contactar a estos enlaces para apoyo logístico._";
             } else {
                 $message .= "\n⚠️ *No hay enlaces asociados* a esta ubicación.";
             }
-            
+
             $message .= "\n\nHas sido asignado como *responsable logístico* de esta reunión.";
 
             $success = $whatsappService->sendMessage(
@@ -710,7 +700,7 @@ class MeetingController extends Controller
                     'enlaces_count' => count($enlaces),
                 ]);
             }
-            
+
             return $success;
         } catch (\Exception $e) {
             Log::error('Failed to send meeting logistics notification', [
@@ -718,6 +708,7 @@ class MeetingController extends Controller
                 'logistics_responsible_id' => $meeting->logistics_responsible_id,
                 'error' => $e->getMessage(),
             ]);
+
             return false;
         }
     }
@@ -743,7 +734,7 @@ class MeetingController extends Controller
                 ->toArray();
 
             // Si hay enlaces en el barrio, retornarlos
-            if (!empty($enlaces)) {
+            if (! empty($enlaces)) {
                 return $enlaces;
             }
 

@@ -40,6 +40,7 @@ class MeetingPublicCheckInTest extends TestCase
             'description' => 'Encuentro con la comunidad',
             'qr_code' => 'QR-PUBLICO-1',
             'lugar_nombre' => 'Salón comunal',
+            'direccion' => 'Calle 50 #45-30',
             'starts_at' => '2026-08-20 18:00:00',
         ]);
     }
@@ -71,26 +72,51 @@ class MeetingPublicCheckInTest extends TestCase
             ]);
     }
 
-    public function test_rareza_la_info_publica_devuelve_null_en_titulo_y_descripcion(): void
+    public function test_la_info_publica_trae_titulo_descripcion_y_lugar_reales(): void
     {
-        // El controller lee `titulo`, `descripcion`, `objetivo`, `lugar_tipo`,
-        // `lugar_direccion` y `lugar_url`, que NO existen en el modelo Meeting
-        // (son `title`, `description`, `direccion`; los otros tres no existen).
-        // Resultado: la pantalla pública de check-in recibe el título en null.
+        // F3 (Spec 0021): el controller leía `titulo`, `descripcion` y
+        // `lugar_direccion` del modelo, donde los campos se llaman `title`,
+        // `description` y `direccion`. La pantalla pública recibía el título en
+        // null. Las claves de la respuesta se conservan porque son las que pinta
+        // MeetingCheckIn.tsx; lo que se corrige es de dónde salen.
         $data = $this->getJson('/api/v1/meetings/public/QR-PUBLICO-1')
             ->assertStatus(200)
             ->json('data');
 
-        $this->assertNull($data['titulo'], 'El campo real del modelo es `title`.');
-        $this->assertNull($data['descripcion'], 'El campo real del modelo es `description`.');
-        $this->assertNull($data['objetivo']);
-        $this->assertNull($data['lugar_tipo']);
-        $this->assertNull($data['lugar_direccion'], 'El campo real del modelo es `direccion`.');
-        $this->assertNull($data['lugar_url']);
-
-        // Estos sí coinciden con el modelo y llegan bien.
+        $this->assertSame('Asamblea barrial', $data['titulo']);
+        $this->assertSame('Encuentro con la comunidad', $data['descripcion']);
+        $this->assertSame('Calle 50 #45-30', $data['lugar_direccion']);
         $this->assertSame('Salón comunal', $data['lugar_nombre']);
         $this->assertSame('scheduled', $data['status']);
+    }
+
+    public function test_la_info_publica_ya_no_publica_campos_inexistentes(): void
+    {
+        // `objetivo`, `lugar_tipo` y `lugar_url` no existen en el modelo: solo
+        // producían nulls. Se retiran del payload.
+        $data = $this->getJson('/api/v1/meetings/public/QR-PUBLICO-1')
+            ->assertStatus(200)
+            ->json('data');
+
+        foreach (['objetivo', 'lugar_tipo', 'lugar_url'] as $campo) {
+            $this->assertArrayNotHasKey($campo, $data);
+        }
+    }
+
+    public function test_la_info_publica_no_expone_datos_internos_ni_pii(): void
+    {
+        // F6: ruta sin autenticación. Ni `tenant_id` ni el correo o el teléfono
+        // de quien organiza.
+        $data = $this->getJson('/api/v1/meetings/public/QR-PUBLICO-1')
+            ->assertStatus(200)
+            ->json('data');
+
+        $this->assertArrayNotHasKey('tenant_id', $data);
+        $this->assertArrayNotHasKey('email', $data['planner']);
+        $this->assertArrayNotHasKey('phone', $data['planner']);
+        $this->assertArrayNotHasKey('id', $data['planner']);
+        // El nombre sí: identifica el encuentro ante quien va a asistir.
+        $this->assertArrayHasKey('name', $data['planner']);
     }
 
     public function test_la_info_publica_cuenta_asistentes_y_check_ins(): void
@@ -114,26 +140,40 @@ class MeetingPublicCheckInTest extends TestCase
     // showByQR
     // ------------------------------------------------------------------
 
-    public function test_show_por_qr_devuelve_la_reunion_completa_sin_token(): void
+    public function test_show_por_qr_devuelve_la_vista_publica_sin_token(): void
     {
         $this->getJson('/api/v1/meetings/check-in/QR-PUBLICO-1')
             ->assertStatus(200)
             ->assertJsonPath('data.id', $this->meeting->id)
-            ->assertJsonPath('data.title', 'Asamblea barrial')
-            ->assertJsonPath('data.qr_code', 'QR-PUBLICO-1');
+            ->assertJsonPath('data.titulo', 'Asamblea barrial')
+            ->assertJsonPath('data.lugar_nombre', 'Salón comunal');
     }
 
-    public function test_rareza_show_por_qr_expone_datos_internos_en_una_ruta_publica(): void
+    public function test_show_por_qr_no_expone_datos_internos_ni_pii(): void
     {
-        // Devuelve el MeetingResource entero: incluye `tenant_id` y el objeto
-        // `planner` con su email. Cualquiera con el código del QR los ve.
+        // F6 (Spec 0021): antes devolvía el MeetingResource entero, con
+        // `tenant_id` y el email del planner, en una ruta sin autenticación.
+        // Ahora usa el mismo recurso reducido que la info pública.
         $data = $this->getJson('/api/v1/meetings/check-in/QR-PUBLICO-1')
             ->assertStatus(200)
             ->json('data');
 
-        $this->assertSame($this->tenant->id, $data['tenant_id']);
-        $this->assertArrayHasKey('planner', $data);
-        $this->assertArrayHasKey('email', $data['planner']);
+        $this->assertArrayNotHasKey('tenant_id', $data);
+        $this->assertArrayNotHasKey('planner_user_id', $data);
+        $this->assertArrayNotHasKey('metadata', $data);
+        $this->assertArrayNotHasKey('qr_code', $data);
+        $this->assertArrayNotHasKey('email', $data['planner']);
+        $this->assertArrayNotHasKey('phone', $data['planner']);
+    }
+
+    public function test_las_dos_rutas_publicas_devuelven_la_misma_forma(): void
+    {
+        // Un solo recurso público: dos formas distintas para el mismo dato
+        // invitan a que una se quede sin arreglar.
+        $porInfo = $this->getJson('/api/v1/meetings/public/QR-PUBLICO-1')->json('data');
+        $porQr = $this->getJson('/api/v1/meetings/check-in/QR-PUBLICO-1')->json('data');
+
+        $this->assertSame(array_keys($porInfo), array_keys($porQr));
     }
 
     public function test_show_por_qr_con_codigo_invalido_da_404(): void
