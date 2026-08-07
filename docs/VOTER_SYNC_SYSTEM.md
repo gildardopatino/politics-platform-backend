@@ -1,11 +1,24 @@
-# Sistema de Sincronización Automática: Asistentes → Voters
+# Sincronización de votantes: asistentes y Registraduría
 
 ## 📋 Resumen
 
-El sistema ahora sincroniza automáticamente todos los asistentes de reuniones (`meeting_attendees`) a la tabla oficial de electores (`voters`).
+`voters` es la tabla oficial de electores. Se alimenta por **tres** vías:
 
-**Tabla Oficial de Electores:** `voters`
-**Tabla de Asistentes:** `meeting_attendees`
+| Vía | Qué escribe | Dónde |
+| --- | --- | --- |
+| Check-in de reunión | crea o liga la persona por cédula | `App\Services\AttendanceService` (Spec 0022) |
+| Comando programado | recorre `meeting_attendees` y rellena huecos | `voters:sync`, dos veces al día |
+| Webhooks de Registraduría | escribe el puesto de votación | rutas públicas, ver abajo |
+
+> **Actualizado por la Spec 0022.** La sincronización asistente → votante ya no
+> vive en `MeetingAttendeeObserver` con su propia copia de la lógica: el observer
+> delega en `AttendanceService`, que normaliza la cédula (sin puntos ni espacios)
+> antes de comparar. Antes no lo hacía, y «71.000.001» y «71000001» acababan como
+> dos votantes distintos. Lo que sigue describiendo este documento —qué campos se
+> rellenan y cuándo se marca `has_multiple_records`— se conserva igual.
+
+> **Contrato observado (Spec 0011).** Los webhooks están verificados con
+> `tests/Feature/Voters/RegistraduriaWebhookCharacterizationTest.php`.
 
 ---
 
@@ -385,3 +398,87 @@ assert($voter->direccion === 'Calle 10 # 20-30');
 - `app/Providers/AppServiceProvider.php` - Registro del observer
 - `app/Models/MeetingAttendee.php` - Modelo de asistentes
 - `app/Models/Voter.php` - Modelo de electores
+
+
+---
+
+## Webhooks de Registraduría
+
+Dos rutas **públicas** (fuera del grupo `jwt.auth`), pensadas para que n8n
+complete la información electoral de los votantes.
+
+### `GET /api/v1/webhook/political/registraduria/pendientes`
+
+Devuelve un **array crudo**, sin envoltorio ni paginación, con hasta **100**
+votantes que no tienen `departamento_votacion`.
+
+```json
+[ { "id": 12, "cedula": "71000001", "full_name": "", "location_type": null } ]
+```
+
+El controlador hace `select('id', 'cedula')`, pero el modelo declara
+`$appends = ['full_name', 'location_type']` y esos dos viajan igual; como
+`nombres`/`apellidos` no se seleccionaron, `full_name` sale vacío.
+
+Sin cursor ni paginación: la única forma de avanzar es actualizar los primeros
+100 y volver a llamar.
+
+### `POST /api/v1/webhook/political/registraduria/actualizar`
+
+| Campo | Regla |
+| --- | --- |
+| `id` | requerido, entero, `exists:voters,id` |
+| `departamento_votacion` | requerido, máx 255 |
+| `municipio_votacion` | requerido, máx 255 |
+| `puesto_votacion` | requerido, máx 255 |
+| `direccion_votacion` | opcional, máx 500 |
+| `mesa_votacion` | opcional, **entero** |
+
+Crea el `VotingPlace` si no existía (`firstOrCreate` por departamento +
+municipio + puesto), lo liga en `voters.voting_place_id` y escribe los cinco
+campos en el votante.
+
+```json
+{ "success": true,
+  "message": "Información de registraduría actualizada correctamente.",
+  "data": { …el modelo Voter completo… } }
+```
+
+Errores: **422** con `{ success: false, errors: {...} }`.
+
+⚠️ `mesa_votacion` se valida como **entero** aunque `voters.mesa_votacion` sea
+`string(20)` y el formulario interno la acepte como texto: una mesa «12A» se
+rechaza aquí.
+
+⚠️ La rama que devuelve `404 «Votante no encontrado»` es **inalcanzable**:
+`exists:voters,id` corta antes con un 422.
+
+### 🔴 Seguridad — sin autenticar y sin tenant
+
+Las dos rutas están **fuera del grupo `jwt.auth`**, sin token, sin firma y sin
+`throttle`, y consultan con `withoutGlobalScope(TenantScope::class)`. Es el mismo
+patrón que la Spec 0026 cerró en `verify-document`, y aquí sigue abierto:
+
+1. `pendientes` **reparte hasta 100 cédulas de cualquier campaña** a quien sepa
+   la URL. (El agujero de la 0026 exigía conocer ya la cédula; este las entrega.)
+2. `actualizar` **escribe** el puesto de votación en el votante de cualquier
+   tenant.
+3. Y devuelve `data => $voter->fresh()`, el modelo **completo**: nombres,
+   apellidos, correo, teléfono, dirección y `tenant_id`.
+
+Encadenando (1) → (3) se puede vaciar la base de votantes de **todas** las
+campañas sin autenticarse. Registrado en `.specify/context/known-issues.md`; la
+Spec 0011 solo lo caracteriza, no lo corrige.
+
+---
+
+## Comandos de consola
+
+⚠️ Hay **dos** comandos que hacen casi lo mismo:
+
+| Comando | Clase | Programado |
+| --- | --- | --- |
+| `voters:sync {--tenant=}` | `SyncVotersFromAttendees` | sí, `twiceDaily(6, 18)` en `routes/console.php` |
+| `voters:sync-attendees {--tenant-id=}` | `SyncAttendeesToVoters` | no |
+
+Solo el primero está programado. El segundo no lo invoca nadie.

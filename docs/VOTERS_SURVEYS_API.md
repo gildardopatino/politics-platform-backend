@@ -4,13 +4,54 @@
 
 Este módulo maneja el registro de votantes (sincronizados desde asistentes de reuniones), la creación de encuestas telefónicas y el registro de llamadas con sus respuestas.
 
+> **Contrato observado (Spec 0011).** Lo que sigue está verificado con pruebas de
+> caracterización; describe lo que la API hace **hoy**, no lo que debería hacer.
+> Lo discutible se marca con ⚠️ y está en `.specify/context/known-issues.md`.
+>
+> | Archivo | Qué fija |
+> | --- | --- |
+> | `tests/Feature/Voters/VoterCharacterizationTest.php` | votantes y `voter-types` |
+> | `tests/Feature/Voters/RegistraduriaWebhookCharacterizationTest.php` | los dos webhooks públicos |
+> | `tests/Feature/Surveys/SurveyCharacterizationTest.php` | encuestas y preguntas |
+> | `tests/Feature/Calls/CallCharacterizationTest.php` | llamadas y puestos de votación |
+
 ## Tabla de Contenidos
 
-1. [Votantes (Voters)](#votantes-voters)
-2. [Encuestas (Surveys)](#encuestas-surveys)
-3. [Preguntas de Encuestas (Survey Questions)](#preguntas-de-encuestas)
-4. [Llamadas (Calls)](#llamadas-calls)
-5. [Sincronización Automática](#sincronización-automática)
+1. [Permisos y envoltorios](#permisos-y-envoltorios)
+2. [Votantes (Voters)](#votantes-voters)
+3. [Tipos de votante](#tipos-de-votante)
+4. [Encuestas (Surveys)](#encuestas-surveys)
+5. [Preguntas de Encuestas (Survey Questions)](#preguntas-de-encuestas)
+6. [Llamadas (Calls)](#llamadas-calls)
+7. [Puestos de votación](#puestos-de-votación)
+8. [Webhooks de Registraduría](#webhooks-de-registraduría)
+9. [Sincronización Automática](#sincronización-automática)
+
+---
+
+## Permisos y envoltorios
+
+Dos permisos, no más, y son **independientes**: quien gestiona votantes no ve el
+call center y viceversa. No hay `create_*`/`edit_*`/`delete_*` separados.
+
+| Permiso | Cubre |
+| --- | --- |
+| `view_voters` | `/voters` (CRUD completo), `voters-stats`, `voters-by-voting-place`, `voters/search/by-cedula`, `verify-document`, `/voter-types` (CRUD completo) |
+| `view_calls` | `/surveys` (+activate/deactivate/clone), `surveys-active`, `/questions`, `/calls`, `/voters/{voter}/calls`, `calls-stats` |
+
+Sin el permiso: **403**. Sin sesión: **401**. Un recurso de otro tenant: **404**
+(binding implícito + `TenantScope`, Spec 0004).
+
+⚠️ **Tres envoltorios distintos conviven en este módulo**, y el cliente tiene que
+saber cuál le toca:
+
+| Endpoints | Forma |
+| --- | --- |
+| Votantes (`ApiResponse`) | `{ success, data, meta: {total, current_page, per_page, last_page} }` |
+| Encuestas y llamadas | `{ success, data, pagination: {total, per_page, current_page, last_page, from, to} }` |
+| `voter-types`, activate/clone, `surveys-active`, `byVoter` | `{ success, data }` sin paginación |
+| `verify-document` | `{ success, data, source }` |
+| `webhook/.../pendientes` | **array crudo**, sin envoltorio |
 
 ---
 
@@ -327,6 +368,10 @@ Authorization: Bearer {token}
   "message": "Votante no encontrado"
 }
 ```
+
+⚠️ «Sin resultados» es un **404 con envoltorio de error**, no una lista vacía: el
+cliente tiene que tratar «no encontrado» como fallo. Falta el parámetro `cedula`
+→ 422.
 
 ---
 
@@ -1202,3 +1247,126 @@ const CallForm = ({ voterId }) => {
 2. **multiple_choice**: Opciones múltiples (A, B, C...)
 3. **text**: Texto libre
 4. **scale**: Escala numérica (1-5, 1-10, etc.)
+
+---
+
+## Tipos de votante
+
+`GET|POST /api/v1/voter-types`, `GET|PUT|DELETE /api/v1/voter-types/{id}` —
+`view_voters`. Envoltorio `{ success, data }` sin paginación, ordenado por `id`.
+
+Campo único: `descripcion` (requerido, máx 255, **único a nivel global**).
+
+⚠️ **Es un catálogo GLOBAL, no por tenant.** `TipoVotante` no usa `HasTenant` ni
+tiene `tenant_id`: lo que crea, renombra o borra una campaña lo ven —y lo
+sufren— todas las demás. La unicidad de `descripcion` es global, así que dos
+campañas no pueden tener cada una su «Líder de cuadra».
+
+⚠️ La protección del tipo por defecto es **por `id === 1`**, no por descripción:
+si el catálogo se siembra en otro orden, se puede borrar «Elector» y queda
+protegido lo que ocupe el id 1. Borrado en blando (`SoftDeletes`).
+
+Al crear un votante sin `tipo_votante_id`, el controlador pone **`1` en duro**
+(mismo supuesto).
+
+---
+
+## Puestos de votación
+
+⚠️ **No hay ninguna ruta CRUD.** `VotingPlaceController` solo expone
+`POST /voting-place/generate-image` y `POST /voting-place/send-whatsapp`, ambas
+**públicas** y fuera del alcance de la Spec 0011. La tabla `voting_places` se
+alimenta **únicamente** desde el webhook de Registraduría
+(`VotingPlace::firstOrCreate`), y no se puede consultar ni corregir por API.
+
+⚠️ `VotingPlace` tampoco usa `HasTenant` ni tiene `tenant_id`: es otro catálogo
+global compartido por todas las campañas.
+
+⚠️ **Hay dos nociones paralelas de «puesto»** y no están conectadas:
+
+| Dónde | Qué es |
+| --- | --- |
+| `voting_places` + `voters.voting_place_id` | la tabla, poblada por el webhook |
+| `voters.puesto_votacion` (texto) | lo que agrupa `voters-by-voting-place` |
+
+`GET /voters-by-voting-place` —lo que consume el frontend— agrupa por el **texto**
+e ignora la tabla, así que un votante ligado a un `voting_place_id` pero sin el
+texto no aparece en ninguna de las dos listas que devuelve. Además trata
+**`'TOLIMA'` como caso especial en duro**: quien vota allí se agrupa por puesto;
+el resto del país sale en `votantes_externos`, sin agrupar. Quien no tiene
+`departamento_votacion` no aparece.
+
+```json
+{ "success": true,
+  "data": { "puestos": [ { "puesto_votacion": "...", "direccion_votacion": "...",
+                           "total_votantes": 2, "detalle_votacion": [ ... ] } ],
+            "total_puestos": 1, "total_votantes_tolima": 2,
+            "votantes_externos": [ ... ], "total_votantes_externos": 1 } }
+```
+
+---
+
+## Webhooks de Registraduría
+
+Dos rutas **públicas**, pensadas para n8n. Contrato y seguridad en
+`VOTER_SYNC_SYSTEM.md`, sección «Webhooks de Registraduría».
+
+| Ruta | Qué hace |
+| --- | --- |
+| `GET /api/v1/webhook/political/registraduria/pendientes` | hasta 100 votantes sin `departamento_votacion` |
+| `POST /api/v1/webhook/political/registraduria/actualizar` | escribe el puesto de votación de un votante |
+
+🔴 **Ambas están sin autenticar y sin filtro de tenant.** Ver los hallazgos en
+`.specify/context/known-issues.md`.
+
+---
+
+## Rarezas del módulo fijadas por las pruebas
+
+**Votantes**
+- `PUT` y `PATCH` apuntan al mismo método y `UpdateVoterRequest` marca `cedula`,
+  `nombres` y `apellidos` como `required`: **no hay actualización parcial**. Un
+  `PATCH` con un solo campo se rechaza con 422.
+- `cedula` es única **dentro del tenant**; la misma cédula en otra campaña es
+  otra persona y se admite.
+- Borrado en blando. `voters-stats` cuenta solo el tenant.
+
+**Encuestas**
+- Crear exige **al menos una pregunta** (`questions` `required|array|min:1`);
+  actualizar no.
+- `PUT` con `questions` **borra en duro** las preguntas que no vengan en la
+  lista. Sin la clave `questions`, no las toca.
+- Borrar la encuesta es en blando pero **deja sus preguntas**, que quedan
+  huérfanas de algo que ya no se lista.
+- Clonar hereda el `tenant_id` **del original**, no el del usuario; la copia
+  nace inactiva y sin fechas, con título `«… - Copia»` salvo que se mande otro.
+- `surveys-active` aplica el scope `current()`: activa **y** dentro de
+  `starts_at`/`ends_at`. Sin paginar.
+- ⚠️ `options` se **codifica dos veces** (el controlador hace `json_encode()` y
+  el cast `array` del modelo vuelve a codificar): al leer hacen falta dos
+  `json_decode`. Y el mismo campo tiene tres reglas distintas — `store` exige
+  `json` (una cadena; un arreglo real se rechaza), `update` y el controlador de
+  preguntas usan `nullable` a secas.
+- ⚠️ `SurveyQuestion` **no usa `HasTenant`** y sus rutas son `shallow()`:
+  `GET|PUT|DELETE /questions/{id}` alcanzan las preguntas de otra campaña. El
+  alta (`POST /surveys/{survey}/questions`) sí está protegida.
+
+**Llamadas**
+- `user_id` es siempre el usuario autenticado: no se puede suplantar al operador.
+- `Call` **no usa SoftDeletes**: borrar saca la llamada del histórico.
+- `update` **ignora `responses` en silencio**: las respuestas de encuesta solo se
+  registran al crear.
+- ⚠️ `status` acepta **siete** valores en la validación y el enum de la columna
+  tiene **seis**: `pending` pasa el validador y revienta al insertar → 500 con el
+  mensaje de la base de datos dentro. `by_status` tampoco lo reporta nunca.
+- ⚠️ `unique_voters_contacted` y `total_duration` heredan el
+  `whereNotNull('duration_seconds')` que se aplicó para calcular la media,
+  porque el query builder se reutiliza: **una llamada sin duración no cuenta
+  como votante contactado**.
+- ⚠️ `voter_id` y `survey_id` se validan con `exists:`, que consulta la tabla en
+  crudo **sin `TenantScope`**: se puede registrar una llamada apuntando al
+  votante o a la encuesta de otra campaña. Los datos ajenos no se filtran en la
+  respuesta —ambos modelos usan `HasTenant`, así que la relación se carga
+  vacía— pero el vínculo queda escrito y cuenta en las estadísticas.
+- `GET /voters/{voter}/calls` vive en el grupo de call center: basta
+  `view_calls`, **no** hace falta `view_voters`.
