@@ -14,6 +14,10 @@ Este módulo maneja el registro de votantes (sincronizados desde asistentes de r
 > | `tests/Feature/Voters/RegistraduriaWebhookCharacterizationTest.php` | los dos webhooks públicos |
 > | `tests/Feature/Surveys/SurveyCharacterizationTest.php` | encuestas y preguntas |
 > | `tests/Feature/Calls/CallCharacterizationTest.php` | llamadas y puestos de votación |
+>
+> Lo ya corregido pasó a pruebas de enforcement:
+> `tests/Feature/Voters/RegistraduriaWebhookSecurityTest.php` (Spec 0030) y
+> `tests/Feature/Surveys/SurveyQuestionTenantIsolationTest.php` (Spec 0031).
 
 ## Tabla de Contenidos
 
@@ -648,6 +652,12 @@ cliente tiene que tratar «no encontrado» como fallo. Falta el parámetro `cedu
 ---
 
 ## Preguntas de Encuestas
+
+> **Aislamiento (Spec 0031).** La pregunta lleva su propio `tenant_id`, copiado
+> de la encuesta madre en los cuatro caminos de alta (encuesta con `questions`,
+> ruta anidada, `PUT` de la encuesta y clonado). El modelo usa `HasTenant`, así
+> que las rutas planas `/questions/{id}` responden **404** para una pregunta de
+> otra campaña, igual que `/surveys/{id}`.
 
 ### Agregar Pregunta a Encuesta
 
@@ -1353,9 +1363,10 @@ de todas las campañas y dejaban escribir en sus votantes—. La historia está 
   `json_decode`. Y el mismo campo tiene tres reglas distintas — `store` exige
   `json` (una cadena; un arreglo real se rechaza), `update` y el controlador de
   preguntas usan `nullable` a secas.
-- ⚠️ `SurveyQuestion` **no usa `HasTenant`** y sus rutas son `shallow()`:
-  `GET|PUT|DELETE /questions/{id}` alcanzan las preguntas de otra campaña. El
-  alta (`POST /surveys/{survey}/questions`) sí está protegida.
+- `SurveyQuestion` usa `HasTenant` sobre su propia columna `tenant_id`, heredada
+  de la encuesta (Spec 0031). Sus rutas siguen siendo `shallow()`, pero el
+  binding de `GET|PUT|DELETE /questions/{id}` filtra por tenant: una pregunta de
+  otra campaña responde **404**.
 
 **Llamadas**
 - `user_id` es siempre el usuario autenticado: no se puede suplantar al operador.
