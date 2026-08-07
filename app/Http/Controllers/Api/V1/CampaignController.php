@@ -11,6 +11,7 @@ use App\Jobs\Campaigns\SendCampaignJob;
 use App\Models\Campaign;
 use App\Services\CampaignService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
 use Spatie\QueryBuilder\QueryBuilder;
 
 class CampaignController extends Controller
@@ -37,7 +38,7 @@ class CampaignController extends Controller
                 'current_page' => $campaigns->currentPage(),
                 'last_page' => $campaigns->lastPage(),
                 'per_page' => $campaigns->perPage(),
-            ]
+            ],
         ]);
     }
 
@@ -50,7 +51,7 @@ class CampaignController extends Controller
 
         return response()->json([
             'data' => new CampaignResource($campaign->load('createdBy')),
-            'message' => 'Campaign created and queued for sending'
+            'message' => 'Campaign created and queued for sending',
         ], 201);
     }
 
@@ -62,7 +63,7 @@ class CampaignController extends Controller
         $campaign->load(['createdBy', 'recipients']);
 
         return response()->json([
-            'data' => new CampaignResource($campaign)
+            'data' => new CampaignResource($campaign),
         ]);
     }
 
@@ -73,7 +74,7 @@ class CampaignController extends Controller
     {
         if ($campaign->status !== 'pending') {
             return response()->json([
-                'message' => 'Cannot update campaign that is not pending'
+                'message' => 'Cannot update campaign that is not pending',
             ], 422);
         }
 
@@ -81,7 +82,7 @@ class CampaignController extends Controller
 
         return response()->json([
             'data' => new CampaignResource($campaign),
-            'message' => 'Campaign updated successfully'
+            'message' => 'Campaign updated successfully',
         ]);
     }
 
@@ -92,14 +93,14 @@ class CampaignController extends Controller
     {
         if ($campaign->status === 'in_progress') {
             return response()->json([
-                'message' => 'Cannot delete campaign in progress'
+                'message' => 'Cannot delete campaign in progress',
             ], 422);
         }
 
         $campaign->delete();
 
         return response()->json([
-            'message' => 'Campaign deleted successfully'
+            'message' => 'Campaign deleted successfully',
         ]);
     }
 
@@ -110,33 +111,51 @@ class CampaignController extends Controller
     {
         if ($campaign->status !== 'pending') {
             return response()->json([
-                'message' => 'Campaign is not in pending status'
+                'message' => 'Campaign is not in pending status',
             ], 422);
         }
 
         SendCampaignJob::dispatch($campaign);
 
         return response()->json([
-            'message' => 'Campaign queued for sending'
+            'message' => 'Campaign queued for sending',
         ]);
     }
 
     /**
      * Cancel campaign
+     *
+     * Cancelar detiene lo que todavía no ha salido: la campaña queda
+     * `cancelled` —estado que el job comprueba antes de arrancar, así que una
+     * campaña programada ya no se envía— y los destinatarios que seguían
+     * `pending` se marcan como cancelados, que es su desenlace.
+     *
+     * La guarda mira `sent`, el estado terminal real. Antes comparaba con
+     * `completed`, que nadie escribe nunca, así que ni siquiera frenaba una
+     * campaña ya enviada (Spec 0038).
      */
     public function cancel(Campaign $campaign): JsonResponse
     {
-        if ($campaign->status === 'completed') {
+        if ($campaign->status === 'sent') {
             return response()->json([
-                'message' => 'Cannot cancel completed campaign'
+                'message' => 'Cannot cancel a campaign that was already sent',
             ], 422);
         }
 
-        $campaign->update(['status' => 'cancelled']);
+        DB::transaction(function () use ($campaign) {
+            $campaign->recipients()
+                ->where('status', 'pending')
+                ->update([
+                    'status' => 'cancelled',
+                    'updated_at' => now(),
+                ]);
+
+            $campaign->update(['status' => 'cancelled']);
+        });
 
         return response()->json([
-            'data' => new CampaignResource($campaign),
-            'message' => 'Campaign cancelled'
+            'data' => new CampaignResource($campaign->refresh()),
+            'message' => 'Campaign cancelled',
         ]);
     }
 
@@ -154,7 +173,7 @@ class CampaignController extends Controller
                 'total' => $recipients->total(),
                 'current_page' => $recipients->currentPage(),
                 'last_page' => $recipients->lastPage(),
-            ]
+            ],
         ]);
     }
 }

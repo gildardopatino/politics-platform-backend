@@ -88,14 +88,27 @@ class Campaign extends Model implements Auditable
         return $query->where('status', 'pending');
     }
 
+    /**
+     * En curso. El estado real es `sending`, el que escribe `SendCampaignJob`;
+     * este scope preguntaba por `in_progress`, que no lo escribe nadie y no cabe
+     * en la columna (Spec 0038).
+     */
     public function scopeInProgress($query)
     {
-        return $query->where('status', 'in_progress');
+        return $query->where('status', 'sending');
     }
 
+    /**
+     * Terminada. Igual que arriba: el estado real es `sent`, no `completed`.
+     */
     public function scopeCompleted($query)
     {
-        return $query->where('status', 'completed');
+        return $query->where('status', 'sent');
+    }
+
+    public function scopeCancelled($query)
+    {
+        return $query->where('status', 'cancelled');
     }
 
     // Helpers

@@ -359,26 +359,32 @@ class CampaignCharacterizationTest extends TestCase
         }
     }
 
-    public function test_hallazgo_cancelar_revienta_porque_cancelled_no_existe_en_el_enum(): void
+    public function test_cancelar_una_campanna_la_deja_cancelada(): void
     {
-        // `cancel` escribe `status = 'cancelled'`, un valor que el CHECK de la
-        // columna no admite (ni en PostgreSQL ni fuera): el endpoint responde
-        // 500 y la campaña **no se cancela**. No hay forma de parar una campaña.
+        // Era el hallazgo: `cancel` escribía `status = 'cancelled'`, un valor que
+        // el CHECK de la columna no admitía —ni en PostgreSQL ni fuera—, así que
+        // el endpoint respondía **500** y no había forma de parar una campaña.
+        // Cerrado por la Spec 0038; el detalle vive en `CampaignCancelTest`.
         $campana = Campaign::factory()->forTenant($this->tenant)->create();
 
-        $this->comoUsuario()->postJson("/api/v1/campaigns/{$campana->id}/cancel")->assertStatus(500);
+        $this->comoUsuario()->postJson("/api/v1/campaigns/{$campana->id}/cancel")
+            ->assertStatus(200)
+            ->assertJsonPath('message', 'Campaign cancelled')
+            ->assertJsonPath('data.status', 'cancelled');
 
-        $this->assertSame('pending', $campana->fresh()->status);
+        $this->assertSame('cancelled', $campana->fresh()->status);
     }
 
-    public function test_hallazgo_el_guardian_de_cancelar_mira_un_estado_que_no_existe(): void
+    public function test_el_guardian_de_cancelar_frena_una_campanna_ya_enviada(): void
     {
-        // Además, la guarda compara con `completed`, que tampoco está en el enum.
-        // Una campaña ya enviada (`sent`) la supera y llega igualmente al 500,
-        // en vez del 422 «Cannot cancel completed campaign» que se pretendía.
+        // La guarda comparaba con `completed`, que tampoco está en el enum, así
+        // que una campaña ya enviada la superaba y llegaba igualmente al 500. Ya
+        // mira `sent`, el estado terminal real, y responde el 422 que tocaba.
         $enviada = Campaign::factory()->forTenant($this->tenant)->sent()->create();
 
-        $this->comoUsuario()->postJson("/api/v1/campaigns/{$enviada->id}/cancel")->assertStatus(500);
+        $this->comoUsuario()->postJson("/api/v1/campaigns/{$enviada->id}/cancel")
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Cannot cancel a campaign that was already sent');
 
         $this->assertSame('sent', $enviada->fresh()->status);
     }
