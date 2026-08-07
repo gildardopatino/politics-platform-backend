@@ -3,174 +3,61 @@
 namespace App\Observers;
 
 use App\Models\MeetingAttendee;
-use App\Models\Voter;
+use App\Services\AttendanceService;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * Cada asistente registrado alimenta la base electoral.
+ *
+ * La lógica vive en `AttendanceService` (Spec 0022): así el check-in público y
+ * el alta manual desde el panel crean la misma persona con las mismas reglas.
+ * Antes este observer tenía su propia copia, que comparaba cédulas sin
+ * normalizar —"71.000.001" y "71000001" acababan como dos votantes— y no dejaba
+ * rastro del vínculo.
+ *
+ * El `try/catch` se queda: la asistencia es el hecho principal y no puede
+ * perderse porque falle la sincronización. Lo que cambia es que ahora el error
+ * es la excepción y no la norma.
+ */
 class MeetingAttendeeObserver
 {
-    /**
-     * Handle the MeetingAttendee "created" event.
-     * Sincroniza automáticamente el asistente a la tabla voters
-     */
+    public function __construct(private AttendanceService $asistencia) {}
+
     public function created(MeetingAttendee $meetingAttendee): void
     {
-        $this->syncToVoters($meetingAttendee);
+        $this->sincronizar($meetingAttendee);
     }
 
-    /**
-     * Handle the MeetingAttendee "updated" event.
-     * Actualiza el registro en voters si existe
-     */
     public function updated(MeetingAttendee $meetingAttendee): void
     {
-        $this->syncToVoters($meetingAttendee, true);
+        $this->sincronizar($meetingAttendee);
     }
 
     /**
-     * Sincroniza el asistente a la tabla voters
-     */
-    protected function syncToVoters(MeetingAttendee $attendee, bool $isUpdate = false): void
-    {
-        try {
-            // Buscar voter existente por cédula y tenant
-            $voter = Voter::withoutGlobalScopes()
-                ->where('tenant_id', $attendee->tenant_id)
-                ->where('cedula', $attendee->cedula)
-                ->first();
-
-            if ($voter) {
-                // El voter ya existe - actualizar solo si hay información nueva
-                $this->updateExistingVoter($voter, $attendee);
-            } else {
-                // Crear nuevo voter
-                $this->createNewVoter($attendee);
-            }
-        } catch (\Exception $e) {
-            Log::error('Error syncing attendee to voters', [
-                'attendee_id' => $attendee->id,
-                'cedula' => $attendee->cedula,
-                'error' => $e->getMessage(),
-            ]);
-        }
-    }
-
-    /**
-     * Crea un nuevo voter a partir del asistente
-     */
-    protected function createNewVoter(MeetingAttendee $attendee): void
-    {
-        Voter::create([
-            'tenant_id' => $attendee->tenant_id,
-            'cedula' => $attendee->cedula,
-            'nombres' => $attendee->nombres,
-            'apellidos' => $attendee->apellidos,
-            'email' => $attendee->email,
-            'telefono' => $attendee->telefono,
-            'direccion' => $attendee->direccion,
-            'barrio_id' => $attendee->barrio_id,
-            'meeting_id' => $attendee->meeting_id, // Primera reunión donde se registró
-            'created_by' => $attendee->created_by,
-        ]);
-
-        Log::info('New voter created from meeting attendee', [
-            'cedula' => $attendee->cedula,
-            'nombres' => $attendee->nombres,
-            'apellidos' => $attendee->apellidos,
-            'meeting_id' => $attendee->meeting_id,
-        ]);
-    }
-
-    /**
-     * Actualiza un voter existente con nueva información del asistente
-     * Solo actualiza campos que estén vacíos en voter o que sean más recientes
-     */
-    protected function updateExistingVoter(Voter $voter, MeetingAttendee $attendee): void
-    {
-        $updated = false;
-        $changes = [];
-
-        // Actualizar campos solo si están vacíos en voter y tienen valor en attendee
-        if (empty($voter->email) && !empty($attendee->email)) {
-            $voter->email = $attendee->email;
-            $changes[] = 'email';
-            $updated = true;
-        }
-
-        if (empty($voter->telefono) && !empty($attendee->telefono)) {
-            $voter->telefono = $attendee->telefono;
-            $changes[] = 'telefono';
-            $updated = true;
-        }
-
-        if (empty($voter->direccion) && !empty($attendee->direccion)) {
-            $voter->direccion = $attendee->direccion;
-            $changes[] = 'direccion';
-            $updated = true;
-        }
-
-        if (empty($voter->barrio_id) && !empty($attendee->barrio_id)) {
-            $voter->barrio_id = $attendee->barrio_id;
-            $changes[] = 'barrio_id';
-            $updated = true;
-        }
-
-        // Si el voter ya tenía datos pero son diferentes a los del nuevo attendee,
-        // marcar que tiene múltiples registros con datos diferentes
-        $hasConflicts = false;
-
-        if (!empty($voter->email) && !empty($attendee->email) && $voter->email !== $attendee->email) {
-            $hasConflicts = true;
-        }
-
-        if (!empty($voter->telefono) && !empty($attendee->telefono) && $voter->telefono !== $attendee->telefono) {
-            $hasConflicts = true;
-        }
-
-        if (!empty($voter->barrio_id) && !empty($attendee->barrio_id) && $voter->barrio_id !== $attendee->barrio_id) {
-            $hasConflicts = true;
-        }
-
-        if ($hasConflicts && !$voter->has_multiple_records) {
-            $voter->has_multiple_records = true;
-            $changes[] = 'has_multiple_records';
-            $updated = true;
-        }
-
-        if ($updated) {
-            $voter->save();
-
-            Log::info('Voter updated from meeting attendee', [
-                'voter_id' => $voter->id,
-                'cedula' => $voter->cedula,
-                'changes' => $changes,
-                'has_conflicts' => $hasConflicts,
-            ]);
-        }
-    }
-
-    /**
-     * Handle the MeetingAttendee "deleted" event.
-     */
-    public function deleted(MeetingAttendee $meetingAttendee): void
-    {
-        // No eliminamos el voter cuando se elimina un asistente
-        // El voter es el registro oficial y puede tener múltiples asistencias
-    }
-
-    /**
-     * Handle the MeetingAttendee "restored" event.
+     * Al restaurar un asistente se vuelve a ligar: pudo cambiar el votante.
      */
     public function restored(MeetingAttendee $meetingAttendee): void
     {
-        // Resincronizar al restaurar
-        $this->syncToVoters($meetingAttendee);
+        $this->sincronizar($meetingAttendee);
     }
 
     /**
-     * Handle the MeetingAttendee "force deleted" event.
+     * Borrar la asistencia no borra a la persona: el votante es el registro
+     * oficial y puede tener otras asistencias.
      */
-    public function forceDeleted(MeetingAttendee $meetingAttendee): void
+    public function deleted(MeetingAttendee $meetingAttendee): void {}
+
+    public function forceDeleted(MeetingAttendee $meetingAttendee): void {}
+
+    private function sincronizar(MeetingAttendee $asistente): void
     {
-        // No hacer nada, el voter se mantiene
+        try {
+            $this->asistencia->vincularVotante($asistente);
+        } catch (\Throwable $e) {
+            Log::error('No se pudo sincronizar el asistente con la base de votantes', [
+                'attendee_id' => $asistente->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 }

@@ -15,6 +15,7 @@ use App\Models\GeographicContact;
 use App\Models\Meeting;
 use App\Models\MeetingReminder;
 use App\Models\TenantMessagingCredit;
+use App\Services\AttendanceService;
 use App\Services\AttendeeHierarchyService;
 use App\Services\DocumentVerificationService;
 use App\Services\QRCodeService;
@@ -328,17 +329,20 @@ class MeetingController extends Controller
 
     /**
      * Check in to meeting via QR code (public)
+     *
+     * El QR resuelve la reunión y, con ella, el tenant. Todo lo demás —ligar a
+     * la persona, deduplicar por cédula, completar lo que falte— es de
+     * `AttendanceService` (Spec 0022).
      */
-    public function checkIn(string $qrCode, CheckInRequest $request): JsonResponse
+    public function checkIn(string $qrCode, CheckInRequest $request, AttendanceService $asistencia): JsonResponse
     {
         $meeting = Meeting::where('qr_code', $qrCode)->firstOrFail();
 
-        $attendee = $meeting->attendees()->create([
-            ...$request->validated(),
-            'created_by' => $request->user()?->id,
-            'checked_in' => true,
-            'checked_in_at' => now(),
-        ]);
+        $attendee = $asistencia->registrarCheckIn(
+            $meeting,
+            $request->validated(),
+            $request->user()?->id
+        );
 
         return response()->json([
             'data' => $attendee,
