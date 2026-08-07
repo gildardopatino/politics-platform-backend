@@ -227,11 +227,14 @@ en `tests/Feature/Meetings/MeetingAttendanceDomainTest.php` (17 pruebas).
 
 Dónde está cableado: `platform-politics-frontend/src/pages/MeetingCheckIn.tsx`
 (`handleVerifyDocument`, se dispara con ≥6 dígitos de cédula) llama a
-`meetingCheckInService.verifyDocument()` →
-`GET /api/v1/verify-document?cedula=` (ruta **pública**) y rellena `nombres`,
-`apellidos`, `telefono` y `email` del formulario.
+`meetingCheckInService.verifyDocument(qrCode, cedula)` →
+`GET /api/v1/meetings/public/{qr_code}/verify-document?cedula=` (ruta pública,
+`throttle:20,1`) y rellena `nombres`, `apellidos`, `telefono` y `email` del
+formulario. Contrato completo en `VERIFY_DOCUMENT_API.md`.
 
-`VoterController@verifyDocument` consulta, en este orden:
+`MeetingController@verifyDocument` resuelve la reunión por su QR, enlaza
+`current_tenant_id` con el tenant dueño y delega en
+`DocumentVerificationService`, que consulta en este orden:
 
 1. **PISAMI** — API externa, URL hard-codeada en `PisamiService`
    (`pisami.ibague.gov.co`, alcaldía de Ibagué).
@@ -252,9 +255,12 @@ Lo que **no** hace:
 `view_voters` y responde 401 sin sesión: el formulario público no puede usarlo.
 Por eso el check-in acabó usando `verify-document`.
 
-⚠️ `verify-document` es público y busca en `leads` **sin filtro de tenant**:
-cualquiera, sabiendo solo una cédula, obtiene nombre, teléfono, correo, dirección
-y puesto de votación de un lead de otro tenant.
+La ruta que usaba —`GET /verify-document` a secas— era pública y caía fuera del
+grupo `tenant`, así que buscaba en `leads` **sin filtro**: cualquiera, sabiendo
+solo una cédula, sacaba los datos de un lead de otro tenant. Corregido en la
+Spec 0026 colgando la búsqueda pública del QR, que es lo que fija el tenant, y
+recortando la respuesta a nombre y contacto. `/verify-document` sigue existiendo
+para las pantallas internas, ya autenticada y con `view_voters`.
 
 ### 2. Deduplicación por cédula — NO
 
