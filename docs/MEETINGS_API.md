@@ -8,9 +8,12 @@ debería hacer. Lo que sigue siendo discutible se marca con ⚠️ y está en
 Corregido por la 0021: el recurso público ya no devuelve nulls ni PII (F3, F6),
 las búsquedas de asistentes son portables (F4), las respuestas de creación traen
 los campos con DEFAULT poblados (F5) y el SVG del QR viaja como string (F8).
-Siguen abiertos, por alcance de otras specs: la identidad de persona y la
-deduplicación (0022), la validación de campos dinámicos (0023) y la máquina de
-estados de la reunión.
+La **Spec 0022** añadió la identidad de persona: el check-in liga al Votante por
+cédula (`meeting_attendees.voter_id`), deduplica, autocompleta desde el servidor
+y mide nuevos vs recurrentes.
+
+Siguen abiertas, por alcance de otras specs: la validación de campos dinámicos
+(0023) y la máquina de estados de la reunión.
 
 Pruebas que lo respaldan:
 
@@ -154,6 +157,25 @@ el `MeetingResource` entero, con `tenant_id` y el email del planner.
 | `email` | opcional, formato email |
 | `extra_fields` | opcional, array libre |
 
+Registra a una **persona**, no un formulario (Spec 0022). El QR resuelve la
+reunión y con ella el tenant; el resto lo hace `App\Services\AttendanceService`:
+
+1. **Normaliza la cédula** — sin puntos, espacios ni guiones. `71.000.001` y
+   `71000001` son la misma persona, y así se guarda.
+2. **Busca o crea el Votante** dentro del tenant de la reunión. Si es alguien
+   nuevo, consulta el recurso en línea (`DocumentVerificationService`) para
+   completar lo que el formulario no pide; si se cae, crea con lo que haya. El
+   asistente queda ligado por `voter_id`.
+3. **Completa el asistente** con los datos del votante que el formulario dejó en
+   blanco. Lo que la persona escribió siempre manda.
+4. **Deduplica**: si esa cédula ya hizo check-in en **esta** reunión, actualiza
+   la fila existente en vez de crear otra. Entre reuniones distintas son dos
+   asistencias de un mismo votante.
+
+El votante también se completa en sentido inverso, pero solo en sus huecos: un
+formulario público no reescribe un dato ya curado. Cuando difieren, el votante
+queda marcado con `has_multiple_records` para revisión.
+
 Crea el asistente con `checked_in = true`, `checked_in_at = now()`,
 `created_by = null` (nadie autenticado) y el `tenant_id` heredado de la reunión.
 Responde `201`.
@@ -162,9 +184,15 @@ Responde `201`.
 del resto de endpoints de asistentes (aquí viaja `tenant_id`, y no viene
 `full_name`).
 
-⚠️ **No comprueba duplicados ni estado de la reunión.** La misma cédula puede
-registrarse tantas veces como escanee, y se puede hacer check-in en una reunión
+⚠️ **No comprueba el estado de la reunión**: se puede hacer check-in en una
 cancelada o ya completada.
+
+### `GET /meetings/public/{qr_code}/verify-document?cedula=` — autocompletado
+
+Público y con `throttle:20,1`. El QR fija el tenant de la búsqueda. Consulta
+`voters` (la base de la propia campaña) y, si no está, PISAMI y `leads`.
+Devuelve solo `nombres`, `apellidos`, `telefono` y `email` — sin dirección ni
+puesto de votación. Contrato completo en `VERIFY_DOCUMENT_API.md`.
 
 ---
 
@@ -211,19 +239,19 @@ Un asistente o una reunión de otro tenant dan **404** en `show`, `update`,
 
 `.specify/context/domain-meetings-attendance.md` describe para qué existe el
 módulo. Respuesta a las cinco preguntas del addendum de la Spec 0010, verificada
-en `tests/Feature/Meetings/MeetingAttendanceDomainTest.php` (17 pruebas).
+en `tests/Feature/Meetings/MeetingAttendanceDomainTest.php` (18 pruebas).
 
 | # | Pregunta | Respuesta |
 | --- | --- | --- |
-| 1 | ¿El check-in busca por documento y autocompleta? | **PARCIAL** |
-| 2 | ¿Se deduplica por cédula? | **NO** |
+| 1 | ¿El check-in busca por documento y autocompleta? | **SÍ** (0022) |
+| 2 | ¿Se deduplica por cédula? | **SÍ** (0022) |
 | 3 | ¿Campos dinámicos configurables? | **PARCIAL** |
-| 4 | ¿Métrica de nuevos vs recurrentes? | **NO** |
+| 4 | ¿Métrica de nuevos vs recurrentes? | **SÍ** (0022) |
 | 5 | ¿Reunión → compromisos? | **SÍ** |
 
-### 1. Búsqueda por documento — PARCIAL
+### 1. Búsqueda por documento — SÍ (Spec 0022)
 
-**Sí existe, pero solo en el cliente y contra la fuente equivocada.**
+**Autocompleta en el cliente y, además, el servidor completa lo que falte.**
 
 Dónde está cableado: `platform-politics-frontend/src/pages/MeetingCheckIn.tsx`
 (`handleVerifyDocument`, se dispara con ≥6 dígitos de cédula) llama a
@@ -236,24 +264,28 @@ formulario. Contrato completo en `VERIFY_DOCUMENT_API.md`.
 `current_tenant_id` con el tenant dueño y delega en
 `DocumentVerificationService`, que consulta en este orden:
 
-1. **PISAMI** — API externa, URL hard-codeada en `PisamiService`
+1. **Tabla `voters`** — la base de la propia campaña. Va primero (Spec 0022)
+   porque es la que alguien mantiene: su dato gana sobre cualquier registro
+   externo, que puede estar desactualizado.
+2. **PISAMI** — API externa, URL hard-codeada en `PisamiService`
    (`pisami.ibague.gov.co`, alcaldía de Ibagué).
-2. **Tabla `leads`** — por cédula.
+3. **Tabla `leads`** — por cédula.
+
+Y el **servidor no se queda mirando**: `AttendanceService` repite la búsqueda al
+registrar el check-in, así que quien llame a la API directamente recibe el mismo
+enriquecimiento que el formulario. La asistencia también **alimenta `voters`**:
+quien asiste queda dado de alta como votante del tenant y ligado por `voter_id`.
 
 Lo que **no** hace:
 
-- **No mira `voters`** ni `meeting_attendees`. Alguien que ya es votante del
-  tenant, o que ya asistió a otra reunión, **no se autocompleta**.
-- **El backend no hace ningún lookup.** `MeetingController@checkIn` guarda
-  literalmente lo que llega; quien llame a la API directamente no recibe
-  enriquecimiento. Todo el autocompletado es del frontend.
-- **El check-in no crea ni actualiza el votante.** Los webhooks de Registraduría
-  alimentan `voters`, pero el check-in no los toca: las dos bases de personas
-  quedan desconectadas.
+- **No mira `meeting_attendees`.** Una asistencia histórica que se quedó sin
+  `voter_id` no autocompleta. Desde la 0022 ya no se generan casos así: todo
+  check-in crea o liga su votante.
 
-`GET /voters/search/by-cedula` **sí** busca en `voters`, pero exige
-`view_voters` y responde 401 sin sesión: el formulario público no puede usarlo.
-Por eso el check-in acabó usando `verify-document`.
+`GET /voters/search/by-cedula` busca en `voters` pero exige `view_voters` y
+responde 401 sin sesión, así que el formulario público nunca pudo usarlo. La
+0022 no lo abre: lo que hace es que el lookup del QR —ya acotado al tenant por
+la 0026— consulte `voters` con su propia política de privacidad.
 
 La ruta que usaba —`GET /verify-document` a secas— era pública y caía fuera del
 grupo `tenant`, así que buscaba en `leads` **sin filtro**: cualquiera, sabiendo
@@ -262,16 +294,16 @@ Spec 0026 colgando la búsqueda pública del QR, que es lo que fija el tenant, y
 recortando la respuesta a nombre y contacto. `/verify-document` sigue existiendo
 para las pantallas internas, ya autenticada y con `view_voters`.
 
-### 2. Deduplicación por cédula — NO
+### 2. Deduplicación por cédula — SÍ (Spec 0022)
 
-Un segundo check-in del mismo documento **crea una fila nueva**, no actualiza.
-Verificado: dos check-ins con distinto teléfono dejan dos filas con su valor
-respectivo, y `attendees_count` sube a 2.
+Un segundo check-in del mismo documento en la **misma** reunión actualiza la
+fila que ya existe: gana el dato más reciente y `attendees_count` no sube.
 
-Tampoco hay identidad entre reuniones: `meeting_attendees` no tiene ninguna
-columna que ligue las filas a la misma persona (`person_id`, `voter_id`,
-`lead_id` no existen). La tabla modela **el evento de check-in**, no a quien
-asiste.
+La identidad entre reuniones la da `meeting_attendees.voter_id`, la columna que
+introdujo la 0022. La tabla ya no modela solo el evento de check-in: cada fila
+apunta a la persona. Es nullable porque la asistencia anterior a esa spec puede
+no tener votante —el backfill ligó por cédula donde existía y dejó el resto en
+`null`, sin inventar votantes.
 
 ### 3. Campos dinámicos — PARCIAL
 
@@ -292,23 +324,52 @@ respuestas.
 no declara y se acepta omitir uno marcado `required`. La obligatoriedad solo la
 aplica el formulario del frontend, así que se salta llamando a la API.
 
-### 4. Nuevos vs recurrentes — NO
+### 4. Nuevos vs recurrentes — SÍ (Spec 0022)
 
-Buscado en los cuatro sitios y no existe:
+#### `GET /meetings/{meeting}/attendance-stats` — `view_meetings`
 
-| Endpoint | Qué da | Sirve |
-| --- | --- | --- |
-| `GET /meetings/public/{qr}` | `attendees_count`, `checked_in_count` | ❌ cuenta filas |
-| `GET /meetings/{m}/attendees` | `total_count`, `checked_in_count` | ❌ ninguna marca por asistente |
-| `GET /reports/meetings` | `total_attendees`, `checked_in_attendees` | ❌ sin `distinct` por cédula |
-| `GET /dashboard` | `attendees`, `attendees_by_month`, `top_meetings_by_attendees` | ❌ cuenta filas |
-| `GET /geographic-stats` | `attendees_count` por reunión | ❌ cuenta filas |
-| `GET /attendee-hierarchies/stats` | `unique_attendees` | ❌ cuenta cédulas de **relaciones de jerarquía**, no de asistencia: con 3 check-ins y sin jerarquías da 0 |
+```json
+{
+  "data": {
+    "meeting_id": 3,
+    "total_check_ins": 2,
+    "unique_attendees": 2,
+    "new_attendees": 1,
+    "recurring_attendees": 1,
+    "linked_to_voter": 2
+  }
+}
+```
 
-El dato **está en la base** —basta agrupar `meeting_attendees` por cédula— pero
-ningún endpoint lo expone. La prueba
-`test_el_dato_para_calcular_nuevos_vs_recurrentes_esta_en_la_base_pero_nadie_lo_expone`
-deja la consulta escrita como evidencia.
+**Qué es «nuevo».** Esta reunión es la **primera asistencia de esa persona en la
+campaña**, ordenando por `checked_in_at` y, a igualdad, por id. No es «no estaba
+en `voters`»: alguien puede llevar años en la base electoral —cargado por los
+webhooks de Registraduría, por ejemplo— y pisar su primera reunión hoy, y eso es
+justo el crecimiento que se quiere medir.
+
+El orden importa: la misma persona cuenta como **nueva** en la reunión donde
+estrenó y como **recurrente** en las siguientes. No basta con «asistió a otra
+reunión».
+
+La persona se identifica por **cédula normalizada**, no por `voter_id`: la
+asistencia anterior a esta spec puede no tener votante ligado y aun así cuenta
+como visita previa. `linked_to_voter` dice cuánta de la asistencia de esta
+reunión sí quedó ligada.
+
+Una reunión de otro tenant da 404, y la asistencia de otra campaña con la misma
+cédula no vuelve recurrente a nadie.
+
+Los demás endpoints **siguen contando filas**, no personas — conviene no leer sus
+totales como si fueran gente distinta:
+
+| Endpoint | Qué da |
+| --- | --- |
+| `GET /meetings/public/{qr}` | `attendees_count`, `checked_in_count` — filas |
+| `GET /meetings/{m}/attendees` | `total_count`, `checked_in_count` — sin marca por asistente |
+| `GET /reports/meetings` | `total_attendees` — sin `distinct` por cédula |
+| `GET /dashboard` | `attendees`, `attendees_by_month` — filas |
+| `GET /geographic-stats` | `attendees_count` por reunión — filas |
+| `GET /attendee-hierarchies/stats` | `unique_attendees` de **relaciones de jerarquía**, no de asistencia: con 3 check-ins y sin jerarquías da 0 |
 
 ### 5. Reunión → compromisos — SÍ
 

@@ -268,19 +268,20 @@ class MeetingPublicCheckInTest extends TestCase
         $this->assertDatabaseCount('meeting_attendees', 0);
     }
 
-    public function test_rareza_el_check_in_admite_la_misma_cedula_dos_veces(): void
+    public function test_la_misma_cedula_dos_veces_actualiza_el_mismo_asistente(): void
     {
-        // No hay comprobación de duplicados: la misma persona puede registrarse
-        // tantas veces como escanee el QR, y cada una cuenta como asistente.
+        // Antes no había comprobación de duplicados y la misma persona contaba
+        // tantas veces como escaneara el QR. Ahora se deduplica por cédula
+        // dentro de la reunión (Spec 0022).
         $this->postJson('/api/v1/meetings/check-in/QR-PUBLICO-1', $this->payloadCheckIn())
             ->assertStatus(201);
         $this->postJson('/api/v1/meetings/check-in/QR-PUBLICO-1', $this->payloadCheckIn())
             ->assertStatus(201);
 
-        $this->assertDatabaseCount('meeting_attendees', 2);
+        $this->assertDatabaseCount('meeting_attendees', 1);
 
         $this->getJson('/api/v1/meetings/public/QR-PUBLICO-1')
-            ->assertJsonPath('data.attendees_count', 2);
+            ->assertJsonPath('data.attendees_count', 1);
     }
 
     public function test_rareza_se_puede_hacer_check_in_en_una_reunion_cancelada_o_completada(): void

@@ -124,6 +124,13 @@ El frontend debe renderizar dinámicamente:
 
 ### 4️⃣ Backend Almacena la Información
 
+Desde la **Spec 0022** el check-in no guarda literalmente lo que llega:
+`App\Services\AttendanceService` normaliza la cédula (sin puntos ni espacios),
+busca o crea el **Votante** del tenant de la reunión, liga al asistente por
+`voter_id`, completa los campos que el formulario dejó en blanco y **deduplica**
+—segundo check-in de la misma cédula en la misma reunión actualiza la fila que ya
+existe—. Los `extra_fields` no cambian: se guardan tal cual.
+
 **Lo que se guarda en la tabla `meeting_attendees`:**
 
 ```json
@@ -131,6 +138,7 @@ El frontend debe renderizar dinámicamente:
     "id": 456,
     "meeting_id": 36,
     "tenant_id": 1,
+    "voter_id": 78,
     "cedula": "1234567890",
     "nombres": "Juan",
     "apellidos": "Pérez García",
@@ -158,6 +166,7 @@ El frontend debe renderizar dinámicamente:
     "data": {
         "id": 456,
         "meeting_id": 36,
+        "voter_id": 78,
         "cedula": "1234567890",
         "nombres": "Juan",
         "apellidos": "Pérez García",

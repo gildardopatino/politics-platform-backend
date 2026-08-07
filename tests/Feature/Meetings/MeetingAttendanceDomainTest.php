@@ -15,15 +15,16 @@ use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 /**
- * CARACTERIZACIÓN del flujo de asistencia frente a la intención de negocio
- * (Spec 0010, addendum).
+ * El flujo de asistencia frente a la intención de negocio (Spec 0010, addendum).
  *
  * `.specify/context/domain-meetings-attendance.md` describe para qué existe el
  * módulo: caracterizar a quien asiste y medir **cuántos son nuevos**. Estas
  * pruebas contestan con evidencia ejecutable las cinco preguntas del addendum.
  *
- * Lo que NO ocurre se fija igualmente: si mañana alguien lo implementa, estas
- * pruebas fallarán y habrá que actualizarlas — que es justo lo que se quiere.
+ * Nacieron como caracterización: fijaban lo que el sistema NO hacía. Las specs
+ * 0022 y 0026 implementaron buena parte, así que varias cambiaron de signo —que
+ * es exactamente para lo que estaban escritas—. Lo que sigue sin ocurrir se fija
+ * igual.
  *
  * Resumen en `docs/MEETINGS_API.md`, sección «Flujo de asistencia».
  */
@@ -40,7 +41,9 @@ class MeetingAttendanceDomainTest extends TestCase
         Carbon::setTestNow('2026-08-06 09:00:00');
 
         // PISAMI es una API externa: nunca se llama de verdad desde la suite.
+        // El check-in la consulta al crear una persona nueva (Spec 0022).
         Http::preventStrayRequests();
+        Http::fake(['*pisami*' => Http::response('', 500)]);
 
         $this->tenant = Tenant::factory()->create();
         $this->meeting = Meeting::factory()->forTenant($this->tenant)->create(['qr_code' => 'QR-DOMINIO']);
@@ -93,37 +96,54 @@ class MeetingAttendanceDomainTest extends TestCase
             ->assertStatus(401);
     }
 
-    public function test_hueco_verify_document_no_mira_voters_ni_asistentes_previos(): void
+    public function test_verify_document_ahora_reconoce_a_los_votantes_de_la_campania(): void
     {
-        // Sus dos fuentes son PISAMI (externa) y la tabla `leads`. Una persona
-        // que ya está como VOTANTE del tenant, o que ya asistió a otra reunión,
-        // no se encuentra: el autocompletado no la reconoce.
-        Http::fake(['*pisami*' => Http::response('', 500)]);
-
+        // Sus fuentes eran PISAMI (externa) y `leads`: quien ya estaba como
+        // VOTANTE del tenant no se encontraba y tenía que volver a teclear sus
+        // datos. Ahora `voters` es la primera fuente (Spec 0022).
         Voter::factory()->forTenant($this->tenant)->create([
             'cedula' => '71000001',
             'nombres' => 'Ana María',
             'telefono' => '3001112233',
         ]);
-        $this->meeting->attendees()->create([
-            'tenant_id' => $this->tenant->id,
-            'cedula' => '71000001',
-            'nombres' => 'Ana María',
-            'apellidos' => 'Restrepo',
-            'telefono' => '3001112233',
-        ]);
 
         $this->getJson('/api/v1/meetings/public/QR-DOMINIO/verify-document?cedula=71000001')
+            ->assertStatus(200)
+            ->assertJsonPath('source', 'voters')
+            ->assertJsonPath('data.nombres', 'Ana María')
+            ->assertJsonPath('data.telefono', '3001112233');
+    }
+
+    public function test_una_asistencia_historica_sin_votante_sigue_sin_autocompletar(): void
+    {
+        // El lookup mira personas, no eventos: asistencia anterior a la 0022 que
+        // se quedó sin `voter_id` no alimenta el autocompletado. Desde esta spec
+        // ya no se generan casos así — todo check-in crea o liga su votante.
+        MeetingAttendee::withoutGlobalScope(TenantScope::class)->create([
+            'tenant_id' => $this->tenant->id,
+            'meeting_id' => $this->meeting->id,
+            'cedula' => '99999999',
+            'nombres' => 'Carmen',
+            'apellidos' => 'Duque',
+            'telefono' => '3007776655',
+        ]);
+
+        // El observer sí la convierte en votante al guardarla, así que para
+        // reproducir el caso histórico hay que dejarla sin votante.
+        Voter::withoutGlobalScope(TenantScope::class)->where('cedula', '99999999')->forceDelete();
+
+        $this->getJson('/api/v1/meetings/public/QR-DOMINIO/verify-document?cedula=99999999')
             ->assertStatus(404)
             ->assertJsonPath('success', false);
     }
 
-    public function test_hueco_el_check_in_del_backend_no_hace_ningun_lookup(): void
+    public function test_el_check_in_del_backend_completa_desde_el_votante(): void
     {
-        // El autocompletado vive SOLO en el cliente (MeetingCheckIn.tsx llama a
-        // verify-document y rellena el formulario). `MeetingController@checkIn`
-        // guarda literalmente lo que llega: quien llame a la API directamente no
-        // recibe enriquecimiento alguno.
+        // Antes el autocompletado vivía SOLO en el cliente y `checkIn` guardaba
+        // literalmente lo que llegaba. Ahora el servidor busca a la persona en
+        // `voters` y rellena lo que el formulario dejó en blanco, así que quien
+        // llame a la API directamente recibe el mismo enriquecimiento
+        // (Spec 0022).
         Voter::factory()->forTenant($this->tenant)->create([
             'cedula' => '71000001',
             'nombres' => 'Ana María',
@@ -140,16 +160,18 @@ class MeetingAttendanceDomainTest extends TestCase
 
         $asistente = MeetingAttendee::withoutGlobalScope(TenantScope::class)->firstOrFail();
 
+        // Lo que la persona escribió sigue mandando.
         $this->assertSame('ana', $asistente->nombres);
-        $this->assertNull($asistente->telefono, 'No se completó desde el votante existente.');
-        $this->assertNull($asistente->email);
+        $this->assertSame('3001112233', $asistente->telefono, 'Se completó desde el votante existente.');
+        $this->assertSame('ana@ejemplo.test', $asistente->email);
     }
 
     public function test_hueco_el_lookup_sobre_voters_existe_pero_es_privado(): void
     {
-        // `searchByCedula` sí busca en `voters`, pero exige `view_voters`: el
-        // formulario público del QR no puede usarlo. Por eso el check-in acabó
-        // usando `verify-document`, que no mira `voters`.
+        // `searchByCedula` busca en `voters` pero exige `view_voters`, así que el
+        // formulario público del QR nunca pudo usarlo. La 0022 no lo abre: lo
+        // que hace es que el lookup del QR —ya acotado al tenant por la 0026—
+        // consulte `voters` con su propia política de privacidad.
         Voter::factory()->forTenant($this->tenant)->create(['cedula' => '71000001', 'nombres' => 'Ana María']);
 
         [$user, $token] = $this->createTenantWithUser(['view_voters'], $this->tenant);
@@ -164,21 +186,27 @@ class MeetingAttendanceDomainTest extends TestCase
         $this->getJson('/api/v1/voters/search/by-cedula?cedula=71000001')->assertStatus(401);
     }
 
-    public function test_hueco_el_check_in_no_crea_ni_actualiza_el_votante(): void
+    public function test_el_check_in_crea_al_votante_y_lo_liga(): void
     {
-        // Quien asiste no pasa a ser votante del tenant: los webhooks de
-        // Registraduría alimentan `voters`, pero el check-in no los toca. Las
-        // dos bases de personas quedan desconectadas.
+        // Quien asiste pasa a ser votante del tenant: la asistencia alimenta la
+        // base electoral en vez de quedar en una tabla aparte (Spec 0022).
         $this->postJson('/api/v1/meetings/check-in/QR-DOMINIO', $this->payload())->assertStatus(201);
 
-        $this->assertDatabaseCount('voters', 0);
+        $votante = Voter::withoutGlobalScope(TenantScope::class)->sole();
+
+        $this->assertSame($this->tenant->id, $votante->tenant_id);
+        $this->assertSame('71000001', $votante->cedula);
+        $this->assertSame(
+            $votante->id,
+            MeetingAttendee::withoutGlobalScope(TenantScope::class)->sole()->voter_id
+        );
     }
 
     // ==================================================================
-    // 2. Deduplicación por cédula — NO
+    // 2. Deduplicación por cédula — SÍ (Spec 0022)
     // ==================================================================
 
-    public function test_hueco_un_segundo_check_in_del_mismo_documento_duplica_en_vez_de_actualizar(): void
+    public function test_un_segundo_check_in_del_mismo_documento_actualiza(): void
     {
         $this->postJson('/api/v1/meetings/check-in/QR-DOMINIO', $this->payload([
             'telefono' => '3001112233',
@@ -193,34 +221,31 @@ class MeetingAttendanceDomainTest extends TestCase
             ->orderBy('id')
             ->get();
 
-        // Dos filas, no una actualizada.
-        $this->assertCount(2, $filas);
-        $this->assertSame('3001112233', $filas[0]->telefono);
-        $this->assertSame('3009998877', $filas[1]->telefono);
+        // Una fila actualizada, no dos.
+        $this->assertCount(1, $filas);
+        $this->assertSame('3009998877', $filas[0]->telefono);
 
-        // Y el contador de la reunión los cuenta como dos asistentes.
+        // Y la reunión cuenta una persona.
         $this->getJson('/api/v1/meetings/public/QR-DOMINIO')
-            ->assertJsonPath('data.attendees_count', 2)
-            ->assertJsonPath('data.checked_in_count', 2);
+            ->assertJsonPath('data.attendees_count', 1)
+            ->assertJsonPath('data.checked_in_count', 1);
     }
 
-    public function test_hueco_tampoco_hay_identidad_de_persona_entre_reuniones(): void
+    public function test_hay_identidad_de_persona_entre_reuniones(): void
     {
         $otra = Meeting::factory()->forTenant($this->tenant)->create(['qr_code' => 'QR-DOMINIO-2']);
 
         $this->postJson('/api/v1/meetings/check-in/QR-DOMINIO', $this->payload())->assertStatus(201);
         $this->postJson("/api/v1/meetings/check-in/{$otra->qr_code}", $this->payload())->assertStatus(201);
 
-        // `meeting_attendees` no tiene ninguna clave que ligue ambas filas a la
-        // misma persona más allá del texto de la cédula.
+        // Dos eventos de asistencia, una sola persona: `voter_id` es la clave
+        // que antes no existía (Spec 0022).
         $filas = MeetingAttendee::withoutGlobalScope(TenantScope::class)->get();
 
         $this->assertCount(2, $filas);
         $this->assertNotSame($filas[0]->id, $filas[1]->id);
-        $this->assertEmpty(
-            array_intersect(['person_id', 'voter_id', 'lead_id'], array_keys($filas[0]->getAttributes())),
-            'No hay columna que identifique a la persona.'
-        );
+        $this->assertNotNull($filas[0]->voter_id);
+        $this->assertSame($filas[0]->voter_id, $filas[1]->voter_id);
     }
 
     // ==================================================================
@@ -293,13 +318,39 @@ class MeetingAttendanceDomainTest extends TestCase
     }
 
     // ==================================================================
-    // 4. Nuevos vs recurrentes — NO
+    // 4. Nuevos vs recurrentes — SÍ (Spec 0022)
     // ==================================================================
 
-    public function test_hueco_ningun_endpoint_de_estadisticas_distingue_nuevos_de_recurrentes(): void
+    public function test_attendance_stats_distingue_nuevos_de_recurrentes(): void
     {
         // Escenario: Ana ya vino a otra reunión (recurrente) y Beatriz viene por
-        // primera vez (nueva). Lo que se debería poder medir: 1 nueva, 1 recurrente.
+        // primera vez (nueva). 1 nueva, 1 recurrente.
+        $anterior = Meeting::factory()->forTenant($this->tenant)->create(['qr_code' => 'QR-ANTERIOR']);
+
+        Carbon::setTestNow('2026-07-06 09:00:00');
+        $this->postJson("/api/v1/meetings/check-in/{$anterior->qr_code}", $this->payload())->assertStatus(201);
+
+        Carbon::setTestNow('2026-08-06 09:00:00');
+        $this->postJson('/api/v1/meetings/check-in/QR-DOMINIO', $this->payload())->assertStatus(201);
+        $this->postJson('/api/v1/meetings/check-in/QR-DOMINIO', $this->payload([
+            'cedula' => '72000002', 'nombres' => 'Beatriz',
+        ]))->assertStatus(201);
+
+        [$user, $token] = $this->createTenantWithUser(['view_meetings', 'view_reports'], $this->tenant);
+
+        $this->actingAsTenantUser($user, $token)
+            ->getJson("/api/v1/meetings/{$this->meeting->id}/attendance-stats")
+            ->assertStatus(200)
+            ->assertJsonPath('data.unique_attendees', 2)
+            ->assertJsonPath('data.new_attendees', 1)
+            ->assertJsonPath('data.recurring_attendees', 1);
+    }
+
+    public function test_los_demas_endpoints_siguen_contando_filas_no_personas(): void
+    {
+        // La métrica vive solo en `attendance-stats`. El resto sigue como
+        // estaba, y conviene tenerlo escrito para no leer sus totales como si
+        // fueran personas.
         $anterior = Meeting::factory()->forTenant($this->tenant)->create(['qr_code' => 'QR-ANTERIOR']);
         $this->postJson("/api/v1/meetings/check-in/{$anterior->qr_code}", $this->payload())->assertStatus(201);
         $this->postJson('/api/v1/meetings/check-in/QR-DOMINIO', $this->payload())->assertStatus(201);
@@ -307,16 +358,12 @@ class MeetingAttendanceDomainTest extends TestCase
             'cedula' => '72000002', 'nombres' => 'Beatriz',
         ]))->assertStatus(201);
 
-        [$user, $token] = $this->createTenantWithUser(
-            ['view_meetings', 'view_reports'],
-            $this->tenant
-        );
+        [$user, $token] = $this->createTenantWithUser(['view_meetings', 'view_reports'], $this->tenant);
 
-        // a) Info pública de la reunión: solo cuenta filas.
+        // a) Info pública de la reunión: cuenta filas, sin desglose.
         $publico = $this->getJson('/api/v1/meetings/public/QR-DOMINIO')->json('data');
         $this->assertSame(2, $publico['attendees_count']);
         $this->assertArrayNotHasKey('nuevos_count', $publico);
-        $this->assertArrayNotHasKey('recurrentes_count', $publico);
 
         // b) Listado de asistentes: ninguna marca por asistente.
         $asistente = $this->actingAsTenantUser($user, $token)
@@ -334,7 +381,6 @@ class MeetingAttendanceDomainTest extends TestCase
             ->json('data');
         $this->assertSame(3, $reporte['total_attendees'], 'Cuenta filas, no personas.');
         $this->assertArrayNotHasKey('unique_attendees', $reporte);
-        $this->assertArrayNotHasKey('new_attendees', $reporte);
 
         // d) attendee-hierarchies/stats: cuenta cédulas distintas, pero de
         //    RELACIONES de jerarquía, no de asistencia.
@@ -342,34 +388,7 @@ class MeetingAttendanceDomainTest extends TestCase
             ->getJson('/api/v1/attendee-hierarchies/stats')
             ->assertStatus(200)
             ->json('data');
-        $this->assertArrayHasKey('unique_attendees', $jerarquia);
         $this->assertSame(0, $jerarquia['unique_attendees'], 'Sin relaciones de jerarquía: 0, pese a haber 3 check-ins.');
-        $this->assertArrayNotHasKey('new_attendees', $jerarquia);
-    }
-
-    public function test_el_dato_para_calcular_nuevos_vs_recurrentes_esta_en_la_base_pero_nadie_lo_expone(): void
-    {
-        // La consulta es trivial —agrupar por cédula— pero ningún endpoint la
-        // hace. Se deja escrita aquí como prueba de que el dato existe.
-        $anterior = Meeting::factory()->forTenant($this->tenant)->create(['qr_code' => 'QR-ANTERIOR']);
-        $this->postJson("/api/v1/meetings/check-in/{$anterior->qr_code}", $this->payload())->assertStatus(201);
-        $this->postJson('/api/v1/meetings/check-in/QR-DOMINIO', $this->payload())->assertStatus(201);
-        $this->postJson('/api/v1/meetings/check-in/QR-DOMINIO', $this->payload([
-            'cedula' => '72000002', 'nombres' => 'Beatriz',
-        ]))->assertStatus(201);
-
-        $cedulasDeEstaReunion = MeetingAttendee::withoutGlobalScope(TenantScope::class)
-            ->where('meeting_id', $this->meeting->id)
-            ->pluck('cedula');
-
-        $recurrentes = MeetingAttendee::withoutGlobalScope(TenantScope::class)
-            ->whereIn('cedula', $cedulasDeEstaReunion)
-            ->where('meeting_id', '!=', $this->meeting->id)
-            ->distinct()
-            ->pluck('cedula');
-
-        $this->assertSame(['71000001'], $recurrentes->all(), 'Ana es recurrente.');
-        $this->assertSame(1, $cedulasDeEstaReunion->diff($recurrentes)->count(), 'Beatriz es nueva.');
     }
 
     // ==================================================================
