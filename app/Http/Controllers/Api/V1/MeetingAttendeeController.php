@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\Api\V1\MeetingAttendeeResource;
 use App\Models\Meeting;
 use App\Models\MeetingAttendee;
+use App\Rules\CamposDeLaPlantilla;
 use App\Support\DatabaseExpressions;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -126,7 +127,10 @@ class MeetingAttendeeController extends Controller
             'genero' => 'nullable|string|max:50',
             'fecha_nacimiento' => 'nullable|date',
             'referido_por' => 'nullable|string|max:255',
-            'extra_fields' => 'nullable|array',
+            // Misma regla que el check-in público: los campos dinámicos se
+            // validan contra la plantilla de la reunión (Spec 0023). Dar de alta
+            // desde el panel no puede saltarse el contrato del formulario.
+            'extra_fields' => ['nullable', 'array', CamposDeLaPlantilla::paraLaReunion($meeting)],
         ]);
 
         $attendee = $meeting->attendees()->create($validated);

@@ -316,7 +316,101 @@ class CheckInCamposDinamicosTest extends TestCase
         $this->assertNotNull($asistente->voter_id);
     }
 
+    // ==================================================================
+    // Alta autenticada — POST /meetings/{meeting}/attendees
+    // ==================================================================
+
+    public function test_el_alta_autenticada_rechaza_un_campo_no_declarado(): void
+    {
+        $this->conPlantilla([
+            ['name' => 'profesion', 'label' => 'Profesión', 'type' => 'text', 'required' => false],
+        ]);
+
+        $this->comoPlanificador()
+            ->postJson("/api/v1/meetings/{$this->meeting->id}/attendees", $this->payload([
+                'extra_fields' => ['campo_inventado' => 'lo que sea'],
+            ]))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['extra_fields']);
+
+        $this->assertDatabaseCount('meeting_attendees', 0);
+    }
+
+    public function test_el_alta_autenticada_exige_los_campos_obligatorios(): void
+    {
+        $this->conPlantilla([
+            ['name' => 'profesion', 'label' => 'Profesión', 'type' => 'text', 'required' => true],
+        ]);
+
+        $respuesta = $this->comoPlanificador()
+            ->postJson("/api/v1/meetings/{$this->meeting->id}/attendees", $this->payload());
+
+        $respuesta->assertStatus(422)->assertJsonValidationErrors(['extra_fields']);
+
+        $this->assertContains(
+            'El campo «Profesión» es obligatorio.',
+            $respuesta->json('errors.extra_fields')
+        );
+    }
+
+    public function test_el_alta_autenticada_rechaza_una_opcion_invalida(): void
+    {
+        $this->conPlantilla([
+            [
+                'name' => 'estrato',
+                'label' => 'Estrato socioeconómico',
+                'type' => 'select',
+                'required' => true,
+                'options' => ['Estrato 1', 'Estrato 2'],
+            ],
+        ]);
+
+        $this->comoPlanificador()
+            ->postJson("/api/v1/meetings/{$this->meeting->id}/attendees", $this->payload([
+                'extra_fields' => ['estrato' => 'Estrato 9'],
+            ]))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['extra_fields']);
+    }
+
+    public function test_el_alta_autenticada_valida_se_registra(): void
+    {
+        $this->conPlantilla([
+            [
+                'name' => 'estrato',
+                'label' => 'Estrato socioeconómico',
+                'type' => 'select',
+                'required' => true,
+                'options' => ['Estrato 1', 'Estrato 2'],
+            ],
+        ]);
+
+        $this->comoPlanificador()
+            ->postJson("/api/v1/meetings/{$this->meeting->id}/attendees", $this->payload([
+                'extra_fields' => ['estrato' => 'Estrato 1'],
+            ]))
+            ->assertStatus(201)
+            ->assertJsonPath('data.extra_fields.estrato', 'Estrato 1');
+    }
+
+    public function test_el_alta_autenticada_sin_plantilla_no_exige_extras(): void
+    {
+        $this->comoPlanificador()
+            ->postJson("/api/v1/meetings/{$this->meeting->id}/attendees", $this->payload())
+            ->assertStatus(201);
+    }
+
     // ------------------------------------------------------------------
+
+    /**
+     * Un usuario del tenant de la reunión con permiso para darla de alta.
+     */
+    private function comoPlanificador(): static
+    {
+        [$usuario] = $this->createTenantWithUser(['create_meetings'], $this->tenant);
+
+        return $this->actingAsTenantUser($usuario);
+    }
 
     /**
      * @param  array<int, array<string, mixed>>  $campos
