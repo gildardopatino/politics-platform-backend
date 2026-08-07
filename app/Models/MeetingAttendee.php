@@ -5,8 +5,8 @@ namespace App\Models;
 use App\Traits\HasTenant;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Spatie\Activitylog\Traits\LogsActivity;
 use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class MeetingAttendee extends Model
 {
@@ -15,6 +15,7 @@ class MeetingAttendee extends Model
     protected $fillable = [
         'tenant_id',
         'meeting_id',
+        'voter_id',
         'created_by',
         'cedula',
         'nombres',
@@ -41,10 +42,10 @@ class MeetingAttendee extends Model
     protected static function boot()
     {
         parent::boot();
-        
+
         static::creating(function ($attendee) {
             // Auto-set tenant_id if not provided
-            if (!$attendee->tenant_id) {
+            if (! $attendee->tenant_id) {
                 if ($attendee->meeting_id) {
                     $meeting = Meeting::find($attendee->meeting_id);
                     $attendee->tenant_id = $meeting->tenant_id;
@@ -52,9 +53,9 @@ class MeetingAttendee extends Model
                     $attendee->tenant_id = app('current_tenant_id');
                 }
             }
-            
+
             // Auto-set created_by if not provided
-            if (!$attendee->created_by && request()->user()) {
+            if (! $attendee->created_by && request()->user()) {
                 $attendee->created_by = request()->user()->id;
             }
         });
@@ -71,6 +72,17 @@ class MeetingAttendee extends Model
     public function meeting()
     {
         return $this->belongsTo(Meeting::class);
+    }
+
+    /**
+     * La persona detrás del check-in (Spec 0022).
+     *
+     * Nullable: la asistencia anterior a esta spec puede no tener votante, y el
+     * backfill no inventó ninguno.
+     */
+    public function voter()
+    {
+        return $this->belongsTo(Voter::class);
     }
 
     public function createdBy()
