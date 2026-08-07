@@ -16,6 +16,7 @@ use App\Models\Meeting;
 use App\Models\MeetingReminder;
 use App\Models\TenantMessagingCredit;
 use App\Services\AttendeeHierarchyService;
+use App\Services\DocumentVerificationService;
 use App\Services\QRCodeService;
 use App\Services\WhatsAppNotificationService;
 use Carbon\Carbon;
@@ -270,6 +271,43 @@ class MeetingController extends Controller
             'barrio:id,nombre',
             'template:id,name,description,fields',
         ];
+    }
+
+    /**
+     * Autocompleta el formulario público de asistencia a partir de la cédula.
+     *
+     * El QR es la credencial de esta ruta: fija el tenant de la búsqueda, de
+     * modo que solo se consultan los leads de la campaña dueña de la reunión.
+     * Antes esto vivía en `GET /verify-document`, sin tenant y sin sesión, y
+     * devolvía leads de cualquier campaña a quien supiera una cédula
+     * (Spec 0026).
+     */
+    public function verifyDocument(
+        string $qrCode,
+        Request $request,
+        DocumentVerificationService $verificador
+    ): JsonResponse {
+        $request->validate(['cedula' => 'required|string|max:20']);
+
+        $meeting = Meeting::where('qr_code', $qrCode)->firstOrFail();
+
+        // La reunión define el ámbito: a partir de aquí `TenantScope` filtra.
+        app()->instance('current_tenant_id', $meeting->tenant_id);
+
+        $resultado = $verificador->verify($request->query('cedula'));
+
+        if (! $resultado) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No se encontró información para la cédula proporcionada',
+            ], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => DocumentVerificationService::soloContacto($resultado['data']),
+            'source' => $resultado['source'],
+        ]);
     }
 
     /**

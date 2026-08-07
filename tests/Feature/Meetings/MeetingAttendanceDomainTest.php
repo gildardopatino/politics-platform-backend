@@ -57,15 +57,16 @@ class MeetingAttendanceDomainTest extends TestCase
     // 1. Búsqueda por documento en el check-in — PARCIAL
     // ==================================================================
 
-    public function test_el_endpoint_publico_de_verificacion_existe_y_no_pide_sesion(): void
+    public function test_el_endpoint_publico_de_verificacion_vive_bajo_el_qr(): void
     {
-        // `GET /verify-document` es público (fuera del grupo jwt.auth) y es la
-        // pieza que el formulario del QR usa para autocompletar.
+        // El autocompletado del formulario público sigue sin pedir sesión, pero
+        // ahora cuelga del QR, que es lo que fija el tenant de la búsqueda
+        // (Spec 0026; antes era `GET /verify-document` a secas, sin tenant).
         Http::fake(['*pisami*' => Http::response('', 500)]);
 
         $this->crearLead($this->tenant, '71000001');
 
-        $this->getJson('/api/v1/verify-document?cedula=71000001')
+        $this->getJson('/api/v1/meetings/public/QR-DOMINIO/verify-document?cedula=71000001')
             ->assertStatus(200)
             ->assertJsonPath('success', true)
             ->assertJsonPath('source', 'leads')
@@ -73,22 +74,23 @@ class MeetingAttendanceDomainTest extends TestCase
             ->assertJsonPath('data.telefono', '3001112233');
     }
 
-    public function test_hueco_verify_document_es_publico_y_busca_leads_de_cualquier_tenant(): void
+    public function test_verify_document_ya_no_busca_leads_de_cualquier_tenant(): void
     {
-        // La ruta está fuera del grupo `tenant`, así que no hay
-        // `current_tenant_id` enlazado y `Lead::where('cedula', ...)` no filtra.
-        // Cualquiera, sin sesión, obtiene nombre, teléfono, correo, dirección y
-        // puesto de votación de un lead de OTRO tenant sabiendo solo la cédula.
+        // Este hueco existía: la ruta caía fuera del grupo `tenant`, no había
+        // `current_tenant_id` y `Lead::where('cedula', ...)` no filtraba, así que
+        // cualquiera sin sesión sacaba los datos de un lead de OTRO tenant
+        // sabiendo solo la cédula. Cerrado en la Spec 0026; el contrato completo
+        // está en `tests/Feature/Voters/VerifyDocumentTenantScopeTest.php`.
         Http::fake(['*pisami*' => Http::response('', 500)]);
 
         $otro = Tenant::factory()->create();
         $this->crearLead($otro, '72000009');
 
+        $this->getJson('/api/v1/meetings/public/QR-DOMINIO/verify-document?cedula=72000009')
+            ->assertStatus(404);
+
         $this->getJson('/api/v1/verify-document?cedula=72000009')
-            ->assertStatus(200)
-            ->assertJsonPath('source', 'leads')
-            ->assertJsonPath('data.telefono', '3001112233')
-            ->assertJsonPath('data.email', 'ana@ejemplo.test');
+            ->assertStatus(401);
     }
 
     public function test_hueco_verify_document_no_mira_voters_ni_asistentes_previos(): void
@@ -111,7 +113,7 @@ class MeetingAttendanceDomainTest extends TestCase
             'telefono' => '3001112233',
         ]);
 
-        $this->getJson('/api/v1/verify-document?cedula=71000001')
+        $this->getJson('/api/v1/meetings/public/QR-DOMINIO/verify-document?cedula=71000001')
             ->assertStatus(404)
             ->assertJsonPath('success', false);
     }

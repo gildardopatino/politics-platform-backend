@@ -6,10 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Voter\StoreVoterRequest;
 use App\Http\Requests\Api\V1\Voter\UpdateVoterRequest;
 use App\Http\Resources\Api\V1\VoterResource;
-use App\Models\Lead;
 use App\Models\Voter;
 use App\Models\VotingPlace;
-use App\Services\PisamiService;
+use App\Services\DocumentVerificationService;
 use App\Traits\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -154,55 +153,35 @@ class VoterController extends Controller
     }
 
     /**
-     * Verify document from external PISAMI API (public endpoint).
-     * Falls back to the local leads table when not found in PISAMI.
+     * Verify document from external PISAMI API, falling back to local leads.
      *
-     * NOTE: response shape kept as { success, data, source } — consumed by the
-     * public meeting check-in flow; not migrated to the standard envelope.
+     * Authenticated + `view_voters`, so the lookup runs inside the caller's
+     * tenant and may return the full record (the call-center form captures
+     * address and voting place). The public counterpart lives at
+     * `GET /meetings/public/{qr_code}/verify-document` and returns only name
+     * and contact — see Spec 0026.
+     *
+     * NOTE: response shape kept as { success, data, source } — not migrated to
+     * the standard envelope because the frontend reads it as-is.
      */
-    public function verifyDocument(Request $request, PisamiService $pisamiService): JsonResponse
+    public function verifyDocument(Request $request, DocumentVerificationService $verificador): JsonResponse
     {
         $request->validate(['cedula' => 'required|string|max:20']);
 
-        $cedula = $request->cedula;
+        $resultado = $verificador->verify($request->query('cedula'));
 
-        // 1. External PISAMI API
-        if ($data = $pisamiService->verifyDocument($cedula)) {
-            return response()->json(['success' => true, 'data' => $data, 'source' => 'pisami']);
-        }
-
-        // 2. Local leads table
-        $lead = Lead::where('cedula', $cedula)->first();
-
-        if ($lead) {
-            $leadData = [
-                'cedula' => $lead->cedula,
-                'nombres' => trim(($lead->nombre1 ?? '').' '.($lead->nombre2 ?? '')),
-                'apellidos' => trim(($lead->apellido1 ?? '').' '.($lead->apellido2 ?? '')),
-                'nombre_completo' => $lead->full_name,
-                'fecha_nacimiento' => $lead->fecha_nacimiento?->format('Y-m-d'),
-                'telefono' => $lead->telefono,
-                'email' => $lead->email,
-                'direccion' => $lead->direccion,
-                'barrio' => $lead->barrio_otro,
-                'departamento_votacion' => $lead->departamento_votacion,
-                'municipio_votacion' => $lead->municipio_votacion,
-                'puesto_votacion' => $lead->puesto_votacion,
-                'zona_votacion' => $lead->zona_votacion,
-                'mesa_votacion' => $lead->mesa_votacion,
-                'direccion_votacion' => $lead->direccion_votacion,
-                'locality_name' => $lead->locality_name,
-                'latitud' => $lead->latitud,
-                'longitud' => $lead->longitud,
-            ];
-
-            return response()->json(['success' => true, 'data' => $leadData, 'source' => 'leads']);
+        if (! $resultado) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No se encontró información para la cédula proporcionada en PISAMI ni en la base de datos local',
+            ], 404);
         }
 
         return response()->json([
-            'success' => false,
-            'message' => 'No se encontró información para la cédula proporcionada en PISAMI ni en la base de datos local',
-        ], 404);
+            'success' => true,
+            'data' => $resultado['data'],
+            'source' => $resultado['source'],
+        ]);
     }
 
     /**

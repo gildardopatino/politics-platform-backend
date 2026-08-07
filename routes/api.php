@@ -70,8 +70,12 @@ Route::prefix('v1')->group(function () {
     Route::get('/meetings/public/{qr_code}', [MeetingController::class, 'getPublicInfo']);
     Route::get('/meetings/check-in/{qr_code}', [MeetingController::class, 'showByQR']);
     Route::post('/meetings/check-in/{qr_code}', [MeetingController::class, 'checkIn']);
+    // Autocompletado del formulario del QR. El QR es la credencial: fija el
+    // tenant de la búsqueda y limita la respuesta a nombre y contacto.
+    // `/verify-document` a secas vive ahora dentro del grupo autenticado.
+    Route::get('/meetings/public/{qr_code}/verify-document', [MeetingController::class, 'verifyDocument'])
+        ->middleware('throttle:20,1');
     Route::get('/barrios/search/by-name', [BarrioController::class, 'search']);
-    Route::get('/verify-document', [VoterController::class, 'verifyDocument']);
 
     // Voting Place Image Generation (public)
     Route::post('/voting-place/generate-image', [VotingPlaceController::class, 'generateImage']);
@@ -333,6 +337,10 @@ Route::prefix('v1')->group(function () {
             Route::get('/voters-stats', [VoterController::class, 'stats'])
                 ->middleware('permission:view_voters');
             Route::get('/voters-by-voting-place', [VoterController::class, 'byVotingPlace'])
+                ->middleware('permission:view_voters');
+            // Era pública y sin tenant: cualquiera con una cédula sacaba los
+            // datos de un lead de cualquier tenant (Spec 0026).
+            Route::get('/verify-document', [VoterController::class, 'verifyDocument'])
                 ->middleware('permission:view_voters');
 
             // Call center (encuestas y llamadas) — permiso único `view_calls`.
