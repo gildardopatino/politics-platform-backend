@@ -19,6 +19,7 @@ Pruebas que lo sostienen:
 | `tests/Feature/Campaigns/CampaignCharacterizationTest.php` (24) | CRUD, acciones, permisos, aislamiento |
 | `tests/Feature/Campaigns/CampaignSendCharacterizationTest.php` (24) | encolado, destinatarios, job en ejecución, créditos |
 | `tests/Feature/Campaigns/CampaignSendCompletenessTest.php` (6) | que el envío alcanza a **todos** los destinatarios (Spec 0037) |
+| `tests/Feature/Campaigns/CampaignCreatorTokenTest.php` (7) | que `creator_token` no sale del servidor (Spec 0039) |
 
 ---
 
@@ -46,7 +47,7 @@ permiso → 403, campaña de otro tenant → 404.
 | Columna | Tipo |
 | --- | --- |
 | `tenant_id`, `created_by` | FK NOT NULL |
-| `creator_token` | text — JWT del creador con **un año** de vigencia |
+| `creator_token` | text — JWT del creador. `$hidden` + `$auditExclude` |
 | `title`, `message` | string / text |
 | `channel` | enum(`whatsapp`,`email`,`both`), default `email` |
 | `filter_json` | json nullable, cast `array` |
@@ -108,10 +109,20 @@ Responde `201` con `message: "Campaign created and queued for sending"`, el
 recurso con `total_recipients` ya calculado y `status` `pending` (o `scheduled`
 si venía fecha). **El envío queda encolado en ese mismo momento.**
 
-⚠️ El alta genera un JWT del creador con **TTL de un año** y lo guarda en claro
-en `campaigns.creator_token` para que el webhook de correo lo reutilice. No sale
-en la API —`CampaignResource` lo omite— pero sí queda en la tabla y, al no haber
-`$auditExclude`, también en el registro de auditoría.
+El alta genera un JWT del creador y lo guarda en `campaigns.creator_token` para
+que el webhook de correo lo reutilice como `Bearer`. **No sale del servidor**
+(Spec 0039): `Campaign` lo lleva en `$hidden` —así que no aparece en ninguna
+serialización del modelo, pase o no por `CampaignResource`— y en `$auditExclude`,
+así que tampoco entra en el registro de auditoría. El código lo sigue leyendo por
+atributo, que es lo único que necesita `CampaignService::sendToRecipient`.
+
+⚠️ Ese token **no dura un año**, aunque el código lo pretenda: `CampaignService`
+sube `config('jwt.ttl')` a 525.600 minutos, genera el token y restaura el valor,
+pero la factoría de JWT ya está resuelta con el TTL de la configuración, así que
+se guarda un token normal (120 min por defecto). Rebaja el riesgo de la
+credencial, pero rompe su propósito: **una campaña programada a más de dos horas
+llegará al webhook con un token caducado** y sus correos fallarán la
+autenticación. Sustituir el mecanismo es follow-up de la 0039.
 
 ⚠️ `filter_json.custom_recipients.*.name` **no tiene regla**, así que
 `validated()` lo descarta y el nombre nunca llega al servicio.
@@ -234,8 +245,10 @@ Consecuencia útil: **reejecutar el job no reenvía**. Quien ya está `sent` o
 - **WhatsApp**: `WhatsAppNotificationService` → instancia Evolution activa del
   tenant, con el número normalizado.
 - **Correo**: `EmailNotificationService` → webhook de n8n, autenticado con
-  `Bearer {campaign.creator_token}`. Sin token guardado, el destinatario falla
-  con `No authentication token available`.
+  `Bearer {campaign.creator_token}` (leído por atributo; el token está oculto en
+  toda serialización, no en el modelo). Sin token guardado, el destinatario falla
+  con `No authentication token available` — y con el token caducado, ver el aviso
+  del TTL más arriba.
 
 Éxito → `status = sent` + `sent_at`. Fallo → `status = failed` +
 `error_message` (`WhatsApp service returned false`, `Email service returned
