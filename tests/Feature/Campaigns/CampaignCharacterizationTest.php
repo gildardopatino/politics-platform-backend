@@ -145,23 +145,23 @@ class CampaignCharacterizationTest extends TestCase
     // store
     // ==================================================================
 
-    public function test_store_crea_la_campanna_en_pendiente_y_cuenta_sus_destinatarios(): void
+    public function test_store_deja_la_campanna_en_borrador(): void
     {
-        // Sin `filter_json` el objetivo por defecto es `all_users`: todos los
-        // usuarios del tenant con el dato que pide el canal.
+        // Crear ya no envía (Spec 0040): se guarda el borrador y los
+        // destinatarios se resuelven al enviar. El detalle vive en
+        // `CampaignDraftAndBillingTest`.
         User::factory()->forTenant($this->tenant)->create(['phone' => '3001112233']);
 
         $respuesta = $this->comoUsuario()->postJson('/api/v1/campaigns', $this->payload());
 
         $respuesta->assertStatus(201)
-            ->assertJsonPath('message', 'Campaign created and queued for sending')
-            ->assertJsonPath('data.status', 'pending')
+            ->assertJsonPath('message', 'Campaign saved as draft')
+            ->assertJsonPath('data.status', 'draft')
             ->assertJsonPath('data.title', 'Invitación a la asamblea')
             ->assertJsonPath('data.channel', 'whatsapp')
             ->assertJsonPath('data.sent_count', 0)
-            ->assertJsonPath('data.progress_percentage', 0);
-
-        $this->assertSame(1, $respuesta->json('data.total_recipients'));
+            ->assertJsonPath('data.progress_percentage', 0)
+            ->assertJsonPath('data.total_recipients', 0);
 
         $this->assertDatabaseHas('campaigns', [
             'id' => $respuesta->json('data.id'),
@@ -170,13 +170,13 @@ class CampaignCharacterizationTest extends TestCase
         ]);
     }
 
-    public function test_store_con_fecha_programada_la_deja_en_scheduled(): void
+    public function test_store_con_fecha_programada_guarda_la_fecha_y_sigue_en_borrador(): void
     {
         $respuesta = $this->comoUsuario()->postJson('/api/v1/campaigns', $this->payload([
             'scheduled_at' => '2026-08-20 09:00:00',
         ]));
 
-        $respuesta->assertStatus(201)->assertJsonPath('data.status', 'scheduled');
+        $respuesta->assertStatus(201)->assertJsonPath('data.status', 'draft');
 
         $this->assertNotNull($respuesta->json('data.scheduled_at'));
     }
@@ -267,50 +267,37 @@ class CampaignCharacterizationTest extends TestCase
             ->assertJsonPath('data.recipients.0.recipient_value', 'ana@ejemplo.test');
     }
 
-    public function test_update_solo_admite_campannas_pendientes(): void
+    public function test_update_solo_admite_borradores(): void
     {
-        $pendiente = Campaign::factory()->forTenant($this->tenant)->create();
+        $borrador = Campaign::factory()->forTenant($this->tenant)->status('draft')->create();
 
-        $this->comoUsuario()->putJson("/api/v1/campaigns/{$pendiente->id}", ['title' => 'Nuevo título'])
+        $this->comoUsuario()->putJson("/api/v1/campaigns/{$borrador->id}", ['title' => 'Nuevo título'])
             ->assertStatus(200)
             ->assertJsonPath('data.title', 'Nuevo título')
             ->assertJsonPath('message', 'Campaign updated successfully');
 
-        $enviada = Campaign::factory()->forTenant($this->tenant)->sent()->create();
+        foreach (['pending', 'scheduled', 'sending', 'sent', 'failed', 'cancelled'] as $estado) {
+            $otra = Campaign::factory()->forTenant($this->tenant)->status($estado)->create();
 
-        $this->comoUsuario()->putJson("/api/v1/campaigns/{$enviada->id}", ['title' => 'Tarde'])
-            ->assertStatus(422)
-            ->assertJsonPath('message', 'Cannot update campaign that is not pending');
+            $this->comoUsuario()->putJson("/api/v1/campaigns/{$otra->id}", ['title' => 'Tarde'])
+                ->assertStatus(422)
+                ->assertJsonPath('message', 'Cannot update campaign that is not a draft');
+        }
     }
 
-    public function test_hallazgo_una_campanna_programada_no_se_puede_editar(): void
+    public function test_una_campanna_con_fecha_programada_si_se_puede_editar(): void
     {
-        // El guardián exige `pending`, y una campaña con fecha nace `scheduled`:
-        // lo único que todavía NO se ha enviado es justo lo que no se puede
-        // corregir. Para cambiarle el texto hay que borrarla y rehacerla.
-        $programada = Campaign::factory()->forTenant($this->tenant)->scheduled()->create();
+        // Era el hallazgo: el guardián exigía `pending` y una campaña con fecha
+        // nacía `scheduled`, así que lo único que todavía NO se había enviado era
+        // justo lo que no se podía corregir. Con el flujo de borrador de la Spec
+        // 0040 nace `draft` y se edita como cualquier otra.
+        $programada = $this->comoUsuario()->postJson('/api/v1/campaigns', $this->payload([
+            'scheduled_at' => '2026-08-20 09:00:00',
+        ]))->json('data.id');
 
-        $this->comoUsuario()->putJson("/api/v1/campaigns/{$programada->id}", ['title' => 'Corregido'])
-            ->assertStatus(422)
-            ->assertJsonPath('message', 'Cannot update campaign that is not pending');
-    }
-
-    public function test_hallazgo_editar_no_regenera_los_destinatarios(): void
-    {
-        // Los destinatarios se resuelven una sola vez, al crear. Cambiar el canal
-        // o el filtro deja la lista vieja —y `total_recipients` desactualizado—
-        // sin ningún aviso.
-        $campana = Campaign::factory()->forTenant($this->tenant)->create([
-            'channel' => 'whatsapp',
-            'total_recipients' => 1,
-        ]);
-        $this->crearDestinatario($campana, '3001112233', 'whatsapp');
-
-        $this->comoUsuario()->putJson("/api/v1/campaigns/{$campana->id}", ['channel' => 'email'])
-            ->assertStatus(200);
-
-        $this->assertSame(1, $campana->fresh()->total_recipients);
-        $this->assertSame('whatsapp', CampaignRecipient::firstOrFail()->recipient_type);
+        $this->comoUsuario()->putJson("/api/v1/campaigns/{$programada}", ['title' => 'Corregido'])
+            ->assertStatus(200)
+            ->assertJsonPath('data.title', 'Corregido');
     }
 
     public function test_destroy_borra_en_blando(): void
@@ -344,20 +331,16 @@ class CampaignCharacterizationTest extends TestCase
     // send / cancel
     // ==================================================================
 
-    public function test_send_acepta_solo_campannas_pendientes(): void
+    public function test_send_acepta_solo_borradores(): void
     {
-        $pendiente = Campaign::factory()->forTenant($this->tenant)->create();
-
-        $this->comoUsuario()->postJson("/api/v1/campaigns/{$pendiente->id}/send")
-            ->assertStatus(200)
-            ->assertJsonPath('message', 'Campaign queued for sending');
-
-        foreach (['scheduled', 'sending', 'sent', 'failed', 'draft'] as $estado) {
+        // Enviar es la acción explícita sobre un borrador (Spec 0040); todo lo
+        // demás ya está en camino, enviado o cancelado.
+        foreach (['pending', 'scheduled', 'sending', 'sent', 'failed', 'cancelled'] as $estado) {
             $otra = Campaign::factory()->forTenant($this->tenant)->status($estado)->create();
 
             $this->comoUsuario()->postJson("/api/v1/campaigns/{$otra->id}/send")
                 ->assertStatus(422)
-                ->assertJsonPath('message', 'Campaign is not in pending status');
+                ->assertJsonPath('message', 'Campaign is not a draft');
         }
     }
 

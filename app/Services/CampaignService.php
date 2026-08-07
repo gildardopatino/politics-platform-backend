@@ -2,23 +2,31 @@
 
 namespace App\Services;
 
+use App\Exceptions\CampaignHasNoRecipientsException;
+use App\Exceptions\InsufficientMessagingCreditsException;
 use App\Jobs\Campaigns\SendCampaignJob;
 use App\Models\Campaign;
 use App\Models\CampaignRecipient;
 use App\Models\MeetingAttendee;
+use App\Models\TenantMessagingCredit;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class CampaignService
 {
+    /**
+     * Crear una campaña la deja en **borrador** (Spec 0040).
+     *
+     * Antes el alta resolvía los destinatarios y despachaba el envío en el acto:
+     * dar de alta era enviar, sin ningún paso en el que revisar el mensaje. Ahora
+     * solo se guardan el texto, el canal y los filtros; el envío es una acción
+     * explícita (`POST /campaigns/{id}/send`), que es también donde se cobra.
+     */
     public function createCampaign(array $data): Campaign
     {
         return DB::transaction(function () use ($data) {
             $user = request()->user();
-
-            // Determine status based on scheduled_at
-            $status = ! empty($data['scheduled_at']) ? 'scheduled' : 'pending';
 
             // Generate a long-lived JWT token (1 year) for external service authentication
             // Store original TTL, set to 1 year, generate token, then restore
@@ -36,31 +44,143 @@ class CampaignService
                 'channel' => $data['channel'],
                 'filter_json' => $data['filter_json'] ?? null,
                 'scheduled_at' => $data['scheduled_at'] ?? null,
-                'status' => $status,
+                'status' => 'draft',
             ]);
 
-            $recipients = $this->generateRecipients($campaign);
-            $campaign->update(['total_recipients' => count($recipients)]);
-
-            if (! empty($data['scheduled_at'])) {
-                // Schedule for later - parse date in Colombia timezone and use directly
-                $scheduledDate = \Carbon\Carbon::parse($data['scheduled_at'], config('app.timezone'));
-
-                SendCampaignJob::dispatch($campaign)
-                    ->delay($scheduledDate);
-            } else {
-                // Send immediately
-                SendCampaignJob::dispatch($campaign);
-            }
-
-            // Queda constancia de que ya hay un job para esta campaña, para que
-            // `send` no encole un segundo y la gente reciba el mensaje dos veces
-            // (Spec 0038). El estado no sirve para saberlo: `pending` significa
-            // «aún no ha empezado», no «nadie la ha encolado».
-            $campaign->update(['queued_at' => now()]);
-
+            // Recargado para que los contadores traigan el DEFAULT de la columna
+            // y no `null`: `getProgressPercentage()` divide por `total_recipients`.
             return $campaign->fresh();
         });
+    }
+
+    /**
+     * Poner una campaña en camino: resolver, cobrar y despachar (Spec 0040).
+     *
+     * Los destinatarios se resuelven **aquí y no al crear**, para que lo que se
+     * envía sea el borrador tal y como quedó tras editarlo. Y aquí se cobra, que
+     * es lo que el envío masivo nunca hacía: un crédito por mensaje y canal, en
+     * **todo o nada** —si a un canal le falta uno, no sale ninguno—.
+     *
+     * Resolver, comprobar el saldo y descontarlo van en **una sola transacción**,
+     * con la fila de créditos bloqueada (`lockForUpdate`), para que dos envíos
+     * simultáneos del mismo tenant no puedan gastar el mismo saldo dos veces. Si
+     * algo falla no queda ni un destinatario escrito ni un crédito de menos.
+     *
+     * El job se despacha **fuera** de la transacción: dentro podría empezar a
+     * correr antes del commit y encontrarse la campaña todavía en `draft`.
+     *
+     * @throws CampaignHasNoRecipientsException
+     * @throws InsufficientMessagingCreditsException
+     */
+    public function dispatchCampaign(Campaign $campaign): Campaign
+    {
+        [$campaign, $scheduledFor] = DB::transaction(function () use ($campaign) {
+            // Un envío anterior pudo dejar destinatarios de un intento que no
+            // llegó a cobrarse; la lista se rehace desde los filtros de ahora.
+            $campaign->recipients()->delete();
+
+            $recipients = $this->generateRecipients($campaign);
+
+            if (empty($recipients)) {
+                throw new CampaignHasNoRecipientsException;
+            }
+
+            $needed = $this->countByChannel($recipients);
+
+            $credit = TenantMessagingCredit::where('tenant_id', $campaign->tenant_id)
+                ->lockForUpdate()
+                ->first();
+
+            $balance = $this->creditBalance($needed, $credit);
+
+            if ($balance['email']['missing'] > 0 || $balance['whatsapp']['missing'] > 0) {
+                throw new InsufficientMessagingCreditsException($balance);
+            }
+
+            $this->chargeCredits($campaign, $needed, $credit, $balance);
+
+            $scheduledFor = $campaign->scheduled_at?->isFuture() ? $campaign->scheduled_at : null;
+
+            $campaign->update([
+                'total_recipients' => count($recipients),
+                'status' => $scheduledFor ? 'scheduled' : 'pending',
+                // Marca de que ya hay un job para esta campaña: `send` no vuelve
+                // a encolar lo ya encolado (Spec 0038).
+                'queued_at' => now(),
+            ]);
+
+            return [$campaign->fresh(), $scheduledFor];
+        });
+
+        $dispatch = SendCampaignJob::dispatch($campaign);
+
+        if ($scheduledFor) {
+            $dispatch->delay($scheduledFor);
+        }
+
+        return $campaign;
+    }
+
+    /**
+     * Cuántos mensajes salen por cada canal. Con `both`, cada persona genera un
+     * destinatario de correo y otro de WhatsApp, así que cuenta en los dos.
+     *
+     * @param  array<int, array<string, mixed>>  $recipients
+     * @return array{email: int, whatsapp: int}
+     */
+    private function countByChannel(array $recipients): array
+    {
+        return [
+            'email' => count(array_filter($recipients, fn ($r) => $r['recipient_type'] === 'email')),
+            'whatsapp' => count(array_filter($recipients, fn ($r) => $r['recipient_type'] === 'whatsapp')),
+        ];
+    }
+
+    /**
+     * Lo que hace falta frente a lo que hay, por canal. Un tenant sin fila de
+     * créditos tiene cero de todo: el saldo es una autorización previa, no un
+     * contador que se rellena después.
+     *
+     * @param  array{email: int, whatsapp: int}  $needed
+     * @return array<string, array{needed: int, available: int, missing: int}>
+     */
+    private function creditBalance(array $needed, ?TenantMessagingCredit $credit): array
+    {
+        $available = [
+            'email' => (int) ($credit?->emails_available ?? 0),
+            'whatsapp' => (int) ($credit?->whatsapp_available ?? 0),
+        ];
+
+        $balance = [];
+
+        foreach (['email', 'whatsapp'] as $channel) {
+            $balance[$channel] = [
+                'needed' => $needed[$channel],
+                'available' => $available[$channel],
+                'missing' => max(0, $needed[$channel] - $available[$channel]),
+            ];
+        }
+
+        return $balance;
+    }
+
+    /**
+     * Descuenta y deja registrada la transacción de cada canal usado.
+     *
+     * @param  array{email: int, whatsapp: int}  $needed
+     * @param  array<string, array{needed: int, available: int, missing: int}>  $balance
+     */
+    private function chargeCredits(Campaign $campaign, array $needed, TenantMessagingCredit $credit, array $balance): void
+    {
+        $reference = "Campaign #{$campaign->id} — {$campaign->title}";
+
+        if ($needed['email'] > 0 && ! $credit->consumeEmail($needed['email'], $reference)) {
+            throw new InsufficientMessagingCreditsException($balance);
+        }
+
+        if ($needed['whatsapp'] > 0 && ! $credit->consumeWhatsApp($needed['whatsapp'], $reference)) {
+            throw new InsufficientMessagingCreditsException($balance);
+        }
     }
 
     protected function generateRecipients(Campaign $campaign): array

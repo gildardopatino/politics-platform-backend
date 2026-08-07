@@ -2,12 +2,13 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Exceptions\CampaignHasNoRecipientsException;
+use App\Exceptions\InsufficientMessagingCreditsException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Campaign\StoreCampaignRequest;
 use App\Http\Requests\Api\V1\Campaign\UpdateCampaignRequest;
 use App\Http\Resources\Api\V1\CampaignRecipientResource;
 use App\Http\Resources\Api\V1\CampaignResource;
-use App\Jobs\Campaigns\SendCampaignJob;
 use App\Models\Campaign;
 use App\Services\CampaignService;
 use Illuminate\Http\JsonResponse;
@@ -45,13 +46,17 @@ class CampaignController extends Controller
     /**
      * Store a newly created resource in storage.
      */
+    /**
+     * Crear una campaña la deja en **borrador**: se guarda el mensaje, el canal
+     * y los filtros, y no sale nada hasta que alguien pulse enviar (Spec 0040).
+     */
     public function store(StoreCampaignRequest $request): JsonResponse
     {
         $campaign = $this->campaignService->createCampaign($request->validated());
 
         return response()->json([
             'data' => new CampaignResource($campaign->load('createdBy')),
-            'message' => 'Campaign created and queued for sending',
+            'message' => 'Campaign saved as draft',
         ], 201);
     }
 
@@ -70,11 +75,16 @@ class CampaignController extends Controller
     /**
      * Update the specified resource in storage.
      */
+    /**
+     * Solo se edita el borrador. Antes se exigía `pending`, que era el estado en
+     * el que el alta dejaba la campaña **ya encolada**: se podía tocar algo que
+     * estaba a punto de salir, y en cambio no una programada (Spec 0040).
+     */
     public function update(UpdateCampaignRequest $request, Campaign $campaign): JsonResponse
     {
-        if ($campaign->status !== 'pending') {
+        if ($campaign->status !== 'draft') {
             return response()->json([
-                'message' => 'Cannot update campaign that is not pending',
+                'message' => 'Cannot update campaign that is not a draft',
             ], 422);
         }
 
@@ -121,23 +131,35 @@ class CampaignController extends Controller
      */
     public function send(Campaign $campaign): JsonResponse
     {
-        if ($campaign->status !== 'pending') {
+        if ($campaign->status !== 'draft') {
             return response()->json([
-                'message' => 'Campaign is not in pending status',
+                'message' => 'Campaign is not a draft',
             ], 422);
         }
 
+        // Cinturón y tirantes: una campaña en borrador no debería tener despacho
+        // anotado, pero si lo tuviera no se encola un segundo (Spec 0038).
         if ($campaign->queued_at !== null) {
             return response()->json([
                 'message' => 'Campaign was already queued for sending',
             ], 422);
         }
 
-        SendCampaignJob::dispatch($campaign);
-
-        $campaign->update(['queued_at' => now()]);
+        try {
+            $campaign = $this->campaignService->dispatchCampaign($campaign);
+        } catch (CampaignHasNoRecipientsException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], 422);
+        } catch (InsufficientMessagingCreditsException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+                'credits' => $e->detalle(),
+            ], 422);
+        }
 
         return response()->json([
+            'data' => new CampaignResource($campaign),
             'message' => 'Campaign queued for sending',
         ]);
     }

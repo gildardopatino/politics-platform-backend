@@ -6,6 +6,7 @@ use App\Jobs\Campaigns\SendCampaignJob;
 use App\Models\Campaign;
 use App\Models\CampaignRecipient;
 use App\Models\Tenant;
+use App\Models\TenantMessagingCredit;
 use App\Models\TenantWhatsAppInstance;
 use App\Models\User;
 use App\Services\CampaignService;
@@ -65,31 +66,57 @@ class CampaignSingleDispatchTest extends TestCase
     // Despacho único
     // ==================================================================
 
-    public function test_el_alta_encola_una_vez_y_lo_deja_anotado(): void
+    public function test_enviar_encola_una_vez_y_lo_deja_anotado(): void
     {
         Queue::fake();
 
-        $respuesta = $this->crearPorApi();
+        $id = $this->crearBorrador()->json('data.id');
+
+        // El alta ya no encola nada: el borrador espera (Spec 0040).
+        Queue::assertNothingPushed();
+
+        $this->comoUsuario()->postJson("/api/v1/campaigns/{$id}/send")->assertStatus(200);
 
         Queue::assertPushed(SendCampaignJob::class, 1);
 
-        $campana = Campaign::findOrFail($respuesta->json('data.id'));
+        $campana = Campaign::findOrFail($id);
 
-        $this->assertNotNull($campana->queued_at, 'El alta anota que ya encoló.');
+        $this->assertNotNull($campana->queued_at, 'El envío anota que ya encoló.');
         $this->assertSame('2026-08-07 12:00:00', $campana->queued_at->toDateTimeString());
     }
 
-    public function test_send_no_encola_un_segundo_envio_de_una_campanna_recien_creada(): void
+    public function test_send_no_encola_un_segundo_envio_de_la_misma_campanna(): void
     {
         Queue::fake();
 
-        $id = $this->crearPorApi()->json('data.id');
+        $id = $this->crearBorrador()->json('data.id');
 
+        $this->comoUsuario()->postJson("/api/v1/campaigns/{$id}/send")->assertStatus(200);
+
+        // Ya no es borrador: el segundo intento no encola.
         $this->comoUsuario()->postJson("/api/v1/campaigns/{$id}/send")
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Campaign is not a draft');
+
+        Queue::assertPushed(SendCampaignJob::class, 1);
+    }
+
+    public function test_un_borrador_ya_encolado_tampoco_se_vuelve_a_encolar(): void
+    {
+        // Cinturón y tirantes: si por lo que sea un borrador tuviera despacho
+        // anotado, `send` no encola un segundo job.
+        Queue::fake();
+
+        $campana = Campaign::factory()->forTenant($this->tenant)->status('draft')->create([
+            'created_by' => $this->user->id,
+            'queued_at' => now(),
+        ]);
+
+        $this->comoUsuario()->postJson("/api/v1/campaigns/{$campana->id}/send")
             ->assertStatus(422)
             ->assertJsonPath('message', 'Campaign was already queued for sending');
 
-        Queue::assertPushed(SendCampaignJob::class, 1);
+        Queue::assertNothingPushed();
     }
 
     public function test_insistir_en_enviar_no_multiplica_los_mensajes(): void
@@ -102,7 +129,9 @@ class CampaignSingleDispatchTest extends TestCase
 
         $usuario = User::factory()->forTenant($this->tenant)->create(['phone' => '3001112233']);
 
-        $id = $this->crearPorApi()->json('data.id');
+        $id = $this->crearBorrador()->json('data.id');
+
+        $this->comoUsuario()->postJson("/api/v1/campaigns/{$id}/send")->assertStatus(200);
 
         // El panel insiste tres veces mientras el job todavía no ha corrido.
         foreach (range(1, 3) as $ignorado) {
@@ -117,36 +146,11 @@ class CampaignSingleDispatchTest extends TestCase
         $this->assertSame('57'.$usuario->phone, Http::recorded()->first()[0]['number']);
     }
 
-    public function test_send_sigue_sirviendo_para_una_campanna_que_nunca_se_encolo(): void
-    {
-        // No es un endpoint muerto: si una campaña quedó `pending` sin llegar a
-        // encolarse, «enviar» la despacha y lo anota.
-        Queue::fake();
-
-        $campana = Campaign::factory()->forTenant($this->tenant)->create([
-            'created_by' => $this->user->id,
-            'queued_at' => null,
-        ]);
-
-        $this->comoUsuario()->postJson("/api/v1/campaigns/{$campana->id}/send")
-            ->assertStatus(200)
-            ->assertJsonPath('message', 'Campaign queued for sending');
-
-        Queue::assertPushed(SendCampaignJob::class, 1);
-
-        $this->assertNotNull($campana->fresh()->queued_at);
-
-        // Y a la segunda ya no.
-        $this->comoUsuario()->postJson("/api/v1/campaigns/{$campana->id}/send")->assertStatus(422);
-
-        Queue::assertPushed(SendCampaignJob::class, 1);
-    }
-
-    public function test_send_sigue_rechazando_los_estados_que_no_son_pendientes(): void
+    public function test_send_rechaza_todo_lo_que_no_sea_un_borrador(): void
     {
         Queue::fake();
 
-        foreach (['scheduled', 'sending', 'sent', 'failed', 'draft', 'cancelled'] as $estado) {
+        foreach (['pending', 'scheduled', 'sending', 'sent', 'failed', 'cancelled'] as $estado) {
             $campana = Campaign::factory()->forTenant($this->tenant)->status($estado)->create([
                 'created_by' => $this->user->id,
                 'queued_at' => null,
@@ -154,7 +158,7 @@ class CampaignSingleDispatchTest extends TestCase
 
             $this->comoUsuario()->postJson("/api/v1/campaigns/{$campana->id}/send")
                 ->assertStatus(422)
-                ->assertJsonPath('message', 'Campaign is not in pending status');
+                ->assertJsonPath('message', 'Campaign is not a draft');
         }
 
         Queue::assertNothingPushed();
@@ -164,7 +168,9 @@ class CampaignSingleDispatchTest extends TestCase
     {
         Queue::fake();
 
-        $ajena = Campaign::factory()->forTenant(Tenant::factory()->create())->create(['queued_at' => null]);
+        $ajena = Campaign::factory()->forTenant(Tenant::factory()->create())
+            ->status('draft')
+            ->create(['queued_at' => null]);
 
         $this->comoUsuario()->postJson("/api/v1/campaigns/{$ajena->id}/send")->assertStatus(404);
 
@@ -211,12 +217,30 @@ class CampaignSingleDispatchTest extends TestCase
         return $this->actingAsTenantUser($this->user, $this->token);
     }
 
-    private function crearPorApi(): \Illuminate\Testing\TestResponse
+    /**
+     * Borrador con un destinatario fijo y saldo de sobra: aquí se prueba el
+     * despacho, no el cobro.
+     */
+    private function crearBorrador(): \Illuminate\Testing\TestResponse
     {
+        TenantMessagingCredit::updateOrCreate(
+            ['tenant_id' => $this->tenant->id],
+            [
+                'emails_available' => 100,
+                'emails_used' => 0,
+                'whatsapp_available' => 100,
+                'whatsapp_used' => 0,
+            ]
+        );
+
         return $this->comoUsuario()->postJson('/api/v1/campaigns', [
             'title' => 'Invitación a la asamblea',
             'message' => 'Te esperamos el sábado en el salón comunal.',
             'channel' => 'whatsapp',
+            'filter_json' => [
+                'target' => 'custom_list',
+                'custom_recipients' => [['type' => 'phone', 'value' => '3001112233']],
+            ],
         ]);
     }
 
