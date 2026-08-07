@@ -18,6 +18,7 @@ Pruebas que lo sostienen:
 | --- | --- |
 | `tests/Feature/Campaigns/CampaignCharacterizationTest.php` (24) | CRUD, acciones, permisos, aislamiento |
 | `tests/Feature/Campaigns/CampaignSendCharacterizationTest.php` (24) | encolado, destinatarios, job en ejecución, créditos |
+| `tests/Feature/Campaigns/CampaignSendCompletenessTest.php` (6) | que el envío alcanza a **todos** los destinatarios (Spec 0037) |
 
 ---
 
@@ -204,20 +205,29 @@ nombre.
 
 1. Si el estado no es `pending` ni `scheduled`, no hace nada.
 2. Marca `sending` y sella `sent_at`.
-3. Recorre los destinatarios `pending` en trozos de
+3. Recorre los destinatarios `pending` con **`chunkById`** en lotes de
    `config('campaign.batch_size')` (100 por defecto), envía uno a uno,
    actualiza `sent_count`/`failed_count` **tras cada destinatario**, y hace
-   `sleep(1)` entre trozos (rate limiting).
-4. Marca `sent` — pase lo que pase: aunque fallen todos, aunque no hubiera
-   ninguno.
+   `sleep(1)` entre lotes (rate limiting).
+4. Marca `sent` **solo si no queda ningún `pending`**. Si quedara alguno, la
+   campaña se queda en `sending` para que se note que el recorrido no terminó.
 
-⚠️ **A partir del segundo trozo se saltan destinatarios.** La consulta es
-`recipients()->where('status','pending')->chunk($n, ...)`, que pagina con OFFSET
-sobre un conjunto que **encoge mientras se recorre**: cada envío saca la fila de
-`pending`, y el OFFSET de la página siguiente se come las que faltaban. Con
-trozos de 1 y tres destinatarios se envían dos y uno se queda `pending` para
-siempre. Con el tamaño por defecto solo aparece a partir de **101
-destinatarios** — justo el tamaño en el que el envío masivo tiene sentido.
+**Por qué `chunkById` y no `chunk`** (Spec 0037, hallazgo 🔴 de la 0013): el
+bucle saca cada fila del conjunto que está recorriendo —enviar la deja fuera de
+`pending`—, y `chunk` pagina con **OFFSET**, así que a partir del segundo lote el
+desplazamiento se comía justo las filas que faltaban. Con lotes de 1 y tres
+destinatarios se enviaban dos, el tercero quedaba `pending` para siempre y la
+campaña se cerraba como `sent` igual. Con el tamaño por defecto solo aparecía a
+partir de **101 destinatarios** — el tamaño en el que el envío masivo tiene
+sentido. `chunkById` avanza por `id > último visto`, que no depende de cuántas
+filas siguen cumpliendo el filtro.
+
+Consecuencia útil: **reejecutar el job no reenvía**. Quien ya está `sent` o
+`failed` no vuelve a entrar en la consulta.
+
+> Al escribir bucles que **modifican lo que recorren**, `chunkById` (o releer
+> desde el principio) en vez de `chunk`. Es la misma trampa que en cualquier
+> paginación por OFFSET sobre un conjunto que se consume.
 
 ### 4. Entrega — `sendToRecipient`
 
