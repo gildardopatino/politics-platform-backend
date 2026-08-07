@@ -19,7 +19,11 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->trustProxies(at: '*');
 
         $middleware->alias([
-            'jwt.auth' => \App\Http\Middleware\JwtMiddleware::class,
+            // tymon/jwt-auth registra este mismo alias en el boot de su service
+            // provider, así que declararlo aquí apuntando a otra clase no servía
+            // de nada: ganaba el suyo (Spec 0018). Se declara explícito para que
+            // el alias diga la verdad.
+            'jwt.auth' => \Tymon\JWTAuth\Http\Middleware\Authenticate::class,
             'tenant' => \App\Http\Middleware\EnsureTenant::class,
             'superadmin' => \App\Http\Middleware\CheckSuperAdmin::class,
             'tenant.active' => \App\Http\Middleware\CheckTenantExpiration::class,
@@ -53,12 +57,8 @@ return Application::configure(basePath: dirname(__DIR__))
             \Illuminate\Routing\Middleware\ThrottleRequests::class,
             \Illuminate\Routing\Middleware\ThrottleRequestsWithRedis::class,
             \Illuminate\Contracts\Session\Middleware\AuthenticatesSessions::class,
-            // Ojo: tymon/jwt-auth re-registra el alias `jwt.auth` en el boot de
-            // su service provider, así que en runtime apunta a SU Authenticate y
-            // no a JwtMiddleware. Se listan ambos para que el orden sea correcto
-            // apunte a donde apunte el alias.
+            // `jwt.auth` (ver el alias arriba).
             \Tymon\JWTAuth\Http\Middleware\Authenticate::class,
-            \App\Http\Middleware\JwtMiddleware::class,
             \App\Http\Middleware\EnsureTenant::class,
             \App\Http\Middleware\CheckTenantExpiration::class,
             // Autorización después del tenant: los roles del usuario están

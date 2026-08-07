@@ -97,10 +97,10 @@ Al tocar la cadena de middleware:
 - Solo se reordenan entre sí los middleware que aparecen en la lista; el resto
   conserva su posición.
 - `tymon/jwt-auth` **re-registra el alias `jwt.auth`** en el `boot()` de su
-  service provider, o sea después de `bootstrap/app.php`: en runtime apunta a
-  `Tymon\JWTAuth\Http\Middleware\Authenticate`, no a `App\Http\Middleware\JwtMiddleware`
-  (ese nunca corre). La lista incluye ambas clases para que el orden sea correcto
-  apunte a donde apunte el alias.
+  service provider, o sea después de `bootstrap/app.php`, así que la última
+  palabra sobre a qué clase apunta la tiene el paquete. Por eso el alias se
+  declara ya como `Tymon\JWTAuth\Http\Middleware\Authenticate` (Spec 0018):
+  apuntarlo a otra clase no tenía efecto y solo confundía.
 
 ## Pruebas de caracterización (comportamiento defectuoso conocido)
 

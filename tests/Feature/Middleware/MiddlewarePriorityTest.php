@@ -4,7 +4,6 @@ namespace Tests\Feature\Middleware;
 
 use App\Http\Middleware\CheckTenantExpiration;
 use App\Http\Middleware\EnsureTenant;
-use App\Http\Middleware\JwtMiddleware;
 use App\Models\Meeting;
 use App\Models\Tenant;
 use App\Models\User;
@@ -99,17 +98,18 @@ class MiddlewarePriorityTest extends TestCase
     /**
      * Clase real detrás del alias `jwt.auth`.
      *
-     * No se da por hecho `JwtMiddleware`: tymon/jwt-auth re-registra el alias en
-     * el boot de su service provider, después de `bootstrap/app.php`.
+     * Se resuelve en runtime en vez de darla por hecha: tymon/jwt-auth registra
+     * ese alias en el boot de su service provider, después de
+     * `bootstrap/app.php`, así que la última palabra la tiene el paquete.
      */
     private function claseDeJwtAuth(): string
     {
         $alias = app(Router::class)->getMiddleware()['jwt.auth'] ?? null;
 
         $this->assertNotNull($alias, 'El alias jwt.auth debe estar registrado.');
-        $this->assertContains(
+        $this->assertSame(
+            TymonAuthenticate::class,
             $alias,
-            [JwtMiddleware::class, TymonAuthenticate::class],
             'jwt.auth apunta a una clase inesperada; revisa la lista de prioridad.'
         );
 

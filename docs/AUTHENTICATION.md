@@ -61,18 +61,30 @@ En cada request autenticado, incluir el token en el header:
 Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGc...
 ```
 
-### 3. Refresh Automático
-**El sistema maneja automáticamente el refresh del token:**
+### 3. Refresh: lo hace el cliente
 
-- Cuando un token expira (después de 60 minutos), el middleware intenta refrescarlo automáticamente
-- Si el refresh es exitoso, la respuesta incluirá el nuevo token en los headers:
-  - `Authorization: Bearer {nuevo_token}`
-  - `X-Token-Refreshed: true`
+> ⚠️ **Corrección (Spec 0018).** Esta sección describía un refresh automático
+> server-side: el middleware renovaba el token y lo devolvía en los headers
+> `Authorization` + `X-Token-Refreshed`. **Nunca funcionó.** Ese middleware
+> (`App\Http\Middleware\JwtMiddleware`) no llegaba a ejecutarse, porque
+> `tymon/jwt-auth` re-registra el alias `jwt.auth` a su propio `Authenticate` en
+> el `boot()` de su service provider, después de `bootstrap/app.php`. El
+> comportamiento real era: token expirado → 401 → el frontend cerraba sesión.
+>
+> El middleware muerto se eliminó y **la renovación es responsabilidad del
+> cliente**, con el endpoint `POST /refresh` de aquí abajo. No existe ninguna
+> cabecera `X-Token-Refreshed`.
 
-**El frontend debe:**
-1. Verificar si existe el header `X-Token-Refreshed`
-2. Si existe, extraer el nuevo token del header `Authorization`
-3. Guardar el nuevo token para futuras peticiones
+El frontend renueva de dos formas (ver `src/utils/api.ts` del repo de frontend):
+
+1. **Proactiva:** decodifica el `exp` del JWT y llama a `/refresh` antes de que
+   expire, con un margen de holgura.
+2. **Red de seguridad:** si una petición autenticada recibe `401`, intenta **un**
+   refresh y reintenta la petición una sola vez. Si el refresh falla, cierra
+   sesión y redirige a `/login`.
+
+Ambas comparten una única promesa de refresh en vuelo (*single-flight*), así que
+N peticiones concurrentes con el token vencido provocan **un solo** `/refresh`.
 
 ### 4. Refresh Manual
 **Endpoint:** `POST /api/v1/refresh`

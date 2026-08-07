@@ -56,7 +56,7 @@ Consequences when writing code:
 
 JWT via `tymon/jwt-auth`; the `api` guard uses the `jwt` driver. `User implements JWTSubject`. Middleware aliases (registered in `bootstrap/app.php`):
 
-- `jwt.auth` → authenticates the request. Note: the alias is declared in `bootstrap/app.php` as `App\Http\Middleware\JwtMiddleware`, but `tymon/jwt-auth`'s service provider re-registers it during `boot()` (after bootstrap), so at runtime it resolves to `Tymon\JWTAuth\Http\Middleware\Authenticate` and `JwtMiddleware` never runs.
+- `jwt.auth` → `Tymon\JWTAuth\Http\Middleware\Authenticate` — authenticates the request. Note: `tymon/jwt-auth`'s service provider re-registers this alias during `boot()`, i.e. *after* `bootstrap/app.php`, so pointing it at a different class there has no effect. Token renewal is the client's job (`POST /refresh`); there is no server-side silent refresh — see `docs/AUTHENTICATION.md`.
 - `superadmin` → `CheckSuperAdmin` — global super-admin-only routes (tenant CRUD, cross-tenant WhatsApp instances, messaging credit approval).
 - `tenant` → `EnsureTenant` — establishes tenant context (see above).
 - `tenant.active` → `CheckTenantExpiration` — blocks expired tenants.
