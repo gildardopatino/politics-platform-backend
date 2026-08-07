@@ -5,16 +5,17 @@ namespace App\Jobs\Campaigns;
 use App\Models\Campaign;
 use App\Services\CampaignService;
 use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Foundation\Queue\Queueable;
-use Illuminate\Queue\SerializesModels;
-use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\SerializesModels;
 
 class SendCampaignJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 3;
+
     public int $timeout = 300;
 
     /**
@@ -22,8 +23,7 @@ class SendCampaignJob implements ShouldQueue
      */
     public function __construct(
         public Campaign $campaign
-    ) {
-    }
+    ) {}
 
     /**
      * Execute the job.
@@ -31,7 +31,7 @@ class SendCampaignJob implements ShouldQueue
     public function handle(CampaignService $campaignService): void
     {
         // Allow processing of pending and scheduled campaigns
-        if (!in_array($this->campaign->status, ['pending', 'scheduled'])) {
+        if (! in_array($this->campaign->status, ['pending', 'scheduled'])) {
             return;
         }
 
@@ -44,12 +44,20 @@ class SendCampaignJob implements ShouldQueue
         $sentCount = 0;
         $failedCount = 0;
 
+        // `chunkById` y no `chunk`: este bucle SACA cada fila del conjunto que
+        // está recorriendo (deja de estar `pending` en cuanto se envía). `chunk`
+        // pagina con OFFSET, así que a partir del segundo lote el
+        // desplazamiento se comía justo las filas que faltaban y quedaban
+        // destinatarios sin enviar mientras la campaña se cerraba como `sent`
+        // (hallazgo 🔴 de la Spec 0013, corregido por la 0037). `chunkById`
+        // avanza por `id > último visto`, que no depende de cuántas filas siguen
+        // cumpliendo el filtro.
         $this->campaign->recipients()
             ->where('status', 'pending')
-            ->chunk($batchSize, function ($recipients) use ($campaignService, &$sentCount, &$failedCount) {
+            ->chunkById($batchSize, function ($recipients) use ($campaignService, &$sentCount, &$failedCount) {
                 foreach ($recipients as $recipient) {
                     $success = $campaignService->sendToRecipient($recipient);
-                    
+
                     if ($success) {
                         $sentCount++;
                     } else {
@@ -66,9 +74,14 @@ class SendCampaignJob implements ShouldQueue
                 sleep(1);
             });
 
-        $this->campaign->update([
-            'status' => 'sent',
-        ]);
+        // Solo se da por enviada si no quedó nadie sin intentar. Enviar y fallar
+        // son desenlaces; seguir `pending` es que el recorrido no terminó, y en
+        // ese caso la campaña se queda en `sending` para que se note.
+        if (! $this->campaign->recipients()->where('status', 'pending')->exists()) {
+            $this->campaign->update([
+                'status' => 'sent',
+            ]);
+        }
     }
 
     /**

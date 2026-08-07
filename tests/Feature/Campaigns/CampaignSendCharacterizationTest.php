@@ -379,19 +379,18 @@ class CampaignSendCharacterizationTest extends TestCase
         $this->assertSame(2, $campana->refresh()->sent_count);
     }
 
-    public function test_hallazgo_a_partir_del_segundo_trozo_se_saltan_destinatarios(): void
+    public function test_a_partir_del_segundo_trozo_ya_no_se_saltan_destinatarios(): void
     {
-        // `recipients()->where('status', 'pending')->chunk($n, ...)` pagina con
-        // OFFSET sobre una consulta cuyo resultado **cambia mientras se recorre**:
-        // cada envío saca al destinatario de `pending`. Al pedir la página 2 con
-        // OFFSET $n, las filas ya enviadas han desaparecido del conjunto y el
-        // OFFSET se come a las que faltaban.
+        // Era el hallazgo 🔴 de esta caracterización:
+        // `recipients()->where('status','pending')->chunk($n, ...)` paginaba con
+        // OFFSET sobre una consulta cuyo resultado **cambia mientras se recorre**
+        // —cada envío saca al destinatario de `pending`—, así que el OFFSET de la
+        // página siguiente se comía las filas que faltaban. Con tres
+        // destinatarios y trozos de uno salían **dos**, el tercero se quedaba en
+        // `pending` para siempre y la campaña se cerraba como `sent` igual.
         //
-        // Con tres destinatarios y trozos de uno se envían dos y **uno se queda
-        // en `pending` para siempre**; la campaña se cierra igual como `sent`.
-        // Con el tamaño por defecto (100) el fallo no se ve: hace falta una
-        // campaña de más de 100 destinatarios para que aparezca —justo el
-        // tamaño en el que el envío masivo tiene sentido—.
+        // Cerrado por la Spec 0037 con `chunkById`. El detalle vive en
+        // `CampaignSendCompletenessTest`.
         Http::fake(['*' => Http::response([], 200)]);
         config(['campaign.batch_size' => 1]);
 
@@ -400,15 +399,15 @@ class CampaignSendCharacterizationTest extends TestCase
 
         $this->ejecutar($campana);
 
-        Http::assertSentCount(2);
+        Http::assertSentCount(3);
 
         $campana->refresh();
 
-        $this->assertSame(2, $campana->sent_count);
+        $this->assertSame(3, $campana->sent_count);
         $this->assertSame(0, $campana->failed_count);
-        $this->assertSame('sent', $campana->status, 'La campaña se da por enviada igual.');
+        $this->assertSame('sent', $campana->status);
 
-        $this->assertSame(1, CampaignRecipient::where('status', 'pending')->count());
+        $this->assertSame(0, CampaignRecipient::where('status', 'pending')->count());
     }
 
     public function test_un_envio_fallido_deja_el_destinatario_en_failed_con_su_motivo(): void
