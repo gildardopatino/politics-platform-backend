@@ -219,11 +219,13 @@ class CampaignCharacterizationTest extends TestCase
         $this->assertSame(3, substr_count($token, '.') + 1, 'Es un JWT de tres partes.');
     }
 
-    public function test_hallazgo_ese_jwt_tambien_entra_en_la_auditoria(): void
+    public function test_ese_jwt_ya_no_entra_en_la_auditoria(): void
     {
-        // `Campaign` es `Auditable` y no declara `$auditExclude`, así que el
-        // token viaja también al registro de auditoría, que se consulta por API
-        // con `view_audits`: la credencial se multiplica.
+        // Era el hallazgo: `Campaign` es `Auditable` y no declaraba
+        // `$auditExclude`, así que el token viajaba también al registro de
+        // auditoría —consultable por API con `view_audits`— y la credencial se
+        // multiplicaba. Cerrado por la Spec 0039; el detalle vive en
+        // `CampaignCreatorTokenTest`.
         //
         // La comprobación va sobre `toAudit()` y no sobre la tabla `audits`
         // porque `owen-it` se desactiva cuando la app corre en consola
@@ -235,7 +237,10 @@ class CampaignCharacterizationTest extends TestCase
         $campana = Campaign::findOrFail($id);
         $campana->setAuditEvent('created');
 
-        $this->assertArrayHasKey('creator_token', $campana->toAudit()['new_values']);
+        $registro = $campana->toAudit()['new_values'];
+
+        $this->assertArrayHasKey('title', $registro, 'La auditoría sigue registrando lo demás.');
+        $this->assertArrayNotHasKey('creator_token', $registro);
     }
 
     public function test_la_respuesta_nunca_publica_el_token_del_creador(): void

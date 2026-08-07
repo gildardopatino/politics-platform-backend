@@ -6,13 +6,13 @@ use App\Traits\HasTenant;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Spatie\Activitylog\Traits\LogsActivity;
-use Spatie\Activitylog\LogOptions;
 use OwenIt\Auditing\Contracts\Auditable;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class Campaign extends Model implements Auditable
 {
-    use HasFactory, HasTenant, SoftDeletes, LogsActivity;
+    use HasFactory, HasTenant, LogsActivity, SoftDeletes;
     use \OwenIt\Auditing\Auditable;
 
     protected $fillable = [
@@ -35,6 +35,28 @@ class Campaign extends Model implements Auditable
         'filter_json' => 'array',
         'scheduled_at' => 'datetime',
         'sent_at' => 'datetime',
+    ];
+
+    /**
+     * `creator_token` es una credencial: el JWT con el que el webhook de correo
+     * de n8n se autentica al enviar la campaña. No sale del servidor.
+     *
+     * Fuera de toda serialización del modelo (Spec 0039, Art. VII). No afecta al
+     * acceso por atributo, que es como lo lee `CampaignService::sendToRecipient`.
+     */
+    protected $hidden = [
+        'creator_token',
+    ];
+
+    /**
+     * Y fuera del registro de auditoría: sin esto `owen-it` copiaba el token a
+     * `audits.new_values`, que se consulta por API con `view_audits`, y la
+     * credencial se multiplicaba (hallazgo de la caracterización 0013).
+     *
+     * @var array<int, string>
+     */
+    protected $auditExclude = [
+        'creator_token',
     ];
 
     public function getActivitylogOptions(): LogOptions
@@ -82,6 +104,7 @@ class Campaign extends Model implements Auditable
         if ($this->total_recipients === 0) {
             return 0;
         }
+
         return round(($this->sent_count / $this->total_recipients) * 100, 2);
     }
 }
