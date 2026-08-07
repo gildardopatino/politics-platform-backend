@@ -188,18 +188,114 @@ Un asistente o una reunión de otro tenant dan **404** en `show`, `update`,
 
 ---
 
-## Frente a la intención de negocio
+## Flujo de asistencia
 
 `.specify/context/domain-meetings-attendance.md` describe para qué existe el
-módulo. Estado real, verificado en `MeetingAttendanceDomainTest`:
+módulo. Respuesta a las cinco preguntas del addendum de la Spec 0010, verificada
+en `tests/Feature/Meetings/MeetingAttendanceDomainTest.php` (17 pruebas).
 
-| Lo previsto | Hoy |
-| --- | --- |
-| Registro por QR con formulario público | ✅ funciona |
-| Formulario configurable (preguntas extra) | 🟡 a medias: la plantilla define `fields` y `getPublicInfo` los expone, pero `checkIn` **no valida** `extra_fields` contra ellos (ni exige los requeridos ni rechaza los no declarados) |
-| Búsqueda por documento que autocomplete | ❌ **no está cableada**. `checkIn` guarda literalmente lo que llega; no consulta `voters` ni el recurso en línea. El lookup existe (`GET /voters/search/by-cedula`) pero es privado: exige `view_voters` y responde 401 sin sesión, así que el formulario público no puede usarlo |
-| Asistencia deduplicada por documento | ❌ no hay deduplicación, ni dentro de una reunión ni entre reuniones. `meeting_attendees` no tiene identidad por persona, solo filas por check-in |
-| Métrica de nuevos vs recurrentes | ❌ no existe en ningún endpoint. Los contadores cuentan filas, no personas |
-| Enlace reunión ↔ compromisos | ✅ `GET /meetings/{m}/commitments` (permiso `view_commitments`) |
+| # | Pregunta | Respuesta |
+| --- | --- | --- |
+| 1 | ¿El check-in busca por documento y autocompleta? | **PARCIAL** |
+| 2 | ¿Se deduplica por cédula? | **NO** |
+| 3 | ¿Campos dinámicos configurables? | **PARCIAL** |
+| 4 | ¿Métrica de nuevos vs recurrentes? | **NO** |
+| 5 | ¿Reunión → compromisos? | **SÍ** |
 
-Los tres ❌ y el 🟡 están registrados como hallazgos en `known-issues.md`.
+### 1. Búsqueda por documento — PARCIAL
+
+**Sí existe, pero solo en el cliente y contra la fuente equivocada.**
+
+Dónde está cableado: `platform-politics-frontend/src/pages/MeetingCheckIn.tsx`
+(`handleVerifyDocument`, se dispara con ≥6 dígitos de cédula) llama a
+`meetingCheckInService.verifyDocument()` →
+`GET /api/v1/verify-document?cedula=` (ruta **pública**) y rellena `nombres`,
+`apellidos`, `telefono` y `email` del formulario.
+
+`VoterController@verifyDocument` consulta, en este orden:
+
+1. **PISAMI** — API externa, URL hard-codeada en `PisamiService`
+   (`pisami.ibague.gov.co`, alcaldía de Ibagué).
+2. **Tabla `leads`** — por cédula.
+
+Lo que **no** hace:
+
+- **No mira `voters`** ni `meeting_attendees`. Alguien que ya es votante del
+  tenant, o que ya asistió a otra reunión, **no se autocompleta**.
+- **El backend no hace ningún lookup.** `MeetingController@checkIn` guarda
+  literalmente lo que llega; quien llame a la API directamente no recibe
+  enriquecimiento. Todo el autocompletado es del frontend.
+- **El check-in no crea ni actualiza el votante.** Los webhooks de Registraduría
+  alimentan `voters`, pero el check-in no los toca: las dos bases de personas
+  quedan desconectadas.
+
+`GET /voters/search/by-cedula` **sí** busca en `voters`, pero exige
+`view_voters` y responde 401 sin sesión: el formulario público no puede usarlo.
+Por eso el check-in acabó usando `verify-document`.
+
+⚠️ `verify-document` es público y busca en `leads` **sin filtro de tenant**:
+cualquiera, sabiendo solo una cédula, obtiene nombre, teléfono, correo, dirección
+y puesto de votación de un lead de otro tenant.
+
+### 2. Deduplicación por cédula — NO
+
+Un segundo check-in del mismo documento **crea una fila nueva**, no actualiza.
+Verificado: dos check-ins con distinto teléfono dejan dos filas con su valor
+respectivo, y `attendees_count` sube a 2.
+
+Tampoco hay identidad entre reuniones: `meeting_attendees` no tiene ninguna
+columna que ligue las filas a la misma persona (`person_id`, `voter_id`,
+`lead_id` no existen). La tabla modela **el evento de check-in**, no a quien
+asiste.
+
+### 3. Campos dinámicos — PARCIAL
+
+**Dónde se configuran**: `meeting_templates.fields` (columna JSON, casteada a
+array), a nivel de **tenant**. La reunión los usa vía `template_id`. No hay
+configuración por reunión ni en los ajustes del tenant.
+
+**Dónde se exponen**: `GET /meetings/public/{qr}` los devuelve en
+`data.template.fields`; el frontend los pinta (`renderTemplateField` soporta
+`radio`, `checkbox`, texto…). Si la reunión no tiene plantilla, `data.template`
+es `null`.
+
+**Dónde se guardan**: en `meeting_attendees.extra_fields` (JSON). No hay tabla de
+respuestas.
+
+⚠️ **No se validan en el backend.** `CheckInRequest` declara
+`extra_fields => nullable|array` y nada más: se acepta un campo que la plantilla
+no declara y se acepta omitir uno marcado `required`. La obligatoriedad solo la
+aplica el formulario del frontend, así que se salta llamando a la API.
+
+### 4. Nuevos vs recurrentes — NO
+
+Buscado en los cuatro sitios y no existe:
+
+| Endpoint | Qué da | Sirve |
+| --- | --- | --- |
+| `GET /meetings/public/{qr}` | `attendees_count`, `checked_in_count` | ❌ cuenta filas |
+| `GET /meetings/{m}/attendees` | `total_count`, `checked_in_count` | ❌ ninguna marca por asistente |
+| `GET /reports/meetings` | `total_attendees`, `checked_in_attendees` | ❌ sin `distinct` por cédula |
+| `GET /dashboard` | `attendees`, `attendees_by_month`, `top_meetings_by_attendees` | ❌ cuenta filas |
+| `GET /geographic-stats` | `attendees_count` por reunión | ❌ cuenta filas |
+| `GET /attendee-hierarchies/stats` | `unique_attendees` | ❌ cuenta cédulas de **relaciones de jerarquía**, no de asistencia: con 3 check-ins y sin jerarquías da 0 |
+
+El dato **está en la base** —basta agrupar `meeting_attendees` por cédula— pero
+ningún endpoint lo expone. La prueba
+`test_el_dato_para_calcular_nuevos_vs_recurrentes_esta_en_la_base_pero_nadie_lo_expone`
+deja la consulta escrita como evidencia.
+
+### 5. Reunión → compromisos — SÍ
+
+`GET /api/v1/meetings/{meeting}/commitments`, permiso `view_commitments`
+(no `view_meetings`). Sirve `CommitmentController@byMeeting`: filtra por
+`meeting_id`, pagina (`per_page`, 15) y devuelve `{data, meta}` con la misma
+forma que el resto de listados de compromisos.
+
+- `allowedFilters`: `status`, `assigned_user_id`, `priority_id`
+- `allowedIncludes`: `assignedUser`, `priority`, `createdBy`
+- carga por defecto `assignedUser` y `priority`; el objeto `meeting` **no** viene
+  (sí `meeting_id`)
+- una reunión de otro tenant da 404
+
+Los cuatro huecos están registrados como hallazgos en `known-issues.md`.
