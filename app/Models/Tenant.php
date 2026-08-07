@@ -5,12 +5,13 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Spatie\Activitylog\Traits\LogsActivity;
+use Illuminate\Support\Str;
 use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class Tenant extends Model
 {
-    use HasFactory, SoftDeletes, LogsActivity;
+    use HasFactory, LogsActivity, SoftDeletes;
 
     protected $fillable = [
         'slug',
@@ -99,6 +100,7 @@ class Tenant extends Model
         if ($value) {
             return \Carbon\Carbon::createFromFormat('Y-m-d H:i:s', $value, config('app.timezone'));
         }
+
         return null;
     }
 
@@ -123,6 +125,7 @@ class Tenant extends Model
         if ($value) {
             return \Carbon\Carbon::createFromFormat('Y-m-d H:i:s', $value, config('app.timezone'));
         }
+
         return null;
     }
 
@@ -190,12 +193,12 @@ class Tenant extends Model
     public function isActive(): bool
     {
         // If no expiration date is set, tenant is always active
-        if (!$this->expiration_date) {
+        if (! $this->expiration_date) {
             return true;
         }
 
         // If no start date is set, only check expiration
-        if (!$this->start_date) {
+        if (! $this->start_date) {
             return now()->lte($this->expiration_date);
         }
 
@@ -208,7 +211,7 @@ class Tenant extends Model
      */
     public function isExpired(): bool
     {
-        if (!$this->expiration_date) {
+        if (! $this->expiration_date) {
             return false;
         }
 
@@ -216,11 +219,51 @@ class Tenant extends Model
     }
 
     /**
+     * Genera (o rota) el secreto del webhook de Registraduría y devuelve el
+     * valor en claro **una sola vez**: en la tabla solo queda su SHA-256.
+     *
+     * El secreto autentica e identifica a la vez, así que no hace falta un
+     * campo de tenant en el payload —que un atacante podría elegir— y una fuga
+     * compromete una campaña, no la plataforma (Spec 0030).
+     */
+    public function generarSecretoRegistraduria(): string
+    {
+        $secreto = Str::random(64);
+
+        $this->forceFill([
+            'registraduria_secret_hash' => static::hashSecretoRegistraduria($secreto),
+        ])->save();
+
+        return $secreto;
+    }
+
+    /**
+     * Resuelve el tenant dueño de un secreto. Devuelve `null` si no es de nadie.
+     *
+     * SHA-256 sin sal a propósito: el secreto son 64 caracteres aleatorios, así
+     * que no hay diccionario que atacar, y el hash determinista permite buscar
+     * por índice en vez de recorrer todos los tenants comparando.
+     */
+    public static function porSecretoRegistraduria(?string $secreto): ?static
+    {
+        if (blank($secreto)) {
+            return null;
+        }
+
+        return static::where('registraduria_secret_hash', static::hashSecretoRegistraduria($secreto))->first();
+    }
+
+    public static function hashSecretoRegistraduria(string $secreto): string
+    {
+        return hash('sha256', $secreto);
+    }
+
+    /**
      * Check if the tenant hasn't started yet
      */
     public function isNotStarted(): bool
     {
-        if (!$this->start_date) {
+        if (! $this->start_date) {
             return false;
         }
 
@@ -234,7 +277,7 @@ class Tenant extends Model
      */
     public function daysUntilExpiration(): ?int
     {
-        if (!$this->expiration_date) {
+        if (! $this->expiration_date) {
             return null;
         }
 

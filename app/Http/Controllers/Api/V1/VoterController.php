@@ -13,6 +13,7 @@ use App\Traits\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
 class VoterController extends Controller
 {
@@ -257,28 +258,53 @@ class VoterController extends Controller
     }
 
     /**
-     * Public webhook (n8n): voters pending registraduría lookup.
-     * Returns a raw array — response shape kept stable for the webhook consumer.
+     * Webhook (n8n): votantes pendientes de consulta en Registraduría.
+     *
+     * Autenticado por el secreto del tenant (`webhook.registraduria`), que ya
+     * dejó `current_tenant_id` enlazado: la consulta va acotada por
+     * `TenantScope`. Antes se saltaba el scope y repartía hasta 100 cédulas de
+     * cualquier campaña a quien supiera la URL (Spec 0030).
+     *
+     * Devuelve un array crudo —forma estable para el consumidor— con `id` y
+     * `cedula` y nada más: los `$appends` del modelo colaban además un
+     * `full_name` vacío y un `location_type` nulo.
      */
     public function pendientesRegistraduria(Request $request): JsonResponse
     {
-        $voters = Voter::withoutGlobalScope(\App\Scopes\TenantScope::class)
+        $voters = Voter::query()
             ->select('id', 'cedula')
             ->whereNull('departamento_votacion')
             ->limit(100)
-            ->get();
+            ->get()
+            ->map(fn (Voter $voter) => [
+                'id' => $voter->id,
+                'cedula' => $voter->cedula,
+            ]);
 
         return response()->json($voters);
     }
 
     /**
-     * Public webhook (n8n): update voter registraduría data.
-     * Response shape kept as { success, message, data } for the webhook consumer.
+     * Webhook (n8n): escribe la información electoral de un votante.
+     *
+     * `id` se valida contra los votantes **del tenant del secreto**, así que un
+     * id de otra campaña se rechaza igual que uno inexistente: el webhook no
+     * sirve para averiguar qué ids tiene la competencia.
+     *
+     * La respuesta es un acuse mínimo. Antes devolvía `$voter->fresh()`, el
+     * modelo completo con nombres, correo, teléfono, dirección y `tenant_id`
+     * (Spec 0030).
      */
     public function actualizarRegistraduria(Request $request): JsonResponse
     {
+        $tenantId = app('current_tenant_id');
+
         $validator = Validator::make($request->all(), [
-            'id' => 'required|integer|exists:voters,id',
+            'id' => [
+                'required', 'integer',
+                Rule::exists('voters', 'id')
+                    ->where(fn ($q) => $q->where('tenant_id', $tenantId)->whereNull('deleted_at')),
+            ],
             'departamento_votacion' => 'required|string|max:255',
             'municipio_votacion' => 'required|string|max:255',
             'puesto_votacion' => 'required|string|max:255',
@@ -292,6 +318,7 @@ class VoterController extends Controller
 
         $data = $validator->validated();
 
+        // `voting_places` es un catálogo global, compartido entre campañas.
         $votingPlace = VotingPlace::firstOrCreate(
             [
                 'departamento_votacion' => $data['departamento_votacion'],
@@ -303,8 +330,9 @@ class VoterController extends Controller
             ]
         );
 
-        // Public webhook has no tenant context; bypass the tenant scope to find the voter.
-        $voter = Voter::withoutGlobalScope(\App\Scopes\TenantScope::class)->find($data['id']);
+        // Acotado por `TenantScope`; la regla `exists` de arriba ya lo garantiza,
+        // esto es la segunda cerradura.
+        $voter = Voter::find($data['id']);
 
         if (! $voter) {
             return response()->json(['success' => false, 'message' => 'Votante no encontrado.'], 404);
@@ -322,7 +350,10 @@ class VoterController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Información de registraduría actualizada correctamente.',
-            'data' => $voter->fresh(),
+            'data' => [
+                'id' => $voter->id,
+                'updated' => true,
+            ],
         ]);
     }
 }
