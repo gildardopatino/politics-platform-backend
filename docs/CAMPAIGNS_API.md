@@ -20,6 +20,9 @@ Pruebas que lo sostienen:
 | `tests/Feature/Campaigns/CampaignSendCharacterizationTest.php` (24) | encolado, destinatarios, job en ejecución, créditos |
 | `tests/Feature/Campaigns/CampaignSendCompletenessTest.php` (6) | que el envío alcanza a **todos** los destinatarios (Spec 0037) |
 | `tests/Feature/Campaigns/CampaignCreatorTokenTest.php` (7) | que `creator_token` no sale del servidor (Spec 0039) |
+| `tests/Feature/Campaigns/CampaignStatusEnumTest.php` (4) | que los estados del código caben en la columna (Spec 0038) |
+| `tests/Feature/Campaigns/CampaignCancelTest.php` (7) | cancelar (Spec 0038) |
+| `tests/Feature/Campaigns/CampaignSingleDispatchTest.php` (8) | despacho único y `destroy` protegido (Spec 0038) |
 
 ---
 
@@ -51,28 +54,34 @@ permiso → 403, campaña de otro tenant → 404.
 | `title`, `message` | string / text |
 | `channel` | enum(`whatsapp`,`email`,`both`), default `email` |
 | `filter_json` | json nullable, cast `array` |
-| `scheduled_at`, `sent_at` | timestamp nullable |
-| `status` | `draft`, `pending`, `scheduled`, `sending`, `sent`, `failed` |
+| `scheduled_at`, `queued_at`, `sent_at` | timestamp nullable |
+| `status` | `draft`, `pending`, `scheduled`, `sending`, `sent`, `failed`, `cancelled` |
 | `total_recipients`, `sent_count`, `failed_count` | integer default 0 |
 
-**El vocabulario de estados no cuadra y es la raíz de varios bugs.** Quién
-escribe qué:
+**Vocabulario de estados** (Spec 0038). Quién escribe qué:
 
 | Estado | Lo escribe | Lo comprueba |
 | --- | --- | --- |
 | `pending` | `createCampaign` sin fecha | `update`, `send`, el job |
 | `scheduled` | `createCampaign` con fecha | el job |
-| `sending` | el job al empezar | *nadie* |
-| `sent` | el job al terminar | — |
+| `sending` | el job al empezar | `destroy` (no deja borrar) |
+| `sent` | el job al terminar sin pendientes | `cancel` (no deja cancelar) |
 | `failed` | `SendCampaignJob::failed()` | — |
+| `cancelled` | `cancel` | el job (no arranca) |
 | `draft` | *nadie* (es el DEFAULT de la columna) | — |
-| `in_progress` | *nadie* | `destroy` ⚠️ |
-| `completed` | *nadie* | `cancel` ⚠️ |
-| `cancelled` | `cancel` ⚠️ (**no está en el enum**) | — |
+
+Hasta la 0038 el vocabulario no cuadraba con la columna y era la raíz de varios
+bugs: `cancel` escribía `cancelled`, que **no estaba en el enum** (500 siempre);
+y las guardas de `destroy` y `cancel` preguntaban por `in_progress` y
+`completed`, estados que **nadie escribe nunca**, así que no protegían nada.
+`in_progress` y `completed` siguen sin existir a propósito: lo que se corrigió
+fueron las guardas, no el enum.
+
+`queued_at` marca que ya hay un job despachado para esa campaña.
 
 `campaign_recipients` — sin `tenant_id` y **sin `HasTenant`**: cuelga de la
 campaña. `recipient_type` (`email`/`whatsapp`), `recipient_value`,
-`recipient_name`, `status` (`pending`,`sent`,`failed`,`bounced`),
+`recipient_name`, `status` (`pending`,`sent`,`failed`,`bounced`,`cancelled`),
 `error_message`, `sent_at`, `metadata`.
 
 ---
@@ -144,25 +153,42 @@ deja la lista vieja y `total_recipients` desactualizado, sin aviso.
 
 ## `DELETE /campaigns/{campaign}`
 
-Borrado en blando. ⚠️ La guarda compara con `in_progress`, que nadie escribe: una
-campaña realmente en curso (`sending`) **sí se puede borrar**.
+Borrado en blando. Una campaña **en curso** (`sending`) no se puede borrar: 422
+«Cannot delete campaign in progress». Las demás sí, incluidas las canceladas y
+las ya enviadas.
 
 ## `POST /campaigns/{campaign}/send`
 
-Exige `pending`; si no, 422 «Campaign is not in pending status». Encola
-`SendCampaignJob` y responde 200 «Campaign queued for sending».
+Exige `pending`; si no, 422 «Campaign is not in pending status».
 
-⚠️ El alta ya dejó la campaña en `pending` **y ya encoló su envío**, así que
-pulsar «enviar» encola un **segundo** job: si el primero no ha corrido todavía,
-ambos ven destinatarios `pending` y **la gente recibe el mensaje dos veces**.
+**Una campaña se despacha una sola vez.** El alta ya encoló el envío y lo anotó
+en `queued_at`, así que este endpoint responde 422 «Campaign was already queued
+for sending» en vez de encolar un segundo job. Antes no había defensa: pulsar
+«enviar» duplicaba el job y, si el primero no había corrido, **la gente recibía
+el mensaje dos veces**.
+
+Sigue siendo el disparador de una campaña que quedó `pending` sin llegar a
+encolarse: en ese caso encola, marca `queued_at` y responde 200 «Campaign queued
+for sending».
 
 ## `POST /campaigns/{campaign}/cancel`
 
-⚠️ **Está roto.** Escribe `status = 'cancelled'`, valor que el CHECK de la
-columna no admite ni en PostgreSQL ni fuera: responde **500** y la campaña no se
-cancela. Y la guarda previa compara con `completed`, que tampoco existe, así que
-ni siquiera una campaña ya enviada se detiene antes del error. **No hay forma de
-cancelar una campaña.**
+Pasa la campaña a `cancelled` y marca como **cancelados** los destinatarios que
+seguían `pending`. Lo que ya salió no se toca: cancelar detiene lo que falta, no
+reescribe lo que pasó. Responde 200 «Campaign cancelled».
+
+Una campaña ya enviada no se cancela: 422 «Cannot cancel a campaign that was
+already sent». Las demás sí —`draft`, `pending`, `scheduled`, `sending`,
+`failed`—, y cancelar dos veces es inocuo.
+
+**Qué detiene de verdad:** el job comprueba el estado antes de arrancar, así que
+una campaña programada y cancelada ya no sale cuando llega su hora. Una que ya
+está *dentro* del bucle de envío no se interrumpe a mitad: el job no vuelve a
+mirar el estado entre destinatario y destinatario.
+
+Antes de la Spec 0038 este endpoint respondía **500 siempre** (`cancelled` no
+estaba en el enum) y su guarda comparaba con `completed`, un estado que nadie
+escribe.
 
 ## `GET /campaigns/{campaign}/recipients`
 
@@ -174,10 +200,14 @@ Paginado de 50 (`?per_page=`). El `meta` de este endpoint **no** trae `per_page`
 
 ### 1. Alta — `CampaignService::createCampaign`
 
-En transacción: genera el token de un año, crea la campaña (`scheduled` si hay
-fecha, `pending` si no), resuelve los destinatarios, guarda `total_recipients` y
+En transacción: genera el token, crea la campaña (`scheduled` si hay fecha,
+`pending` si no), resuelve los destinatarios, guarda `total_recipients`,
 despacha `SendCampaignJob` —inmediato, o con `delay` en la hora de Bogotá si
-estaba programada—.
+estaba programada— y anota `queued_at`.
+
+**El alta envía; `send` no es el disparador.** Crear una campaña la pone en
+camino: no hay un paso intermedio de revisión. `send` queda como red para lo que
+no llegó a encolarse, y no re-despacha (ver arriba).
 
 ### 2. Destinatarios — `generateRecipients`
 
@@ -214,7 +244,8 @@ nombre.
 
 `tries = 3`, `timeout = 300`.
 
-1. Si el estado no es `pending` ni `scheduled`, no hace nada.
+1. Si el estado no es `pending` ni `scheduled`, no hace nada — de ahí que
+   cancelar una campaña programada la detenga.
 2. Marca `sending` y sella `sent_at`.
 3. Recorre los destinatarios `pending` con **`chunkById`** en lotes de
    `config('campaign.batch_size')` (100 por defecto), envía uno a uno,
