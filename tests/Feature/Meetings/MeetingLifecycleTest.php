@@ -166,19 +166,17 @@ class MeetingLifecycleTest extends TestCase
         ]);
     }
 
-    public function test_rareza_la_respuesta_de_store_devuelve_status_null(): void
+    public function test_la_respuesta_de_store_trae_el_status_por_defecto(): void
     {
-        // `status` no viaja en el payload: lo pone el DEFAULT de la columna. Como
-        // el controller no recarga el modelo tras crearlo, el atributo no está en
-        // memoria y el Resource lo serializa como null, aunque en la base valga
-        // 'scheduled'. El frontend que se fíe de `data.status` tras crear se
-        // encuentra un null.
+        // F5 (Spec 0021): `status` no viaja en el payload, lo pone el DEFAULT de
+        // la columna. El controller no recargaba el modelo, así que el Resource
+        // lo serializaba como null aunque en la base valiera 'scheduled'.
         $usuario = $this->usuarioCon(['create_meetings']);
 
         $response = $this->actingAsTenantUser($usuario)
             ->postJson('/api/v1/meetings', $this->payload($usuario));
 
-        $response->assertStatus(201)->assertJsonPath('data.status', null);
+        $response->assertStatus(201)->assertJsonPath('data.status', 'scheduled');
 
         $this->assertDatabaseHas('meetings', [
             'id' => $response->json('data.id'),
@@ -363,12 +361,14 @@ class MeetingLifecycleTest extends TestCase
 
         $this->assertStringContainsString('QR-CARACTERIZACION', $response->json('check_in_url'));
 
-        // RAREZA: `svg` no llega como string. QrCode::generate() devuelve un
-        // HtmlString y al serializar a JSON sale como objeto, así que el cliente
-        // no puede pintarlo directamente. El campo utilizable es `svg_base64`.
-        $this->assertIsArray($response->json('svg'));
+        // F8 (Spec 0021): `svg` llegaba como objeto porque QrCode::generate()
+        // devuelve un HtmlString, y al serializar a JSON salía como objeto. El
+        // cliente no podía pintarlo. Ahora es un string utilizable, y
+        // `svg_base64` sigue siendo el mismo contenido en base64.
+        $this->assertIsString($response->json('svg'));
+        $this->assertStringContainsString('<svg', $response->json('svg'));
         $this->assertIsString($response->json('svg_base64'));
-        $this->assertStringContainsString('<svg', base64_decode($response->json('svg_base64')));
+        $this->assertSame($response->json('svg'), base64_decode($response->json('svg_base64')));
     }
 
     public function test_qr_code_devuelve_404_si_la_reunion_no_tiene_codigo(): void

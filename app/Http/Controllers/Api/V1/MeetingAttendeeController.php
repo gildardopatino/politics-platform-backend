@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\Api\V1\MeetingAttendeeResource;
 use App\Models\Meeting;
 use App\Models\MeetingAttendee;
+use App\Support\DatabaseExpressions;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -17,8 +18,7 @@ class MeetingAttendeeController extends Controller
     public function index(Meeting $meeting): JsonResponse
     {
         $attendees = $meeting->attendees()
-            ->when(request('checked_in'), fn($q) => 
-                request('checked_in') === 'true' ? $q->checkedIn() : $q->notCheckedIn()
+            ->when(request('checked_in'), fn ($q) => request('checked_in') === 'true' ? $q->checkedIn() : $q->notCheckedIn()
             )
             ->paginate(request('per_page', 50));
 
@@ -30,7 +30,7 @@ class MeetingAttendeeController extends Controller
                 'last_page' => $attendees->lastPage(),
                 'checked_in_count' => $meeting->attendees()->checkedIn()->count(),
                 'total_count' => $meeting->attendees()->count(),
-            ]
+            ],
         ]);
     }
 
@@ -41,21 +41,24 @@ class MeetingAttendeeController extends Controller
     {
         $search = request('search');
 
-        if (!$search) {
+        if (! $search) {
             return response()->json([
                 'data' => [],
-                'message' => 'Search parameter is required'
+                'message' => 'Search parameter is required',
             ], 400);
         }
 
         $attendees = $meeting->attendees()
             ->where(function ($query) use ($search) {
-                $query->where('cedula', 'like', "%{$search}%")
-                    ->orWhere('nombres', 'ilike', "%{$search}%")
-                    ->orWhere('apellidos', 'ilike', "%{$search}%");
+                // `ilike` es exclusivo de PostgreSQL; el operador equivalente
+                // por driver vive en App\Support\DatabaseExpressions (Spec 0021).
+                $like = DatabaseExpressions::caseInsensitiveLike();
+
+                $query->where('cedula', $like, "%{$search}%")
+                    ->orWhere('nombres', $like, "%{$search}%")
+                    ->orWhere('apellidos', $like, "%{$search}%");
             })
-            ->when(request('checked_in'), fn($q) => 
-                request('checked_in') === 'true' ? $q->checkedIn() : $q->notCheckedIn()
+            ->when(request('checked_in'), fn ($q) => request('checked_in') === 'true' ? $q->checkedIn() : $q->notCheckedIn()
             )
             ->limit(50)
             ->get();
@@ -65,7 +68,7 @@ class MeetingAttendeeController extends Controller
             'meta' => [
                 'total' => $attendees->count(),
                 'search_term' => $search,
-            ]
+            ],
         ]);
     }
 
@@ -77,10 +80,10 @@ class MeetingAttendeeController extends Controller
     {
         $search = request('search');
 
-        if (!$search) {
+        if (! $search) {
             return response()->json([
                 'data' => [],
-                'message' => 'Search parameter is required'
+                'message' => 'Search parameter is required',
             ], 400);
         }
 
@@ -88,9 +91,13 @@ class MeetingAttendeeController extends Controller
         // Agrupar por cedula para evitar duplicados
         $attendees = MeetingAttendee::select('cedula', 'nombres', 'apellidos', 'telefono', 'email')
             ->where(function ($query) use ($search) {
-                $query->where('cedula', 'like', "%{$search}%")
-                    ->orWhere('nombres', 'ilike', "%{$search}%")
-                    ->orWhere('apellidos', 'ilike', "%{$search}%");
+                // `ilike` es exclusivo de PostgreSQL; el operador equivalente
+                // por driver vive en App\Support\DatabaseExpressions (Spec 0021).
+                $like = DatabaseExpressions::caseInsensitiveLike();
+
+                $query->where('cedula', $like, "%{$search}%")
+                    ->orWhere('nombres', $like, "%{$search}%")
+                    ->orWhere('apellidos', $like, "%{$search}%");
             })
             ->groupBy('cedula', 'nombres', 'apellidos', 'telefono', 'email')
             ->limit(50)
@@ -101,7 +108,7 @@ class MeetingAttendeeController extends Controller
             'meta' => [
                 'total' => $attendees->count(),
                 'search_term' => $search,
-            ]
+            ],
         ]);
     }
 
@@ -124,9 +131,14 @@ class MeetingAttendeeController extends Controller
 
         $attendee = $meeting->attendees()->create($validated);
 
+        // `checked_in` lo pone el DEFAULT de la columna: sin recargar saldría
+        // null en la respuesta y el cliente no distinguiría "no registrado" de
+        // "no se sabe" (Spec 0021, F5).
+        $attendee->refresh();
+
         return response()->json([
             'data' => new MeetingAttendeeResource($attendee),
-            'message' => 'Attendee added successfully'
+            'message' => 'Attendee added successfully',
         ], 201);
     }
 
@@ -138,7 +150,7 @@ class MeetingAttendeeController extends Controller
         $attendee->load('meeting');
 
         return response()->json([
-            'data' => new MeetingAttendeeResource($attendee)
+            'data' => new MeetingAttendeeResource($attendee),
         ]);
     }
 
@@ -160,7 +172,7 @@ class MeetingAttendeeController extends Controller
             'checked_in' => 'sometimes|boolean',
         ]);
 
-        if (isset($validated['checked_in']) && $validated['checked_in'] && !$attendee->checked_in) {
+        if (isset($validated['checked_in']) && $validated['checked_in'] && ! $attendee->checked_in) {
             $validated['checked_in_at'] = now();
         }
 
@@ -168,7 +180,7 @@ class MeetingAttendeeController extends Controller
 
         return response()->json([
             'data' => new MeetingAttendeeResource($attendee),
-            'message' => 'Attendee updated successfully'
+            'message' => 'Attendee updated successfully',
         ]);
     }
 
@@ -180,7 +192,7 @@ class MeetingAttendeeController extends Controller
         $attendee->delete();
 
         return response()->json([
-            'message' => 'Attendee deleted successfully'
+            'message' => 'Attendee deleted successfully',
         ]);
     }
 }

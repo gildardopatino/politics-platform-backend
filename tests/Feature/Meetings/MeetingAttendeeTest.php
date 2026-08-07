@@ -126,12 +126,12 @@ class MeetingAttendeeTest extends TestCase
         ]);
     }
 
-    public function test_rareza_la_respuesta_de_store_devuelve_checked_in_null_en_vez_de_false(): void
+    public function test_la_respuesta_de_store_trae_checked_in_en_false(): void
     {
-        // `store` no toca `checked_in`, así que lo pone el DEFAULT de la
-        // columna. Como el controller no recarga el modelo tras crearlo, el
-        // atributo no está en memoria y sale null. En la base es false.
-        // Es el mismo patrón que `data.status` al crear una reunión.
+        // F5 (Spec 0021): `checked_in` lo pone el DEFAULT de la columna y el
+        // controller no recargaba el modelo, así que la respuesta salía con
+        // null. Quien se fiara del POST no distinguía "no registrado" de "no
+        // se sabe".
         $id = $this->comoUsuarioCon(['create_meetings'])
             ->postJson("/api/v1/meetings/{$this->meeting->id}/attendees", [
                 'cedula' => '71000001',
@@ -139,7 +139,7 @@ class MeetingAttendeeTest extends TestCase
                 'apellidos' => 'Restrepo',
             ])
             ->assertStatus(201)
-            ->assertJsonPath('data.checked_in', null)
+            ->assertJsonPath('data.checked_in', false)
             ->assertJsonPath('data.checked_in_at', null)
             ->json('data.id');
 
@@ -306,21 +306,85 @@ class MeetingAttendeeTest extends TestCase
             ->assertStatus(403);
     }
 
-    public function test_hallazgo_search_revienta_fuera_de_postgresql_por_usar_ilike(): void
+    public function test_search_encuentra_por_nombre_ignorando_mayusculas(): void
     {
-        // `search` y `searchAll` filtran con el operador `ilike`, exclusivo de
-        // PostgreSQL. La Spec 0019 portó los otros casos (`ILIKE` en mayúsculas)
-        // pero estos dos, en minúsculas, se le escaparon al grep. En la suite
-        // (SQLite) responden 500.
+        // F4 (Spec 0021): filtraba con el operador `ilike`, exclusivo de
+        // PostgreSQL, y respondía 500 fuera de él. Ahora usa
+        // DatabaseExpressions::caseInsensitiveLike(), que en pgsql sigue
+        // emitiendo ILIKE.
         $this->crearAsistente('71000001', false);
 
         $this->comoUsuarioCon(['view_meetings'])
+            ->getJson("/api/v1/meetings/{$this->meeting->id}/attendees/search?search=ANA")
+            ->assertStatus(200)
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.cedula', '71000001')
+            ->assertJsonPath('meta.search_term', 'ANA');
+    }
+
+    public function test_search_encuentra_por_cedula_parcial(): void
+    {
+        $this->crearAsistente('71000001', false);
+
+        $this->comoUsuarioCon(['view_meetings'])
+            ->getJson("/api/v1/meetings/{$this->meeting->id}/attendees/search?search=100000")
+            ->assertStatus(200)
+            ->assertJsonCount(1, 'data');
+    }
+
+    public function test_search_no_devuelve_asistentes_de_otra_reunion(): void
+    {
+        $this->crearAsistente('71000001', false);
+        $otra = Meeting::factory()->forTenant($this->tenant)->create();
+        $otra->attendees()->create([
+            'tenant_id' => $this->tenant->id,
+            'cedula' => '71000002',
+            'nombres' => 'Ana',
+            'apellidos' => 'Restrepo',
+        ]);
+
+        $this->comoUsuarioCon(['view_meetings'])
             ->getJson("/api/v1/meetings/{$this->meeting->id}/attendees/search?search=ana")
-            ->assertStatus(500);
+            ->assertStatus(200)
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.cedula', '71000001');
+    }
+
+    public function test_search_all_busca_en_todas_las_reuniones_del_tenant(): void
+    {
+        $this->crearAsistente('71000001', false);
+        $otra = Meeting::factory()->forTenant($this->tenant)->create();
+        $otra->attendees()->create([
+            'tenant_id' => $this->tenant->id,
+            'cedula' => '71000002',
+            'nombres' => 'Anabel',
+            'apellidos' => 'Restrepo',
+        ]);
 
         $this->comoUsuarioCon(['view_meetings'])
             ->getJson('/api/v1/attendees/search?search=ana')
-            ->assertStatus(500);
+            ->assertStatus(200)
+            ->assertJsonCount(2, 'data');
+    }
+
+    public function test_search_all_no_cruza_tenants(): void
+    {
+        $this->crearAsistente('71000001', false);
+
+        $otroTenant = Tenant::factory()->create();
+        $ajena = Meeting::factory()->forTenant($otroTenant)->create();
+        $ajena->attendees()->create([
+            'tenant_id' => $otroTenant->id,
+            'cedula' => '72000001',
+            'nombres' => 'Ana',
+            'apellidos' => 'Ospina',
+        ]);
+
+        $this->comoUsuarioCon(['view_meetings'])
+            ->getJson('/api/v1/attendees/search?search=ana')
+            ->assertStatus(200)
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.cedula', '71000001');
     }
 
     // ------------------------------------------------------------------

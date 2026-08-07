@@ -78,6 +78,12 @@ class MeetingController extends Controller
             );
 
             $meeting->update(['qr_code' => $qrData['code']]);
+
+            // `status` lo pone el DEFAULT de la columna: sin recargar saldría
+            // null en la respuesta aunque en la base valga 'scheduled'
+            // (Spec 0021, F5).
+            $meeting->refresh();
+
             $meeting->qr_data = $qrData; // Attach QR data temporarily for response
 
             // Handle reminder if provided
