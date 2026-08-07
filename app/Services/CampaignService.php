@@ -16,17 +16,17 @@ class CampaignService
     {
         return DB::transaction(function () use ($data) {
             $user = request()->user();
-            
+
             // Determine status based on scheduled_at
-            $status = !empty($data['scheduled_at']) ? 'scheduled' : 'pending';
-            
+            $status = ! empty($data['scheduled_at']) ? 'scheduled' : 'pending';
+
             // Generate a long-lived JWT token (1 year) for external service authentication
             // Store original TTL, set to 1 year, generate token, then restore
             $originalTTL = config('jwt.ttl');
             config(['jwt.ttl' => 525600]); // 1 year
             $token = \Tymon\JWTAuth\Facades\JWTAuth::fromUser($user);
             config(['jwt.ttl' => $originalTTL]); // Restore original TTL
-            
+
             $campaign = Campaign::create([
                 'tenant_id' => $user->tenant_id,
                 'created_by' => $user->id,
@@ -42,16 +42,22 @@ class CampaignService
             $recipients = $this->generateRecipients($campaign);
             $campaign->update(['total_recipients' => count($recipients)]);
 
-            if (!empty($data['scheduled_at'])) {
+            if (! empty($data['scheduled_at'])) {
                 // Schedule for later - parse date in Colombia timezone and use directly
                 $scheduledDate = \Carbon\Carbon::parse($data['scheduled_at'], config('app.timezone'));
-                
+
                 SendCampaignJob::dispatch($campaign)
                     ->delay($scheduledDate);
             } else {
                 // Send immediately
                 SendCampaignJob::dispatch($campaign);
             }
+
+            // Queda constancia de que ya hay un job para esta campaña, para que
+            // `send` no encole un segundo y la gente reciba el mensaje dos veces
+            // (Spec 0038). El estado no sirve para saberlo: `pending` significa
+            // «aún no ha empezado», no «nadie la ha encolado».
+            $campaign->update(['queued_at' => now()]);
 
             return $campaign->fresh();
         });
@@ -90,7 +96,7 @@ class CampaignService
         // Eliminar duplicados por recipient_value
         $recipients = $this->deduplicateRecipients($recipients);
 
-        if (!empty($recipients)) {
+        if (! empty($recipients)) {
             CampaignRecipient::insert($recipients);
         }
 
@@ -109,21 +115,21 @@ class CampaignService
         if (isset($filters['barrio_id']) && $filters['barrio_id']) {
             // Más específico: Barrio
             $query->where('barrio_id', $filters['barrio_id']);
-            
+
             Log::info('Campaign filter by location: Barrio', [
-                'barrio_id' => $filters['barrio_id']
+                'barrio_id' => $filters['barrio_id'],
             ]);
-            
+
         } elseif (isset($filters['commune_id']) && $filters['commune_id']) {
             // Comuna
             $query->whereHas('barrio', function ($q) use ($filters) {
                 $q->where('commune_id', $filters['commune_id']);
             });
-            
+
             Log::info('Campaign filter by location: Comuna', [
-                'commune_id' => $filters['commune_id']
+                'commune_id' => $filters['commune_id'],
             ]);
-            
+
         } elseif (isset($filters['municipality_id']) && $filters['municipality_id']) {
             // Municipio (puede tener comunas o barrios directos)
             $query->where(function ($q) use ($filters) {
@@ -132,23 +138,23 @@ class CampaignService
                     $bq->where('municipality_id', $filters['municipality_id']);
                 })
                 // O barrios que pertenecen a comunas de este municipio
-                ->orWhereHas('barrio.commune', function ($cq) use ($filters) {
-                    $cq->where('municipality_id', $filters['municipality_id']);
-                });
+                    ->orWhereHas('barrio.commune', function ($cq) use ($filters) {
+                        $cq->where('municipality_id', $filters['municipality_id']);
+                    });
             });
-            
+
             Log::info('Campaign filter by location: Municipality', [
-                'municipality_id' => $filters['municipality_id']
+                'municipality_id' => $filters['municipality_id'],
             ]);
-            
+
         } elseif (isset($filters['department_id']) && $filters['department_id']) {
             // Departamento (más general)
             $query->whereHas('barrio.municipality', function ($q) use ($filters) {
                 $q->where('department_id', $filters['department_id']);
             });
-            
+
             Log::info('Campaign filter by location: Department', [
-                'department_id' => $filters['department_id']
+                'department_id' => $filters['department_id'],
             ]);
         }
 
@@ -158,7 +164,7 @@ class CampaignService
     protected function extractRecipientsFromUsers(Campaign $campaign, $users): array
     {
         $recipients = [];
-        
+
         foreach ($users as $user) {
             if (in_array($campaign->channel, ['email', 'both']) && $user->email) {
                 $recipients[] = [
@@ -171,7 +177,7 @@ class CampaignService
                     'updated_at' => now(),
                 ];
             }
-            
+
             if (in_array($campaign->channel, ['whatsapp', 'both']) && $user->phone) {
                 $recipients[] = [
                     'campaign_id' => $campaign->id,
@@ -184,14 +190,14 @@ class CampaignService
                 ];
             }
         }
-        
+
         return $recipients;
     }
 
     protected function extractRecipientsFromAttendees(Campaign $campaign, $attendees): array
     {
         $recipients = [];
-        
+
         foreach ($attendees as $attendee) {
             if (in_array($campaign->channel, ['email', 'both']) && $attendee->email) {
                 $recipients[] = [
@@ -204,7 +210,7 @@ class CampaignService
                     'updated_at' => now(),
                 ];
             }
-            
+
             if (in_array($campaign->channel, ['whatsapp', 'both']) && $attendee->telefono) {
                 $recipients[] = [
                     'campaign_id' => $campaign->id,
@@ -217,28 +223,28 @@ class CampaignService
                 ];
             }
         }
-        
+
         return $recipients;
     }
 
     protected function extractCustomRecipients(Campaign $campaign, array $customRecipients): array
     {
         $recipients = [];
-        
+
         foreach ($customRecipients as $custom) {
             $type = $custom['type']; // 'email' or 'phone'
             $value = $custom['value'];
             $name = $custom['name'] ?? null;
-            
+
             // Validar que el tipo coincida con el canal
-            if ($type === 'email' && !in_array($campaign->channel, ['email', 'both'])) {
+            if ($type === 'email' && ! in_array($campaign->channel, ['email', 'both'])) {
                 continue;
             }
-            
-            if ($type === 'phone' && !in_array($campaign->channel, ['whatsapp', 'both'])) {
+
+            if ($type === 'phone' && ! in_array($campaign->channel, ['whatsapp', 'both'])) {
                 continue;
             }
-            
+
             $recipients[] = [
                 'campaign_id' => $campaign->id,
                 'recipient_type' => $type === 'phone' ? 'whatsapp' : 'email',
@@ -249,7 +255,7 @@ class CampaignService
                 'updated_at' => now(),
             ];
         }
-        
+
         return $recipients;
     }
 
@@ -257,16 +263,16 @@ class CampaignService
     {
         $unique = [];
         $seen = [];
-        
+
         foreach ($recipients as $recipient) {
-            $key = $recipient['recipient_type'] . ':' . $recipient['recipient_value'];
-            
-            if (!isset($seen[$key])) {
+            $key = $recipient['recipient_type'].':'.$recipient['recipient_value'];
+
+            if (! isset($seen[$key])) {
                 $unique[] = $recipient;
                 $seen[$key] = true;
             }
         }
-        
+
         return $unique;
     }
 
@@ -275,40 +281,40 @@ class CampaignService
         try {
             if ($recipient->recipient_type === 'email') {
                 $campaign = $recipient->campaign;
-                
+
                 // Use the long-lived token stored with the campaign
                 $token = $campaign->creator_token;
-                
-                if (!$token) {
+
+                if (! $token) {
                     Log::error('No creator token available for email sending', [
                         'campaign_id' => $campaign->id,
-                        'recipient' => $recipient->recipient_value
+                        'recipient' => $recipient->recipient_value,
                     ]);
                     throw new \Exception('No authentication token available');
                 }
-                
+
                 $emailService = app(EmailNotificationService::class);
                 $success = $emailService->sendEmail(
                     $recipient->recipient_value,
                     $campaign->message,
                     $token
                 );
-                
-                if (!$success) {
+
+                if (! $success) {
                     throw new \Exception('Email service returned false');
                 }
-                
+
             } elseif ($recipient->recipient_type === 'whatsapp') {
                 $campaign = $recipient->campaign;
-                
+
                 $whatsappService = app(WhatsAppNotificationService::class);
                 $success = $whatsappService->sendMessage(
                     $recipient->recipient_value,
                     $campaign->message,
                     $campaign->tenant_id
                 );
-                
-                if (!$success) {
+
+                if (! $success) {
                     throw new \Exception('WhatsApp service returned false');
                 }
             }
@@ -324,9 +330,9 @@ class CampaignService
                 'recipient_id' => $recipient->id,
                 'type' => $recipient->recipient_type,
                 'value' => $recipient->recipient_value,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
-            
+
             $recipient->update([
                 'status' => 'failed',
                 'error_message' => $e->getMessage(),

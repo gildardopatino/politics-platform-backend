@@ -98,20 +98,23 @@ class CampaignSendCharacterizationTest extends TestCase
         });
     }
 
-    public function test_hallazgo_send_encola_un_segundo_envio_de_la_misma_campanna(): void
+    public function test_send_ya_no_encola_un_segundo_envio_de_la_misma_campanna(): void
     {
-        // El alta ya encoló el envío y deja la campaña en `pending`, que es justo
-        // el estado que `send` exige. Pulsar «enviar» en el panel encola un
-        // SEGUNDO job de la misma campaña: si el primero aún no ha corrido, los
-        // dos ven destinatarios en `pending` y **la gente recibe el mensaje dos
-        // veces**. El endpoint no tiene defensa contra eso.
+        // Era el hallazgo: el alta ya encolaba el envío y dejaba la campaña en
+        // `pending`, que es justo el estado que `send` exigía, así que pulsar
+        // «enviar» encolaba un SEGUNDO job y —si el primero no había corrido—
+        // los dos veían destinatarios `pending` y la gente recibía el mensaje dos
+        // veces. Cerrado por la Spec 0038 con `queued_at`; el detalle vive en
+        // `CampaignSingleDispatchTest`.
         Queue::fake();
 
         $id = $this->crearPorApi()->json('data.id');
 
-        $this->comoUsuario()->postJson("/api/v1/campaigns/{$id}/send")->assertStatus(200);
+        $this->comoUsuario()->postJson("/api/v1/campaigns/{$id}/send")
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Campaign was already queued for sending');
 
-        Queue::assertPushed(SendCampaignJob::class, 2);
+        Queue::assertPushed(SendCampaignJob::class, 1);
     }
 
     // ==================================================================

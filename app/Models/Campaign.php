@@ -24,6 +24,7 @@ class Campaign extends Model implements Auditable
         'channel',
         'filter_json',
         'scheduled_at',
+        'queued_at',
         'sent_at',
         'status',
         'total_recipients',
@@ -34,6 +35,7 @@ class Campaign extends Model implements Auditable
     protected $casts = [
         'filter_json' => 'array',
         'scheduled_at' => 'datetime',
+        'queued_at' => 'datetime',
         'sent_at' => 'datetime',
     ];
 

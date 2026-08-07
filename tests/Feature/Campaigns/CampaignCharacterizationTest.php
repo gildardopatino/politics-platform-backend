@@ -325,17 +325,19 @@ class CampaignCharacterizationTest extends TestCase
         $this->comoUsuario()->getJson("/api/v1/campaigns/{$campana->id}")->assertStatus(404);
     }
 
-    public function test_hallazgo_se_puede_borrar_una_campanna_que_esta_enviando(): void
+    public function test_no_se_puede_borrar_una_campanna_que_esta_enviando(): void
     {
-        // El guardián de `destroy` compara con `in_progress`, un estado que no
-        // existe en el enum y que nadie escribe nunca. El estado real mientras se
-        // envía es `sending`, así que la guarda no protege nada: se puede borrar
-        // una campaña con el job a medio recorrer.
+        // El guardián de `destroy` comparaba con `in_progress`, un estado que no
+        // existe en el enum y que nadie escribe nunca; el estado real mientras se
+        // envía es `sending`, así que no protegía nada y se podía borrar una
+        // campaña con el job a medio recorrer. Cerrado por la Spec 0038.
         $enviando = Campaign::factory()->forTenant($this->tenant)->status('sending')->create();
 
-        $this->comoUsuario()->deleteJson("/api/v1/campaigns/{$enviando->id}")->assertStatus(200);
+        $this->comoUsuario()->deleteJson("/api/v1/campaigns/{$enviando->id}")
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Cannot delete campaign in progress');
 
-        $this->assertSoftDeleted('campaigns', ['id' => $enviando->id]);
+        $this->assertDatabaseHas('campaigns', ['id' => $enviando->id, 'deleted_at' => null]);
     }
 
     // ==================================================================

@@ -91,7 +91,10 @@ class CampaignController extends Controller
      */
     public function destroy(Campaign $campaign): JsonResponse
     {
-        if ($campaign->status === 'in_progress') {
+        // El estado real mientras se envía es `sending`; la guarda comparaba con
+        // `in_progress`, que nadie escribe, así que no protegía nada y se podía
+        // borrar una campaña con el job a medio recorrer (Spec 0038).
+        if ($campaign->status === 'sending') {
             return response()->json([
                 'message' => 'Cannot delete campaign in progress',
             ], 422);
@@ -106,6 +109,15 @@ class CampaignController extends Controller
 
     /**
      * Send campaign manually
+     *
+     * El alta ya despacha el envío y deja la campaña en `pending`, así que este
+     * endpoint encolaba un **segundo** job de la misma campaña: si el primero no
+     * había corrido, los dos veían destinatarios `pending` y la gente recibía el
+     * mensaje dos veces (Spec 0038).
+     *
+     * Una campaña se despacha **una sola vez**: `queued_at` marca que ya hay un
+     * job para ella y este endpoint no vuelve a encolar. Queda como disparador
+     * de las campañas que, por lo que sea, no llegaron a encolarse.
      */
     public function send(Campaign $campaign): JsonResponse
     {
@@ -115,7 +127,15 @@ class CampaignController extends Controller
             ], 422);
         }
 
+        if ($campaign->queued_at !== null) {
+            return response()->json([
+                'message' => 'Campaign was already queued for sending',
+            ], 422);
+        }
+
         SendCampaignJob::dispatch($campaign);
+
+        $campaign->update(['queued_at' => now()]);
 
         return response()->json([
             'message' => 'Campaign queued for sending',
