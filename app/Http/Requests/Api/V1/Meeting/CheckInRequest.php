@@ -2,6 +2,8 @@
 
 namespace App\Http\Requests\Api\V1\Meeting;
 
+use App\Models\Meeting;
+use App\Rules\CamposDeLaPlantilla;
 use Illuminate\Foundation\Http\FormRequest;
 
 class CheckInRequest extends FormRequest
@@ -28,7 +30,19 @@ class CheckInRequest extends FormRequest
             'barrio_id' => 'nullable|exists:barrios,id',
             'telefono' => 'nullable|string|max:20',
             'email' => 'nullable|email',
-            'extra_fields' => 'nullable|array',
+            // Los campos dinámicos se validan contra la plantilla de la reunión
+            // (Spec 0023). Misma regla que el alta autenticada.
+            'extra_fields' => ['nullable', 'array', CamposDeLaPlantilla::paraLaReunion($this->reunionDelQr())],
         ];
+    }
+
+    /**
+     * La reunión del código QR, que es lo único que fija el ámbito en una ruta
+     * pública (Spec 0026). Si el código no existe, la regla no exige nada y el
+     * controlador responde el 404 de siempre.
+     */
+    private function reunionDelQr(): ?Meeting
+    {
+        return Meeting::where('qr_code', $this->route('qr_code'))->first();
     }
 }

@@ -291,23 +291,26 @@ class MeetingAttendanceDomainTest extends TestCase
         $this->assertSame(['profesion' => 'Docente'], $asistente->extra_fields);
     }
 
-    public function test_hueco_el_backend_no_valida_extra_fields_contra_la_plantilla(): void
+    public function test_el_backend_valida_extra_fields_contra_la_plantilla(): void
     {
+        // Era el hallazgo F2: `CheckInRequest` validaba `extra_fields` como
+        // `nullable|array` y nada más, así que la obligatoriedad la aplicaba solo
+        // el formulario del frontend y llamar a la API la saltaba. Las dos
+        // llamadas de abajo respondían 201. Cerrado por la Spec 0023; el detalle
+        // vive en `CheckInCamposDinamicosTest`.
         $this->meeting->update(['template_id' => $this->plantillaCon([
             ['name' => 'profesion', 'label' => 'Profesión', 'type' => 'text', 'required' => true],
         ])->id]);
 
-        // `CheckInRequest` valida `extra_fields` como `nullable|array` y nada
-        // más: la obligatoriedad solo la aplica el formulario del frontend.
         $this->postJson('/api/v1/meetings/check-in/QR-DOMINIO', $this->payload([
             'extra_fields' => ['campo_que_la_plantilla_no_declara' => 'lo que sea'],
-        ]))->assertStatus(201);
+        ]))->assertStatus(422)->assertJsonValidationErrors(['extra_fields']);
 
-        // Y sin el campo marcado como required, también pasa.
+        // Y sin el campo marcado como required, tampoco pasa.
         $this->postJson('/api/v1/meetings/check-in/QR-DOMINIO', $this->payload(['cedula' => '71000002']))
-            ->assertStatus(201);
+            ->assertStatus(422)->assertJsonValidationErrors(['extra_fields']);
 
-        $this->assertDatabaseCount('meeting_attendees', 2);
+        $this->assertDatabaseCount('meeting_attendees', 0);
     }
 
     public function test_hueco_una_reunion_sin_plantilla_no_expone_campos_dinamicos(): void
