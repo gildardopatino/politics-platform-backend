@@ -1,9 +1,16 @@
 # Reuniones, check-in por QR y asistentes
 
-Contrato **observado** (Spec 0010). Este documento describe lo que la API hace
-hoy, verificado con pruebas de caracterización, no lo que debería hacer. Donde el
-comportamiento es discutible se marca con ⚠️ y se enlaza el hallazgo en
+Contrato **observado** (Spec 0010), con los arreglos de la **Spec 0021**
+incorporados. Describe lo que la API hace hoy, verificado con pruebas, no lo que
+debería hacer. Lo que sigue siendo discutible se marca con ⚠️ y está en
 `.specify/context/known-issues.md`.
+
+Corregido por la 0021: el recurso público ya no devuelve nulls ni PII (F3, F6),
+las búsquedas de asistentes son portables (F4), las respuestas de creación traen
+los campos con DEFAULT poblados (F5) y el SVG del QR viaja como string (F8).
+Siguen abiertos, por alcance de otras specs: la identidad de persona y la
+deduplicación (0022), la validación de campos dinámicos (0023) y la máquina de
+estados de la reunión.
 
 Pruebas que lo respaldan:
 
@@ -52,8 +59,9 @@ y envía notificaciones de WhatsApp al planner y al responsable de logística.
   "whatsapp_notification_sent": false, "logistics_notification_sent": false }
 ```
 
-⚠️ **`data.status` llega `null`** aunque en la base valga `scheduled`. El estado
-lo pone el DEFAULT de la columna y el controller no recarga el modelo.
+`data.status` llega poblado (`scheduled`): el controller recarga el modelo antes
+de serializar, porque ese valor lo pone el DEFAULT de la columna (corregido por la
+Spec 0021, F5).
 
 ### `GET /meetings/{id}` — `view_meetings`
 Carga planner, logística, plantilla, asistentes, compromisos, geografía,
@@ -79,13 +87,14 @@ máquina de estados.
 ### `GET /meetings/{id}/qr-code` — `view_meetings`
 
 ```json
-{ "qr_code": "...", "qr_url": "...", "check_in_url": "...", "svg": {...}, "svg_base64": "..." }
+{ "qr_code": "...", "qr_url": "...", "check_in_url": "...", "svg": "<svg …>", "svg_base64": "..." }
 ```
 
 Devuelve `404 {"message":"QR code not generated yet"}` si la reunión no tiene código.
 
-⚠️ **`svg` no es un string.** `QrCode::generate()` devuelve un `HtmlString` que al
-serializar a JSON sale como objeto. El campo utilizable es **`svg_base64`**.
+`svg` es un string con el SVG y `svg_base64` el mismo contenido en base64
+(corregido por la Spec 0021, F8: antes `svg` salía como objeto porque
+`QrCode::generate()` devuelve un `HtmlString`).
 
 ---
 
@@ -98,34 +107,40 @@ funcione, pero implica que **quien tenga el código accede sin sesión**.
 
 ### `GET /meetings/public/{qr_code}` — info para la pantalla de check-in
 
+Las **dos** rutas GET sirven el mismo `PublicMeetingResource` (Spec 0021, F3+F6):
+
 ```json
 { "success": true,
-  "data": { "id": 1, "titulo": null, "descripcion": null, "objetivo": null,
-            "starts_at": "...", "status": "scheduled",
-            "lugar_tipo": null, "lugar_nombre": "Salón comunal",
-            "lugar_direccion": null, "lugar_url": null,
-            "planner": { "id": 1, "name": "...", "email": "...", "phone": "..." },
+  "data": { "id": 1,
+            "titulo": "Asamblea barrial",
+            "descripcion": "Encuentro con la comunidad",
+            "starts_at": "2026-08-20T18:00:00-05:00", "ends_at": null,
+            "status": "scheduled",
+            "lugar_nombre": "Salón comunal", "lugar_direccion": "Calle 50 #45-30",
+            "planner": { "name": "..." },
             "location": { "department": "...", "municipality": "...", "commune": "...", "barrio": "..." },
             "template": { "id": 1, "nombre": "...", "descripcion": "...", "fields": [...] },
             "attendees_count": 3, "checked_in_count": 2 } }
 ```
 
-⚠️ **Seis campos llegan siempre `null`**: `titulo`, `descripcion`, `objetivo`,
-`lugar_tipo`, `lugar_direccion` y `lugar_url`. El controller lee nombres que no
-existen en el modelo `Meeting` (los reales son `title`, `description` y
-`direccion`; `objetivo`, `lugar_tipo` y `lugar_url` no existen). `docs/CHECKIN_CAMPOS_DINAMICOS.md`
-documenta este endpoint **con los campos poblados**, cosa que nunca ocurre.
+Las claves van **en español** porque son las que pinta `MeetingCheckIn.tsx`;
+detrás salen de `title`, `description` y `direccion`.
 
-`template.fields` **sí** funciona: es la lista de preguntas configurables con la
-que el frontend pinta el formulario.
+**Qué NO incluye, por ser rutas sin autenticación**: `tenant_id`, `metadata`,
+`qr_code`, ids de usuario, ni el correo o el teléfono de quien organiza. Del
+planner solo el nombre, que es lo que identifica el encuentro ante quien va a
+asistir. Los campos `objetivo`, `lugar_tipo` y `lugar_url` se retiraron: no
+existen en el modelo y solo producían nulls.
+
+`template.fields` es la lista de preguntas configurables con la que el frontend
+pinta el formulario.
 
 404 si el código no existe.
 
-### `GET /meetings/check-in/{qr_code}` — reunión completa
+### `GET /meetings/check-in/{qr_code}` — misma vista pública
 
-Devuelve el `MeetingResource` entero.
-
-⚠️ Incluye `tenant_id` y el objeto `planner` con su email en una ruta pública.
+Idéntico payload que `getPublicInfo`, sin el envoltorio `success`. Antes devolvía
+el `MeetingResource` entero, con `tenant_id` y el email del planner.
 
 ### `POST /meetings/check-in/{qr_code}` — registrar asistencia
 
@@ -160,8 +175,8 @@ No tienen permisos propios: usan los de meetings, porque son datos de la reunió
 | Endpoint | Permiso | Notas |
 | --- | --- | --- |
 | `GET /meetings/{m}/attendees` | `view_meetings` | Pagina de 50. Filtro `?checked_in=true\|false`. `meta` trae `checked_in_count` y `total_count` |
-| `GET /meetings/{m}/attendees/search?search=` | `view_meetings` | ⚠️ ver abajo |
-| `GET /attendees/search?search=` | `view_meetings` | Busca en todas las reuniones, agrupado por cédula. ⚠️ ver abajo |
+| `GET /meetings/{m}/attendees/search?search=` | `view_meetings` | Por cédula o nombre, ignorando mayúsculas. Máx 50 |
+| `GET /attendees/search?search=` | `view_meetings` | Igual, en todas las reuniones del tenant, agrupado por cédula |
 | `POST /meetings/{m}/attendees` | `create_meetings` | |
 | `GET /attendees/{id}` | `view_meetings` | Incluye la reunión |
 | `PUT /attendees/{id}` | `edit_meetings` | Al pasar `checked_in` de false a true sella `checked_in_at` |
@@ -170,12 +185,16 @@ No tienen permisos propios: usan los de meetings, porque son datos de la reunió
 Sin el parámetro `search`, ambas búsquedas responden
 `400 {"data": [], "message": "Search parameter is required"}`.
 
-⚠️ **`search` y `searchAll` solo funcionan en PostgreSQL**: filtran con el
-operador `ilike`. Fuera de él responden 500.
+`search` y `searchAll` son portables: usan
+`DatabaseExpressions::caseInsensitiveLike()` (Spec 0021, F4; antes filtraban con
+`ilike` y respondían 500 fuera de PostgreSQL).
 
-⚠️ `POST` admite la misma cédula dos veces en la misma reunión, y su respuesta
-devuelve `checked_in: null` en vez de `false` (mismo motivo que `data.status` al
-crear una reunión).
+La respuesta de `POST` trae `checked_in: false` (Spec 0021, F5: antes salía
+`null`, porque el valor lo pone el DEFAULT de la columna y el controller no
+recargaba el modelo).
+
+⚠️ `POST` admite la misma cédula dos veces en la misma reunión. Sigue abierto:
+es parte del rediseño de identidad de persona.
 
 ⚠️ Desmarcar `checked_in` deja la marca de hora anterior: solo se sella al pasar
 de false a true.
