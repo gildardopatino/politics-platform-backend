@@ -1308,16 +1308,22 @@ el resto del país sale en `votantes_externos`, sin agrupar. Quien no tiene
 
 ## Webhooks de Registraduría
 
-Dos rutas **públicas**, pensadas para n8n. Contrato y seguridad en
-`VOTER_SYNC_SYSTEM.md`, sección «Webhooks de Registraduría».
+Dos rutas para n8n, **autenticadas con un secreto por tenant** en la cabecera
+`X-Registraduria-Secret` (Spec 0030). Contrato completo, generación del secreto
+y códigos de rechazo en `VOTER_SYNC_SYSTEM.md`, sección «Webhooks de
+Registraduría».
 
 | Ruta | Qué hace |
 | --- | --- |
-| `GET /api/v1/webhook/political/registraduria/pendientes` | hasta 100 votantes sin `departamento_votacion` |
-| `POST /api/v1/webhook/political/registraduria/actualizar` | escribe el puesto de votación de un votante |
+| `GET /api/v1/webhook/political/registraduria/pendientes` | hasta 100 votantes **del tenant del secreto** sin `departamento_votacion`; devuelve `id` y `cedula` |
+| `POST /api/v1/webhook/political/registraduria/actualizar` | escribe el puesto de votación de **un votante del tenant**; responde un acuse `{id, updated}` |
 
-🔴 **Ambas están sin autenticar y sin filtro de tenant.** Ver los hallazgos en
-`.specify/context/known-issues.md`.
+`throttle:60,1` delante de la verificación. Sin secreto → 401; vigencia vencida
+→ 403; un `id` de otra campaña → 422, el mismo que uno inexistente.
+
+Hasta la 0030 ambas eran **públicas y sin filtro de tenant** —repartían cédulas
+de todas las campañas y dejaban escribir en sus votantes—. La historia está en
+`VOTER_SYNC_SYSTEM.md`.
 
 ---
 

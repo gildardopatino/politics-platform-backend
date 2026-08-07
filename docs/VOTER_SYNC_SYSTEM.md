@@ -404,21 +404,72 @@ assert($voter->direccion === 'Calle 10 # 20-30');
 
 ## Webhooks de Registraduría
 
-Dos rutas **públicas** (fuera del grupo `jwt.auth`), pensadas para que n8n
-complete la información electoral de los votantes.
+Dos rutas para que n8n complete la información electoral de los votantes.
+**Autenticadas con un secreto por tenant** desde la Spec 0030 (antes eran
+públicas; ver «Historia» al final de la sección).
+
+### Autenticación
+
+Cada campaña tiene **su propio secreto**, que viaja en la cabecera:
+
+```
+X-Registraduria-Secret: <64 caracteres>
+```
+
+El secreto **autentica e identifica a la vez**: no hay campo de tenant en el
+payload que un atacante pueda elegir, y una fuga compromete una campaña, no la
+plataforma. Al validarlo, el middleware `webhook.registraduria` enlaza
+`current_tenant_id`, así que el resto de la petición está acotada por
+`TenantScope` igual que las rutas con sesión.
+
+En la tabla `tenants` solo se guarda el **SHA-256** del secreto
+(`registraduria_secret_hash`), no el secreto: quien lea la base no puede firmar
+peticiones. Sin sal a propósito —son 64 caracteres aleatorios, no hay
+diccionario que atacar— para que la búsqueda sea por índice y no un recorrido de
+todos los tenants.
+
+#### Generar o rotar el secreto
+
+```bash
+php artisan registraduria:secret {id-o-slug-del-tenant}
+php artisan registraduria:secret mi-campania --rotate
+```
+
+Imprime el valor en claro **una sola vez**. Si se pierde, hay que rotarlo y
+reconfigurar n8n. Rotar invalida el anterior de inmediato.
+
+La columna es **nullable**: un tenant recién creado no tiene secreto y **no
+puede sincronizar** hasta que se le genere. Es el estado seguro por defecto.
+
+#### Respuestas de rechazo
+
+| Situación | Código | `error` |
+| --- | --- | --- |
+| Falta la cabecera o viene vacía | 401 | `WEBHOOK_SECRET_MISSING` |
+| El secreto no es de nadie (o el tenant fue borrado) | 401 | `WEBHOOK_SECRET_INVALID` |
+| Vigencia de la campaña expirada | 403 | `TENANT_EXPIRED` |
+| Vigencia aún no iniciada | 403 | `TENANT_NOT_STARTED` |
+| Más de 60 peticiones por minuto e IP | 429 | — |
+
+El `throttle:60,1` va **delante** de la verificación para que el secreto no se
+pueda tantear a fuerza bruta.
+
+> ⚠️ **Configuración de n8n.** Antes bastaba una llamada para obtener los
+> pendientes de **toda** la plataforma. Ahora el flujo es **por campaña**: n8n
+> necesita una credencial por tenant y debe recorrerlas. Es la consecuencia
+> directa de acotar por tenant, y es intencional.
 
 ### `GET /api/v1/webhook/political/registraduria/pendientes`
 
 Devuelve un **array crudo**, sin envoltorio ni paginación, con hasta **100**
-votantes que no tienen `departamento_votacion`.
+votantes **del tenant del secreto** que no tienen `departamento_votacion`.
 
 ```json
-[ { "id": 12, "cedula": "71000001", "full_name": "", "location_type": null } ]
+[ { "id": 12, "cedula": "71000001" } ]
 ```
 
-El controlador hace `select('id', 'cedula')`, pero el modelo declara
-`$appends = ['full_name', 'location_type']` y esos dos viajan igual; como
-`nombres`/`apellidos` no se seleccionaron, `full_name` sale vacío.
+Solo `id` y `cedula`. (Antes se colaban además un `full_name` vacío y un
+`location_type` nulo por los `$appends` del modelo, pese al `select`.)
 
 Sin cursor ni paginación: la única forma de avanzar es actualizar los primeros
 100 y volver a llamar.
@@ -427,7 +478,7 @@ Sin cursor ni paginación: la única forma de avanzar es actualizar los primeros
 
 | Campo | Regla |
 | --- | --- |
-| `id` | requerido, entero, `exists:voters,id` |
+| `id` | requerido, entero, **debe ser un votante del tenant del secreto** |
 | `departamento_votacion` | requerido, máx 255 |
 | `municipio_votacion` | requerido, máx 255 |
 | `puesto_votacion` | requerido, máx 255 |
@@ -438,47 +489,55 @@ Crea el `VotingPlace` si no existía (`firstOrCreate` por departamento +
 municipio + puesto), lo liga en `voters.voting_place_id` y escribe los cinco
 campos en el votante.
 
+Un `id` de otra campaña se rechaza **igual que uno inexistente** —mismo código y
+mismo cuerpo—, así que el webhook no sirve para averiguar qué ids tiene la
+competencia.
+
 ```json
 { "success": true,
   "message": "Información de registraduría actualizada correctamente.",
-  "data": { …el modelo Voter completo… } }
+  "data": { "id": 12, "updated": true } }
 ```
 
-Errores: **422** con `{ success: false, errors: {...} }`.
+**Acuse mínimo**: ni PII ni `tenant_id`. Errores: **422** con
+`{ success: false, errors: {...} }`.
 
 ⚠️ `mesa_votacion` se valida como **entero** aunque `voters.mesa_votacion` sea
 `string(20)` y el formulario interno la acepte como texto: una mesa «12A» se
-rechaza aquí.
+rechaza aquí. Sigue abierto en `known-issues.md`.
 
-⚠️ La rama que devuelve `404 «Votante no encontrado»` es **inalcanzable**:
-`exists:voters,id` corta antes con un 422.
+⚠️ La rama que devuelve `404 «Votante no encontrado»` es **inalcanzable**: la
+regla `exists` corta antes con un 422. Se conserva como segunda cerradura.
 
-### 🔴 Seguridad — sin autenticar y sin tenant
+### Historia — qué se cerró y por qué
 
-Las dos rutas están **fuera del grupo `jwt.auth`**, sin token, sin firma y sin
-`throttle`, y consultan con `withoutGlobalScope(TenantScope::class)`. Es el mismo
-patrón que la Spec 0026 cerró en `verify-document`, y aquí sigue abierto:
+Hasta la Spec 0030 las dos rutas estaban **fuera del grupo `jwt.auth`**, sin
+token, sin firma y sin `throttle`, y consultaban con
+`withoutGlobalScope(TenantScope::class)`:
 
-1. `pendientes` **reparte hasta 100 cédulas de cualquier campaña** a quien sepa
-   la URL. (El agujero de la 0026 exigía conocer ya la cédula; este las entrega.)
-2. `actualizar` **escribe** el puesto de votación en el votante de cualquier
+1. `pendientes` **repartía hasta 100 cédulas de cualquier campaña** a quien
+   supiera la URL. (El agujero que cerró la Spec 0026 exigía conocer ya la
+   cédula; este las entregaba.)
+2. `actualizar` **escribía** el puesto de votación en el votante de cualquier
    tenant.
-3. Y devuelve `data => $voter->fresh()`, el modelo **completo**: nombres,
+3. Y devolvía `data => $voter->fresh()`, el modelo **completo**: nombres,
    apellidos, correo, teléfono, dirección y `tenant_id`.
 
-Encadenando (1) → (3) se puede vaciar la base de votantes de **todas** las
-campañas sin autenticarse. Registrado en `.specify/context/known-issues.md`; la
-Spec 0011 solo lo caracteriza, no lo corrige.
+Encadenando (1) → (3) se podía vaciar la base de votantes de **todas** las
+campañas sin autenticarse. Lo caracterizó la Spec 0011 y lo cerró la 0030.
+
+Pruebas: `tests/Feature/Voters/RegistraduriaWebhookSecurityTest.php` (contrato
+de seguridad) y `RegistraduriaWebhookCharacterizationTest.php` (lo que hacen).
 
 ---
 
 ## Comandos de consola
 
-⚠️ Hay **dos** comandos que hacen casi lo mismo:
-
 | Comando | Clase | Programado |
 | --- | --- | --- |
+| `registraduria:secret {tenant} [--rotate]` | `GenerateRegistraduriaSecret` | no (manual, Spec 0030) |
 | `voters:sync {--tenant=}` | `SyncVotersFromAttendees` | sí, `twiceDaily(6, 18)` en `routes/console.php` |
 | `voters:sync-attendees {--tenant-id=}` | `SyncAttendeesToVoters` | no |
 
-Solo el primero está programado. El segundo no lo invoca nadie.
+⚠️ Los dos de sincronización hacen casi lo mismo. Solo `voters:sync` está
+programado; a `voters:sync-attendees` no lo invoca nadie.
