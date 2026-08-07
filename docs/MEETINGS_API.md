@@ -155,7 +155,7 @@ el `MeetingResource` entero, con `tenant_id` y el email del planner.
 | `barrio_id` | opcional, debe existir |
 | `telefono` | opcional, máx 20 |
 | `email` | opcional, formato email |
-| `extra_fields` | opcional, array libre |
+| `extra_fields` | opcional, array **validado contra la plantilla** (Spec 0023) |
 
 Registra a una **persona**, no un formulario (Spec 0022). El QR resuelve la
 reunión y con ella el tenant; el resto lo hace `App\Services\AttendanceService`:
@@ -205,7 +205,7 @@ No tienen permisos propios: usan los de meetings, porque son datos de la reunió
 | `GET /meetings/{m}/attendees` | `view_meetings` | Pagina de 50. Filtro `?checked_in=true\|false`. `meta` trae `checked_in_count` y `total_count` |
 | `GET /meetings/{m}/attendees/search?search=` | `view_meetings` | Por cédula o nombre, ignorando mayúsculas. Máx 50 |
 | `GET /attendees/search?search=` | `view_meetings` | Igual, en todas las reuniones del tenant, agrupado por cédula |
-| `POST /meetings/{m}/attendees` | `create_meetings` | |
+| `POST /meetings/{m}/attendees` | `create_meetings` | `extra_fields` se valida contra la plantilla de la reunión, igual que el check-in (Spec 0023) |
 | `GET /attendees/{id}` | `view_meetings` | Incluye la reunión |
 | `PUT /attendees/{id}` | `edit_meetings` | Al pasar `checked_in` de false a true sella `checked_in_at` |
 | `DELETE /attendees/{id}` | `delete_meetings` | Borrado **real**: la tabla no tiene softDeletes |
@@ -319,10 +319,10 @@ es `null`.
 **Dónde se guardan**: en `meeting_attendees.extra_fields` (JSON). No hay tabla de
 respuestas.
 
-⚠️ **No se validan en el backend.** `CheckInRequest` declara
-`extra_fields => nullable|array` y nada más: se acepta un campo que la plantilla
-no declara y se acepta omitir uno marcado `required`. La obligatoriedad solo la
-aplica el formulario del frontend, así que se salta llamando a la API.
+**Se validan en el backend desde la Spec 0023** (`App\Rules\CamposDeLaPlantilla`),
+en las dos vías de alta. Antes `extra_fields` era `nullable|array` y nada más: la
+obligatoriedad la aplicaba solo el formulario del frontend y se saltaba llamando
+a la API. Reglas y mensajes en `CHECKIN_CAMPOS_DINAMICOS.md`.
 
 ### 4. Nuevos vs recurrentes — SÍ (Spec 0022)
 

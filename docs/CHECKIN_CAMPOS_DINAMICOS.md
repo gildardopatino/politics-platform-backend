@@ -291,7 +291,7 @@ existe—. Los `extra_fields` no cambian: se guardan tal cual.
 
 ## 🔍 Validaciones
 
-### Validaciones Actuales (CheckInRequest)
+### Campos básicos (CheckInRequest)
 
 ```php
 [
@@ -301,19 +301,69 @@ existe—. Los `extra_fields` no cambian: se guardan tal cual.
     'barrio_id' => 'nullable|exists:barrios,id',
     'telefono' => 'nullable|string|max:20',
     'email' => 'nullable|email',
-    'extra_fields' => 'nullable|array',
+    'extra_fields' => ['nullable', 'array', CamposDeLaPlantilla::paraLaReunion($reunion)],
 ]
 ```
 
-### Validaciones Futuras Sugeridas
+### Campos dinámicos contra la plantilla (Spec 0023)
 
-Para validar que los campos dinámicos cumplan con el template:
+> **Cambio de contrato.** Hasta la Spec 0023 `extra_fields` era `nullable|array`
+> y nada más (hallazgo F2 de la caracterización 0010): el backend aceptaba un
+> campo que la plantilla no declara y dejaba omitir uno marcado `required`. La
+> obligatoriedad la aplicaba **solo** el formulario del frontend, así que se
+> saltaba llamando a la API. Ahora la aplica el servidor.
 
-```php
-// Validar que los campos requeridos del template estén presentes
-// Validar que los valores de radio/select sean de las opciones permitidas
-// Validar tipos de datos (date, number, email, etc.)
+La validación vive en **`App\Rules\CamposDeLaPlantilla`** y es la misma regla
+para las dos vías de alta:
+
+- `POST /api/v1/meetings/check-in/{qr_code}` — check-in público (la plantilla la
+  fija la reunión del QR).
+- `POST /api/v1/meetings/{meeting}/attendees` — alta autenticada desde el panel.
+
+Reglas, dada `meeting_templates.fields`:
+
+| Caso | Resultado |
+| --- | --- |
+| Clave que la plantilla no declara | `422` |
+| Falta un campo `required` (o llega `""`, `null`, `[]`) | `422` |
+| Valor fuera de `options` en `select`, `radio` o `checkbox` | `422` |
+| Todos los `required` presentes y sin claves de más | `201` |
+| Reunión **sin** `template_id` | No se exige ni se restringe nada |
+
+Detalles que conviene tener presentes:
+
+- **La clave vale por `name` o por `label`.** Las plantillas guardan los dos y el
+  frontend ha usado ambos según la pantalla; admitir solo uno invalidaría la
+  asistencia ya capturada.
+- **Es una regla implícita**: omitir `extra_fields` entero tampoco salta un campo
+  obligatorio (era la forma más cómoda de esquivar la validación).
+- **`false` y `0` son respuestas válidas** para un `required`; `""`, `null` y `[]`
+  no lo son.
+- **Un `checkbox` con `options` admite varias marcas** (lista): se valida cada
+  una contra las opciones.
+- **Una plantilla que existe pero no declara campos sí es un contrato**:
+  cualquier clave sobra. Enviar `{}` o no enviar `extra_fields` sigue valiendo.
+- Los tipos sin `options` (`text`, `textarea`, `number`, `date`, `datetime`) solo
+  se comprueban por presencia: la spec no entra a validar formato por tipo.
+- `PUT /attendees/{id}` **no** pasa por la regla: sigue con `nullable|array`.
+  Fuera del alcance de la 0023.
+
+Los mensajes van en español (Art. IX) y nombran el campo por su etiqueta:
+
+```json
+{
+  "message": "El campo «Profesión» es obligatorio.",
+  "errors": {
+    "extra_fields": [
+      "El campo «campo_inventado» no está declarado en la plantilla de la reunión.",
+      "El campo «Profesión» es obligatorio.",
+      "«Estrato 9» no es una opción válida de «Estrato socioeconómico». Opciones: Estrato 1, Estrato 2."
+    ]
+  }
+}
 ```
+
+Pruebas: `tests/Feature/Meetings/CheckInCamposDinamicosTest.php` (17).
 
 ---
 
@@ -351,6 +401,9 @@ Para validar que los campos dinámicos cumplan con el template:
    - Validar campos `required` antes de enviar
    - Validar que valores de `radio`/`select` estén en `options`
    - Validar tipos de datos (fechas, números, emails)
+   - Desde la Spec 0023 el backend valida lo mismo: el formulario deja de ser la
+     única red. Un `422` con errores en `extra_fields` hay que mostrarlo tal cual
+     —ya llega en español— y no como error genérico
 
 4. **UX**:
    - Mostrar asterisco (*) en campos requeridos
@@ -369,12 +422,15 @@ Para validar que los campos dinámicos cumplan con el template:
 El sistema ya está **completamente preparado** para recibir campos dinámicos:
 
 - ✅ Columna `extra_fields` (JSON) en la tabla
-- ✅ Validación de `extra_fields` como array
 - ✅ Cast automático a array en el modelo
 - ✅ Almacenamiento y recuperación funcional
 - ✅ API pública retorna estructura completa del template
+- ✅ `extra_fields` validado contra la plantilla en el servidor (Spec 0023), en el
+  check-in público y en el alta autenticada
 
 El frontend solo necesita:
 1. Obtener el template del meeting
 2. Renderizar los campos dinámicamente
 3. Enviar los valores en `extra_fields` usando los labels como keys
+4. Mostrar los errores de `extra_fields` que devuelva un `422` (ya vienen en
+   español y nombran el campo por su etiqueta)
