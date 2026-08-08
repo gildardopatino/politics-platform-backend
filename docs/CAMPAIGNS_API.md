@@ -23,6 +23,8 @@ Pruebas que lo sostienen:
 | `tests/Feature/Campaigns/CampaignStatusEnumTest.php` (4) | que los estados del código caben en la columna (Spec 0038) |
 | `tests/Feature/Campaigns/CampaignCancelTest.php` (7) | cancelar (Spec 0038) |
 | `tests/Feature/Campaigns/CampaignSingleDispatchTest.php` (8) | despacho único y `destroy` protegido (Spec 0038) |
+| `tests/Feature/Campaigns/CampaignDraftAndBillingTest.php` (16) | borrador → envío y cobro todo-o-nada (Spec 0040) |
+| `tests/Feature/Campaigns/CampaignScheduledSendTest.php` (5) | programadas y bordes del cobro (Spec 0040) |
 
 ---
 
@@ -34,13 +36,17 @@ permiso → 403, campaña de otro tenant → 404.
 | Endpoint | Permiso | Acción |
 | --- | --- | --- |
 | `GET /campaigns` | `view_campaigns` | `index` |
-| `POST /campaigns` | `create_campaigns` | `store` — **crea y encola el envío** |
+| `POST /campaigns` | `create_campaigns` | `store` — **guarda un borrador** |
 | `GET /campaigns/{campaign}` | `view_campaigns` | `show` |
-| `PUT\|PATCH /campaigns/{campaign}` | `edit_campaigns` | `update` (solo `pending`) |
+| `PUT\|PATCH /campaigns/{campaign}` | `edit_campaigns` | `update` (solo `draft`) |
 | `DELETE /campaigns/{campaign}` | `delete_campaigns` | `destroy` (soft delete) |
-| `POST /campaigns/{campaign}/send` | `edit_campaigns` | `send` (solo `pending`) |
-| `POST /campaigns/{campaign}/cancel` | `edit_campaigns` | `cancel` — ⚠️ **roto** |
+| `POST /campaigns/{campaign}/send` | `edit_campaigns` | `send` — **resuelve, cobra y despacha** |
+| `POST /campaigns/{campaign}/cancel` | `edit_campaigns` | `cancel` |
 | `GET /campaigns/{campaign}/recipients` | `view_campaigns` | `recipients` |
+
+**El ciclo es borrador → envío** (Spec 0040). Crear una campaña ya no la envía:
+se guarda, se revisa, se edita, y sale cuando alguien pulsa enviar. Ese mismo
+momento es el que **resuelve los destinatarios** y **cobra los créditos**.
 
 ## Modelo y vocabulario de estados
 
@@ -62,13 +68,13 @@ permiso → 403, campaña de otro tenant → 404.
 
 | Estado | Lo escribe | Lo comprueba |
 | --- | --- | --- |
-| `pending` | `createCampaign` sin fecha | `update`, `send`, el job |
-| `scheduled` | `createCampaign` con fecha | el job |
+| `draft` | `createCampaign` (siempre) | `update` y `send` (solo se edita y se envía un borrador) |
+| `pending` | `send`, sin fecha o con la fecha ya pasada | el job |
+| `scheduled` | `send`, con fecha futura | el job |
 | `sending` | el job al empezar | `destroy` (no deja borrar) |
 | `sent` | el job al terminar sin pendientes | `cancel` (no deja cancelar) |
 | `failed` | `SendCampaignJob::failed()` | — |
 | `cancelled` | `cancel` | el job (no arranca) |
-| `draft` | *nadie* (es el DEFAULT de la columna) | — |
 
 Hasta la 0038 el vocabulario no cuadraba con la columna y era la raíz de varios
 bugs: `cancel` escribía `cancelled`, que **no estaba en el enum** (500 siempre);
@@ -114,9 +120,9 @@ error de columna inexistente que el filtro.
 | `filter_json.department_id\|municipality_id\|commune_id\|barrio_id` | `exists:` |
 | `scheduled_at` | opcional, fecha **futura** (mensaje en español) |
 
-Responde `201` con `message: "Campaign created and queued for sending"`, el
-recurso con `total_recipients` ya calculado y `status` `pending` (o `scheduled`
-si venía fecha). **El envío queda encolado en ese mismo momento.**
+Responde `201` con `message: "Campaign saved as draft"`, `status: "draft"` y
+`total_recipients: 0`. **No sale nada y no se cobra nada**: los destinatarios se
+resuelven al enviar. `scheduled_at` se guarda para usarla entonces.
 
 El alta genera un JWT del creador y lo guarda en `campaigns.creator_token` para
 que el webhook de correo lo reutilice como `Bearer`. **No sale del servidor**
@@ -142,14 +148,14 @@ Carga `createdBy` y `recipients`. Campaña de otro tenant → 404.
 
 ## `PUT|PATCH /campaigns/{campaign}`
 
-Solo si `status === 'pending'`; si no, **422** «Cannot update campaign that is
-not pending».
+Solo un **borrador** se edita; si no, **422** «Cannot update campaign that is not
+a draft». Lo que ya está en camino, enviado o cancelado no se toca.
 
-⚠️ Una campaña `scheduled` —lo único que aún no se ha enviado— **no se puede
-editar**: hay que borrarla y rehacerla.
-
-⚠️ Editar **no regenera los destinatarios**. Cambiar `channel` o `filter_json`
-deja la lista vieja y `total_recipients` desactualizado, sin aviso.
+Editar el borrador **sí cambia lo que se envía**: los destinatarios se resuelven
+en el momento del envío, así que cambiar `channel` o `filter_json` se refleja.
+Antes se resolvían al crear y editarlos no servía de nada; y una campaña
+programada —lo único que aún no había salido— era justo lo que no se podía
+corregir.
 
 ## `DELETE /campaigns/{campaign}`
 
@@ -159,17 +165,61 @@ las ya enviadas.
 
 ## `POST /campaigns/{campaign}/send`
 
-Exige `pending`; si no, 422 «Campaign is not in pending status».
+**El disparador del envío, y donde se cobra** (Spec 0040). Exige un borrador; si
+no, 422 «Campaign is not a draft».
 
-**Una campaña se despacha una sola vez.** El alta ya encoló el envío y lo anotó
-en `queued_at`, así que este endpoint responde 422 «Campaign was already queued
-for sending» en vez de encolar un segundo job. Antes no había defensa: pulsar
-«enviar» duplicaba el job y, si el primero no había corrido, **la gente recibía
-el mensaje dos veces**.
+Qué hace, en este orden:
 
-Sigue siendo el disparador de una campaña que quedó `pending` sin llegar a
-encolarse: en ese caso encola, marca `queued_at` y responde 200 «Campaign queued
-for sending».
+1. **Resuelve los destinatarios** desde `filter_json` (ver más abajo). Si no sale
+   nadie → 422 «Campaign has no recipients to send», sin cobrar ni despachar.
+2. **Cuenta los mensajes por canal.** Con `both`, cada persona cuenta uno de
+   correo y uno de WhatsApp.
+3. **Valida el saldo en todo o nada.** Si a cualquiera de los dos canales le
+   falta un solo crédito → **422** con el detalle (abajo), sin enviar nada, sin
+   descontar nada y sin dejar destinatarios escritos: la campaña sigue en
+   borrador y basta recargar y reintentar.
+4. **Descuenta por canal** y registra un `MessagingCreditTransaction` de tipo
+   `consumption` por cada canal usado.
+5. Marca `pending` —o `scheduled` si `scheduled_at` sigue en el futuro—, sella
+   `queued_at` y **despacha el job una sola vez** (con `delay` si es programada).
+
+Responde `200` con el recurso y `message: "Campaign queued for sending"`.
+
+Del 1 al 4 van en **una sola transacción**, con la fila de créditos bloqueada
+(`lockForUpdate`): dos envíos simultáneos del mismo tenant no pueden gastar el
+mismo saldo dos veces. El job se despacha **fuera** de la transacción, porque
+dentro podría arrancar antes del commit y encontrarse la campaña en `draft`.
+
+### El 422 de saldo insuficiente
+
+Contrato estable para el panel (spec 0043 en el frontend). **Los dos canales
+viajan siempre**, aunque uno no se use:
+
+```json
+{
+  "message": "Insufficient messaging credits to send this campaign",
+  "credits": {
+    "email":    { "needed": 0,   "available": 0,  "missing": 0 },
+    "whatsapp": { "needed": 3,   "available": 1,  "missing": 2 }
+  }
+}
+```
+
+- `needed` — mensajes que saldrían por ese canal.
+- `available` — saldo del tenant en ese canal **antes** de enviar.
+- `missing` — `max(0, needed - available)`. Si algún canal lo tiene `> 0`, no
+  sale nada.
+
+Un tenant **sin fila** en `tenant_messaging_credits` tiene `available: 0` en los
+dos: el saldo es una autorización previa, no un contador que se rellena después.
+
+### Despacho único
+
+`queued_at` marca que ya hay un job para esa campaña. Como enviar exige un
+borrador y el envío deja la campaña en `pending`/`scheduled`, un segundo clic
+responde 422 «Campaign is not a draft». La comprobación de `queued_at` se
+mantiene como cinturón y tirantes: un borrador ya encolado responde 422 «Campaign
+was already queued for sending».
 
 ## `POST /campaigns/{campaign}/cancel`
 
@@ -180,6 +230,10 @@ reescribe lo que pasó. Responde 200 «Campaign cancelled».
 Una campaña ya enviada no se cancela: 422 «Cannot cancel a campaign that was
 already sent». Las demás sí —`draft`, `pending`, `scheduled`, `sending`,
 `failed`—, y cancelar dos veces es inocuo.
+
+⚠️ **Cancelar no devuelve los créditos.** El cobro ocurre al enviar; cancelar
+detiene la entrega pero lo cobrado sigue cobrado. El reembolso —y el de los
+mensajes que fallan en el job— es follow-up de la Spec 0040.
 
 **Qué detiene de verdad:** el job comprueba el estado antes de arrancar, así que
 una campaña programada y cancelada ya no sale cuando llega su hora. Una que ya
@@ -200,18 +254,16 @@ Paginado de 50 (`?per_page=`). El `meta` de este endpoint **no** trae `per_page`
 
 ### 1. Alta — `CampaignService::createCampaign`
 
-En transacción: genera el token, crea la campaña (`scheduled` si hay fecha,
-`pending` si no), resuelve los destinatarios, guarda `total_recipients`,
-despacha `SendCampaignJob` —inmediato, o con `delay` en la hora de Bogotá si
-estaba programada— y anota `queued_at`.
+Genera el token del creador y guarda la campaña en `draft` con su texto, su canal
+y sus filtros. **Nada más**: ni destinatarios, ni cobro, ni job.
 
-**El alta envía; `send` no es el disparador.** Crear una campaña la pone en
-camino: no hay un paso intermedio de revisión. `send` queda como red para lo que
-no llegó a encolarse, y no re-despacha (ver arriba).
+**`send` es el disparador; el alta no envía** (Spec 0040). Antes era al revés:
+crear ponía la campaña en camino sin ningún paso de revisión.
 
 ### 2. Destinatarios — `generateRecipients`
 
-Se resuelven **una sola vez, al crear**. Según `filter_json.target`
+Se resuelven **al enviar**, desde los filtros que tenga el borrador en ese
+momento, así que editarlo cambia lo que sale. Según `filter_json.target`
 (por defecto `all_users`):
 
 | Objetivo | De dónde salen |
@@ -232,8 +284,8 @@ de sus comunas.
 
 **Aislamiento:** `meeting_ids` se valida con `exists:meetings,id` sin filtro de
 tenant, así que un id ajeno pasa la validación; quien protege es el `TenantScope`
-de `MeetingAttendee`, que no ve esas filas. Pedir la reunión de otra campaña da
-`total_recipients: 0`.
+de `MeetingAttendee`, que no ve esas filas. Pedir la reunión de otra campaña no
+resuelve a nadie, y enviar responde «Campaign has no recipients to send».
 
 ⚠️ `recipient_name` casi nunca se guarda: para asistentes el servicio lee
 `$attendee->nombre` y el modelo tiene `nombres`/`apellidos`; para la lista
@@ -287,9 +339,25 @@ false`…).
 
 ### 5. Créditos
 
-⚠️ **Las campañas no consumen créditos de mensajería.** El flujo no toca
-`TenantMessagingCredit` en ningún punto: ni comprueba saldo antes ni descuenta
-después, ni deja transacción. No es el problema de los recordatorios de
-compromisos —que sí cobran, pero solo si la fila ya existía—: aquí el envío
-masivo, que es el que de verdad consume, **sale gratis y sin registro**. Una
-campaña se envía igual con el saldo en cero.
+**Un crédito por mensaje y canal, cobrado al enviar** (Spec 0040). El saldo vive
+en `tenant_messaging_credits` (`emails_available` / `whatsapp_available`), son
+**dos bolsas separadas**, y cada consumo deja un `MessagingCreditTransaction` de
+tipo `consumption` con el precio del catálogo del momento. Detalle del saldo y de
+la compra en `MESSAGING_CREDITS_API.md`.
+
+Reglas:
+
+- Se cobra **al despachar**, no cuando el job entrega. Una campaña programada
+  reserva su saldo el día que se envía, no el día que sale.
+- **Todo o nada**: si a un canal le falta un crédito, no sale ningún mensaje por
+  ninguno de los dos.
+- Lo cobrado deja de estar disponible de verdad: con saldo para dos mensajes, la
+  primera campaña se los lleva y la siguiente recibe 422.
+- El job **no cobra**: cuando corre, el crédito ya está descontado.
+
+⚠️ **No hay reembolso**: ni al cancelar, ni por los mensajes que fallan en el
+job. Es follow-up de esta spec. Hasta entonces, `whatsapp_used` cuenta mensajes
+*autorizados*, no *entregados*.
+
+Antes de la 0040 el flujo no tocaba `TenantMessagingCredit` en ningún punto: el
+envío masivo salía gratis, sin registro, y con el saldo en cero.

@@ -639,6 +639,54 @@ logo: [archivo de imagen]
 
 ## Consumo Automático de Créditos
 
+> **Quién cobra qué** (estado real del código, Spec 0040). Los dos saldos
+> —`emails_available` y `whatsapp_available`— son **bolsas separadas**: un crédito
+> de correo no paga un WhatsApp.
+>
+> | Origen del mensaje | Cuándo cobra | Regla |
+> | --- | --- | --- |
+> | **Campañas** (`POST /campaigns/{id}/send`) | al despachar | 1 por mensaje y canal, **todo o nada**; sin saldo no sale nada |
+> | Recordatorios de compromisos | al enviar cada mensaje | 1 por mensaje, y **solo si el tenant ya tiene fila** de créditos |
+> | Recordatorios de reuniones | al enviar cada mensaje | ver abajo |
+>
+> **No hay reembolso** en ningún caso: ni al cancelar una campaña, ni por los
+> mensajes que fallan en el envío. `whatsapp_used` cuenta mensajes *autorizados*,
+> no *entregados*.
+
+### Campañas de mensajería (Spec 0040)
+
+Es el consumo grande, y funciona distinto de los recordatorios: **se cobra por
+adelantado, al pulsar enviar**, no mensaje a mensaje.
+
+1. `POST /campaigns/{id}/send` resuelve los destinatarios del borrador y cuenta
+   cuántos mensajes salen **por canal** (con canal `both`, cada persona cuenta
+   uno de correo y uno de WhatsApp).
+2. Comprueba los dos saldos. **Todo o nada:** si a cualquiera de los dos le falta
+   un crédito, no sale ningún mensaje y responde `422`:
+
+```json
+{
+  "message": "Insufficient messaging credits to send this campaign",
+  "credits": {
+    "email":    { "needed": 0, "available": 0, "missing": 0 },
+    "whatsapp": { "needed": 3, "available": 1, "missing": 2 }
+  }
+}
+```
+
+3. Si alcanza, descuenta de cada canal usado y registra un
+   `MessagingCreditTransaction` (`transaction_type: consumption`, `quantity`
+   negativa, precio del catálogo del momento) **por canal**, no por mensaje.
+4. Solo entonces se encola el envío.
+
+Todo ello en **una transacción con la fila de créditos bloqueada**, así que dos
+envíos simultáneos del mismo tenant no pueden gastar el mismo saldo dos veces.
+
+Un tenant **sin fila** en `tenant_messaging_credits` cuenta como saldo cero: el
+crédito es una autorización previa, no un contador que se rellena después.
+
+Contrato completo del endpoint en `CAMPAIGNS_API.md`.
+
 ### WhatsApp (Recordatorios de Reuniones)
 
 Cuando se envía un recordatorio de reunión por WhatsApp:
