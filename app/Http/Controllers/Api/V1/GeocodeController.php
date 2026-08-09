@@ -3,77 +3,65 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Services\Geocoding\Geocoder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class GeocodeController extends Controller
 {
+    public function __construct(private readonly Geocoder $geocoder) {}
+
     /**
-     * Geocode an address to get latitude and longitude
+     * Dirección → coordenadas.
+     *
+     * El proveedor vive detrás de `Geocoder` (Spec 0055): aquí solo se valida,
+     * se traduce el resultado a la forma que el frontend ya consume y se decide
+     * el código de estado. Cambiar de Google a Nominatim —o auto-hospedarlo— no
+     * toca este archivo.
      */
     public function geocode(Request $request): JsonResponse
     {
         $request->validate([
-            'address' => 'required|string|max:500'
+            'address' => 'required|string|max:500',
         ], [
             'address.required' => 'La dirección es obligatoria.',
-            'address.max' => 'La dirección no puede exceder 500 caracteres.'
+            'address.max' => 'La dirección no puede exceder 500 caracteres.',
         ]);
 
         $address = $request->input('address');
-        $apiKey = config('services.google_maps.api_key');
-
-        if (!$apiKey) {
-            return response()->json([
-                'message' => 'Google Maps API key not configured.'
-            ], 500);
-        }
 
         try {
-            $response = Http::get('https://maps.googleapis.com/maps/api/geocode/json', [
-                'address' => $address,
-                'key' => $apiKey,
-            ]);
-
-            $data = $response->json();
-
-            if ($data['status'] !== 'OK') {
-                Log::warning('Geocoding failed', [
-                    'address' => $address,
-                    'status' => $data['status']
-                ]);
-
-                return response()->json([
-                    'message' => 'No se pudo geocodificar la dirección.',
-                    'error' => $data['status'],
-                    'address' => $address
-                ], 404);
-            }
-
-            $location = $data['results'][0]['geometry']['location'];
-            $formattedAddress = $data['results'][0]['formatted_address'];
-
-            return response()->json([
-                'data' => [
-                    'latitude' => $location['lat'],
-                    'longitude' => $location['lng'],
-                    'formatted_address' => $formattedAddress,
-                    'original_address' => $address
-                ]
-            ]);
-
-        } catch (\Exception $e) {
+            $resultado = $this->geocoder->resolve($address);
+        } catch (\Throwable $e) {
+            // El detalle se registra pero no viaja al cliente: antes se devolvía
+            // el mensaje de la excepción, que expone el proveedor y su error.
             Log::error('Geocoding error', [
                 'address' => $address,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
 
             return response()->json([
                 'message' => 'Error al procesar la geocodificación.',
-                'error' => $e->getMessage()
             ], 500);
         }
+
+        if ($resultado === null) {
+            Log::warning('Geocoding failed', ['address' => $address]);
+
+            return response()->json([
+                'message' => 'No se pudo geocodificar la dirección.',
+                'address' => $address,
+            ], 404);
+        }
+
+        return response()->json([
+            'data' => [
+                'latitude' => $resultado->latitude,
+                'longitude' => $resultado->longitude,
+                'formatted_address' => $resultado->formattedAddress,
+                'original_address' => $address,
+            ],
+        ]);
     }
 }
