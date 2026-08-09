@@ -96,25 +96,26 @@ class CashAllocationCharacterizationTest extends TestCase
         ])->assertStatus(422);
     }
 
-    public function test_no_existe_ninguna_pieza_de_caja_menor(): void
+    public function test_la_caja_menor_ya_existe_y_vive_aparte_de_la_asignacion(): void
     {
         $this->autenticado();
 
-        // Lo que la 0057 tiene que crear: hoy no hay tabla de fondo/saldo, ni de
-        // legalización, ni de gastos. Se comprueba por ausencia para que el día
-        // que existan, esta prueba avise de que el hueco se cerró.
-        foreach (['petty_cash_funds', 'cash_advances', 'cash_expenses', 'resource_losses'] as $tabla) {
-            $this->assertFalse(
-                \Illuminate\Support\Facades\Schema::hasTable($tabla),
-                "la tabla {$tabla} ya existe: revisar si la 0057 la introdujo"
-            );
+        // Esta prueba nació en la 0056 comprobando la **ausencia** de la caja,
+        // con la nota de que avisara el día que el hueco se cerrara. La 0057 lo
+        // cerró: la caja es su propio modelo (fondo + anticipos + líneas), no
+        // campos añadidos a la asignación de recursos.
+        foreach (['petty_cash_funds', 'petty_cash_advances', 'petty_cash_expense_lines', 'petty_cash_movements'] as $tabla) {
+            $this->assertTrue(\Illuminate\Support\Facades\Schema::hasTable($tabla));
         }
 
-        // Y la asignación no tiene dónde anotar lo devuelto ni lo legalizado.
+        $this->assertTrue(\Illuminate\Support\Facades\Schema::hasTable('inventory_losses'));
+
+        // La entrega de efectivo por `resource_allocations` sigue existiendo tal
+        // cual —no se migró nada— y sigue sin tener cierre propio: quien quiera
+        // controlar el dinero usa la caja.
         foreach (['returned_amount', 'settled_amount', 'settled_at', 'settlement_status'] as $columna) {
             $this->assertFalse(
-                \Illuminate\Support\Facades\Schema::hasColumn('resource_allocations', $columna),
-                "la columna {$columna} ya existe: revisar si la 0057 la introdujo"
+                \Illuminate\Support\Facades\Schema::hasColumn('resource_allocations', $columna)
             );
         }
     }

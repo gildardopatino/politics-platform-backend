@@ -29,6 +29,9 @@ class PermissionCatalogTest extends TestCase
         'campaigns' => ['view_campaigns', 'create_campaigns', 'edit_campaigns', 'delete_campaigns'],
         'commitments' => ['view_commitments', 'create_commitments', 'edit_commitments', 'delete_commitments'],
         'resources' => ['view_resources', 'create_resources', 'edit_resources', 'delete_resources'],
+        // Caja menor (Spec 0057): mover dinero es un permiso aparte del de mover
+        // inventario, para que administrar sillas no implique entregar plata.
+        'petty_cash' => ['view_petty_cash', 'manage_petty_cash'],
         'voters' => ['view_voters'],
         'calls' => ['view_calls'],
         'contacts' => ['view_contacts'],

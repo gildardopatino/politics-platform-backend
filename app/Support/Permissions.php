@@ -67,6 +67,13 @@ final class Permissions
 
     public const DELETE_RESOURCES = 'delete_resources';
 
+    // Caja menor (Spec 0057). Aparte de `*_resources` porque mover dinero no es
+    // lo mismo que mover sillas: quien administra el inventario no tiene por qué
+    // poder entregar anticipos.
+    public const VIEW_PETTY_CASH = 'view_petty_cash';
+
+    public const MANAGE_PETTY_CASH = 'manage_petty_cash';
+
     // Voters
     public const VIEW_VOTERS = 'view_voters';
 
@@ -109,6 +116,7 @@ final class Permissions
             'campaigns' => [self::VIEW_CAMPAIGNS, self::CREATE_CAMPAIGNS, self::EDIT_CAMPAIGNS, self::DELETE_CAMPAIGNS],
             'commitments' => [self::VIEW_COMMITMENTS, self::CREATE_COMMITMENTS, self::EDIT_COMMITMENTS, self::DELETE_COMMITMENTS],
             'resources' => [self::VIEW_RESOURCES, self::CREATE_RESOURCES, self::EDIT_RESOURCES, self::DELETE_RESOURCES],
+            'petty_cash' => [self::VIEW_PETTY_CASH, self::MANAGE_PETTY_CASH],
             'voters' => [self::VIEW_VOTERS],
             'calls' => [self::VIEW_CALLS],
             'contacts' => [self::VIEW_CONTACTS],
@@ -153,6 +161,7 @@ final class Permissions
                 self::VIEW_CAMPAIGNS, self::CREATE_CAMPAIGNS, self::EDIT_CAMPAIGNS,
                 self::VIEW_COMMITMENTS, self::CREATE_COMMITMENTS, self::EDIT_COMMITMENTS,
                 self::VIEW_RESOURCES, self::CREATE_RESOURCES, self::EDIT_RESOURCES,
+                self::VIEW_PETTY_CASH, self::MANAGE_PETTY_CASH,
                 self::VIEW_VOTERS, self::VIEW_CALLS, self::VIEW_CONTACTS, self::VIEW_EVENTS,
                 self::MANAGE_LIAISONS, self::MANAGE_LANDINGPAGE,
                 self::VIEW_REPORTS, self::VIEW_PROGRESS, self::VIEW_DASHBOARD_MAP,
@@ -170,7 +179,7 @@ final class Permissions
                 self::VIEW_USERS,
                 self::VIEW_MEETINGS,
                 self::VIEW_COMMITMENTS,
-                self::VIEW_RESOURCES,
+                self::VIEW_RESOURCES, self::VIEW_PETTY_CASH,
                 self::VIEW_VOTERS, self::VIEW_CALLS, self::VIEW_CONTACTS, self::VIEW_EVENTS,
                 self::VIEW_REPORTS, self::VIEW_PROGRESS,
             ],

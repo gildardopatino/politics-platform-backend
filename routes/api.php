@@ -31,6 +31,8 @@ use App\Http\Controllers\Api\V1\MunicipalityController;
 use App\Http\Controllers\Api\V1\OrganizationController;
 use App\Http\Controllers\Api\V1\PasswordResetController;
 use App\Http\Controllers\Api\V1\PermissionController;
+use App\Http\Controllers\Api\V1\PettyCashAdvanceController;
+use App\Http\Controllers\Api\V1\PettyCashFundController;
 use App\Http\Controllers\Api\V1\PriorityController;
 use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\ResourceAllocationController;
@@ -279,6 +281,32 @@ Route::prefix('v1')->group(function () {
                 ->middleware('permission:edit_resources');
             Route::get('/inventory-losses', [InventoryLossController::class, 'index'])
                 ->middleware('permission:view_resources');
+
+            // Caja menor (Spec 0057). Mover dinero es un permiso aparte del de
+            // mover inventario.
+            Route::get('/petty-cash-funds', [PettyCashFundController::class, 'index'])
+                ->middleware('permission:view_petty_cash');
+            Route::get('/petty-cash-funds/{pettyCashFund}', [PettyCashFundController::class, 'show'])
+                ->middleware('permission:view_petty_cash');
+            Route::post('/petty-cash-funds', [PettyCashFundController::class, 'store'])
+                ->middleware('permission:manage_petty_cash');
+            Route::put('/petty-cash-funds/{pettyCashFund}', [PettyCashFundController::class, 'update'])
+                ->middleware('permission:manage_petty_cash');
+            Route::delete('/petty-cash-funds/{pettyCashFund}', [PettyCashFundController::class, 'destroy'])
+                ->middleware('permission:manage_petty_cash');
+            Route::post('/petty-cash-funds/{pettyCashFund}/replenish', [PettyCashFundController::class, 'replenish'])
+                ->middleware('permission:manage_petty_cash');
+
+            Route::get('/petty-cash-advances', [PettyCashAdvanceController::class, 'index'])
+                ->middleware('permission:view_petty_cash');
+            Route::get('/petty-cash-advances/{pettyCashAdvance}', [PettyCashAdvanceController::class, 'show'])
+                ->middleware('permission:view_petty_cash');
+            Route::post('/petty-cash-advances', [PettyCashAdvanceController::class, 'store'])
+                ->middleware('permission:manage_petty_cash');
+            Route::post('/petty-cash-advances/{pettyCashAdvance}/settle', [PettyCashAdvanceController::class, 'settle'])
+                ->middleware('permission:manage_petty_cash');
+            Route::post('/petty-cash-advances/{pettyCashAdvance}/charge-off', [PettyCashAdvanceController::class, 'chargeOff'])
+                ->middleware('permission:manage_petty_cash');
             Route::get('/resource-allocations/by-meeting/{meeting}', [ResourceAllocationController::class, 'byMeeting'])
                 ->middleware('permission:view_resources');
             Route::get('/resource-allocations/by-leader/{user}', [ResourceAllocationController::class, 'byLeader'])
