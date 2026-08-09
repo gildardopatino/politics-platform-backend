@@ -22,3 +22,7 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# Respaldos locales (Spec 0059). `leads` es dato de personas: cedula, nombre,
+# contacto y mesa de votacion. Nunca al repositorio, que tiene remoto publico.
+/storage/backups/

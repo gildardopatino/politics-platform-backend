@@ -20,6 +20,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Binarios de PostgreSQL (Spec 0059)
+    |--------------------------------------------------------------------------
+    |
+    | `leads:backup` y `leads:restore` los usan. En Windows rara vez estan en el
+    | PATH, asi que se configuran: PG_DUMP_PATH / PSQL_PATH.
+    |
+    */
+
+    'pg_dump_path' => env('PG_DUMP_PATH'),
+
+    'psql_path' => env('PSQL_PATH'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Database Connections
     |--------------------------------------------------------------------------
     |
