@@ -118,28 +118,25 @@ class ResourceAllocationCharacterizationTest extends TestCase
         ])->assertNotFound()->assertJsonPath('resource_item_id', $ajeno->id);
     }
 
-    public function test_el_put_no_deja_cambiar_el_estado_asi_que_el_ciclo_de_inventario_no_corre(): void
+    public function test_el_put_mueve_el_ciclo_de_inventario(): void
     {
         $this->autenticado();
         $recurso = $this->recurso(100);
         [, $asignacion] = $this->crearAsignacion($recurso, 10);
 
-        $respuesta = $this->putJson("/api/v1/resource-allocations/{$asignacion->id}", [
+        $this->putJson("/api/v1/resource-allocations/{$asignacion->id}", [
             'status' => 'delivered',
-        ]);
+        ])->assertOk();
 
-        // HALLAZGO (🔴 funcional, NO se corrige aquí — es el eje de la 0057):
-        // `UpdateResourceAllocationRequest` no incluye `status` en sus reglas,
-        // así que `validated()` lo descarta y `$newStatus` acaba siendo el
-        // estado viejo. La máquina de estados del controlador —descontar al
-        // entregar, reintegrar al devolver, liberar al cancelar— es código
-        // inalcanzable desde la API. Responde 200 y no hace nada.
-        $respuesta->assertOk();
-        $this->assertSame('pending', $asignacion->fresh()->status);
+        // Reparado por la 0057 (era el hallazgo H3): `status` no estaba en las
+        // reglas del FormRequest, así que `validated()` lo descartaba y toda la
+        // máquina de estados quedaba inalcanzable — el `PUT` respondía 200 sin
+        // mover nada. El ciclo completo se prueba en `LogisticsBaseRepairTest`.
+        $this->assertSame('delivered', $asignacion->fresh()->status);
 
         $recurso->refresh();
-        $this->assertSame(100, $recurso->stock_quantity, 'no se descuenta nada');
-        $this->assertSame(10, $recurso->reserved_quantity, 'la reserva sigue viva');
+        $this->assertSame(90, $recurso->stock_quantity);
+        $this->assertSame(0, $recurso->reserved_quantity);
     }
 
     public function test_el_ciclo_de_estados_del_controlador_solo_funciona_por_dentro(): void
@@ -148,8 +145,8 @@ class ResourceAllocationCharacterizationTest extends TestCase
         $recurso = $this->recurso(100);
         [, $asignacion] = $this->crearAsignacion($recurso, 10);
 
-        // Lo que el doc describe, ejercido saltándose el FormRequest: es la única
-        // forma de ver el comportamiento que la 0057 va a rediseñar.
+        // El mismo ciclo ejercido por dentro, sin pasar por HTTP: fija que el
+        // movimiento de stock vive en el servicio y no en el controlador.
         $this->entregarPorDentro($asignacion);
 
         $recurso->refresh();

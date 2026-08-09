@@ -51,7 +51,7 @@ class CashAllocationCharacterizationTest extends TestCase
         $this->assertSame('pending', $respuesta->json('data.status'));
     }
 
-    public function test_el_proposito_del_efectivo_no_se_puede_guardar_por_la_api(): void
+    public function test_el_proposito_del_efectivo_se_guarda(): void
     {
         $this->autenticado();
 
@@ -62,11 +62,13 @@ class CashAllocationCharacterizationTest extends TestCase
             'cash_purpose' => 'Refrigerios y transporte de la vereda',
         ])->assertCreated();
 
-        // HALLAZGO (🟠): existe la columna `cash_purpose` y el modelo la declara
-        // fillable, pero ni el FormRequest de crear ni el de editar la aceptan.
-        // El único dato que explicaba en qué se iba el dinero no tiene forma de
-        // entrar. → 0057.
-        $this->assertNull(ResourceAllocation::find($respuesta->json('data.id'))->cash_purpose);
+        // Reparado por la 0057 (era el hallazgo H5): la columna y el `fillable`
+        // existían, pero ningún FormRequest aceptaba el campo, así que el único
+        // dato que explicaba en qué se iba el dinero se descartaba en silencio.
+        $this->assertSame(
+            'Refrigerios y transporte de la vereda',
+            ResourceAllocation::find($respuesta->json('data.id'))->cash_purpose
+        );
     }
 
     public function test_el_monto_del_efectivo_no_se_valida_contra_nada(): void
@@ -163,15 +165,16 @@ class CashAllocationCharacterizationTest extends TestCase
             ->efectivo(300000)
             ->create();
 
-        // Sin ítems, el `PUT` ni siquiera entra en la máquina de estados —y de
-        // todos modos `status` no está en las reglas—, así que una entrega de
-        // dinero se queda en `pending` para siempre: no hay «legalizado», no hay
-        // «devuelto», no hay «castigado». Es el hueco central de la 0057 (🟠).
+        // La 0057 reparó el ciclo, así que una entrega de dinero ya se puede
+        // marcar como entregada. Lo que sigue sin existir es el **cierre**: no
+        // hay «legalizado», ni «devuelto», ni «castigado», ni forma de decir en
+        // qué se gastó. Eso es la caja menor de la fase 2.
         $this->putJson("/api/v1/resource-allocations/{$asignacion->id}", [
             'status' => 'delivered',
             'amount' => 300000,
         ])->assertOk();
 
-        $this->assertSame('pending', $asignacion->fresh()->status);
+        $this->assertSame('delivered', $asignacion->fresh()->status);
+        $this->assertContains($asignacion->fresh()->status, ['pending', 'delivered', 'returned', 'cancelled']);
     }
 }

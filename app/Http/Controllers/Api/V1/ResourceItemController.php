@@ -78,6 +78,13 @@ class ResourceItemController extends Controller
         $data['currency'] = $data['currency'] ?? 'COP';
         $data['is_active'] = $data['is_active'] ?? true;
 
+        // El dinero se gasta, no se devuelve: un recurso de efectivo no lleva
+        // inventario salvo que quien llama diga explícitamente lo contrario.
+        // Antes el flag ni siquiera llegaba, así que todo `cash` nacía como
+        // inventario y quedaba inasignable (Spec 0056, H7).
+        $data['is_inventory_tracked'] = $data['is_inventory_tracked']
+            ?? ($data['category'] !== 'cash');
+
         $item = ResourceItem::create($data);
 
         return response()->json([

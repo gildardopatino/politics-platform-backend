@@ -25,7 +25,7 @@ class StoreResourceAllocationRequest extends FormRequest
             'meeting_id' => 'nullable|exists:meetings,id',
             'leader_user_id' => 'required|exists:users,id',
             'assigned_to_user_id' => 'nullable|exists:users,id',
-            
+
             // Campos nuevos (recomendados)
             'title' => 'nullable|string|max:255',
             'allocation_date' => 'nullable|date',
@@ -35,11 +35,12 @@ class StoreResourceAllocationRequest extends FormRequest
             'items.*.quantity' => 'required_with:items|numeric|min:0.01',
             'items.*.notes' => 'nullable|string',
             'items.*.metadata' => 'nullable|array',
-            
+
             // Campos legacy (compatibilidad hacia atrás)
             'type' => 'nullable|in:cash,material,service',
             'descripcion' => 'nullable|string',
             'amount' => 'nullable|numeric|min:0',
+            'cash_purpose' => 'nullable|string',
             'fecha_asignacion' => 'nullable|date',
             'details' => 'nullable|array',
         ];

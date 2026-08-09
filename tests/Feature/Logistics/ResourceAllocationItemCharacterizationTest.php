@@ -166,7 +166,7 @@ class ResourceAllocationItemCharacterizationTest extends TestCase
         $this->assertSame(100, $recurso->fresh()->stock_quantity);
     }
 
-    public function test_editar_la_cantidad_de_un_item_no_reajusta_la_reserva(): void
+    public function test_editar_la_cantidad_de_un_item_reajusta_la_reserva(): void
     {
         $this->autenticado();
         $recurso = ResourceItem::factory()->conStock(100)->create([
@@ -183,11 +183,12 @@ class ResourceAllocationItemCharacterizationTest extends TestCase
             'quantity' => 40,
         ])->assertOk();
 
-        // HALLAZGO (🟠): el `PUT` recalcula el total de la asignación (bien) pero
-        // NO reajusta la reserva del catálogo: se pidieron 40 y siguen
-        // reservadas 10. Tampoco comprueba que haya stock para las 40. → 0057.
+        // Reparado por la 0057 (era el hallazgo H8): el `PUT` recalculaba el
+        // total pero no tocaba la reserva —se pedían 40 y seguían apartadas 10—
+        // ni comprobaba que existieran. Ahora reajusta y valida; los bordes
+        // (subir, bajar, pasarse del disponible) están en `LogisticsBaseRepairTest`.
         $this->assertEquals(600000, $item->fresh()->resourceAllocation->total_cost);
-        $this->assertSame(10, $recurso->fresh()->reserved_quantity);
+        $this->assertSame(40, $recurso->fresh()->reserved_quantity);
         $this->assertSame(100, $recurso->fresh()->stock_quantity);
     }
 

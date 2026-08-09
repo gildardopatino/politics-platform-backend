@@ -34,6 +34,9 @@ class UpdateResourceItemRequest extends FormRequest
             'supplier_contact' => 'nullable|string|max:255',
             'metadata' => 'nullable|array',
             'is_active' => 'nullable|boolean',
+            // Sin esta regla el flag se descartaba y un recurso de efectivo
+            // nacía como inventario, quedando inasignable (Spec 0056, H7).
+            'is_inventory_tracked' => 'nullable|boolean',
         ];
     }
 

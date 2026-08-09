@@ -93,7 +93,7 @@ class ResourceItemCharacterizationTest extends TestCase
         $this->assertFalse($recurso->is_low_stock);
     }
 
-    public function test_el_efectivo_creado_por_la_api_nace_marcado_como_inventario(): void
+    public function test_el_efectivo_del_catalogo_nace_sin_rastreo_de_inventario(): void
     {
         [, $tenant] = $this->autenticado([
             Permissions::VIEW_RESOURCES,
@@ -106,30 +106,22 @@ class ResourceItemCharacterizationTest extends TestCase
             'category' => 'cash',
             'unit' => 'COP',
             'unit_cost' => 1,
-            'is_inventory_tracked' => false,
         ])->assertCreated();
 
-        // HALLAZGO (🟠): `is_inventory_tracked` no está en las reglas del
-        // FormRequest, ni al crear ni al editar, así que `validated()` lo
-        // descarta y el ítem nace con el default de la columna: `true`. La
-        // migración apagó el flag para los `cash` que ya existían, pero uno
-        // nuevo creado por la API queda como inventario aunque sea dinero — y
-        // no hay forma de corregirlo por API. → 0057.
-        $this->assertSame('cash', $respuesta->json('data.category'));
+        // Reparado por la 0057 (era el hallazgo H7): `is_inventory_tracked` no
+        // estaba en las reglas del FormRequest, así que se descartaba y el ítem
+        // nacía con el default `true` de la columna — dinero contado como
+        // inventario, y por tanto inasignable. Ahora la categoría lo deriva y
+        // además el flag se puede fijar y corregir por API.
         $this->assertDatabaseHas('resource_items', [
             'id' => $respuesta->json('data.id'),
             'tenant_id' => $tenant->id,
-            'is_inventory_tracked' => true,
+            'is_inventory_tracked' => false,
         ]);
 
         $this->putJson("/api/v1/resource-items/{$respuesta->json('data.id')}", [
-            'is_inventory_tracked' => false,
-        ])->assertOk();
-
-        $this->assertDatabaseHas('resource_items', [
-            'id' => $respuesta->json('data.id'),
             'is_inventory_tracked' => true,
-        ]);
+        ])->assertOk()->assertJsonPath('data.is_inventory_tracked', true);
     }
 
     public function test_crear_exige_unidad_y_costo_unitario(): void

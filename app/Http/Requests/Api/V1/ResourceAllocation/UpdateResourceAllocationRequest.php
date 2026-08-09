@@ -25,6 +25,10 @@ class UpdateResourceAllocationRequest extends FormRequest
             'meeting_id' => 'sometimes|exists:meetings,id',
             'leader_user_id' => 'sometimes|exists:users,id',
             'type' => 'sometimes|in:cash,material,service',
+            // `status` faltaba, y sin él `validated()` lo descartaba: el ciclo
+            // de inventario del controlador era inalcanzable (Spec 0056, H3).
+            'status' => 'sometimes|in:pending,delivered,returned,cancelled',
+            'cash_purpose' => 'sometimes|nullable|string',
             'descripcion' => 'sometimes|string',
             'amount' => 'sometimes|numeric|min:0',
             'fecha_asignacion' => 'sometimes|date',

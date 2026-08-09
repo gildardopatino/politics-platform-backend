@@ -83,6 +83,35 @@ class ResourceAllocationItemController extends Controller
             'metadata' => 'nullable|array',
         ]);
 
+        // Cambiar la cantidad de un item pendiente cambia lo que hay apartado en
+        // el almacen. Antes no se reajustaba nada: se podian pedir 40 con 10
+        // reservadas, y sin comprobar que existieran (Spec 0056, H8). Solo
+        // aplica mientras la asignacion siga pendiente; una vez entregada las
+        // unidades ya salieron y no hay reserva que mover.
+        if (isset($validated['quantity']) && $allocation->status === 'pending') {
+            $recurso = $resourceAllocationItem->resourceItem;
+            $anterior = (int) $resourceAllocationItem->quantity;
+            $nueva = (int) $validated['quantity'];
+            $diferencia = $nueva - $anterior;
+
+            if ($recurso && $diferencia > 0 && ! $recurso->hasAvailableStock($diferencia)) {
+                return response()->json([
+                    'message' => "Stock insuficiente para '{$recurso->name}'",
+                    'resource' => $recurso->name,
+                    'requested' => $nueva,
+                    'available' => $recurso->available_quantity + $anterior,
+                    'in_stock' => $recurso->stock_quantity,
+                    'reserved' => $recurso->reserved_quantity,
+                ], 422);
+            }
+
+            if ($recurso && $diferencia > 0) {
+                $recurso->reserveStock($diferencia);
+            } elseif ($recurso && $diferencia < 0) {
+                $recurso->releaseReservedStock(-$diferencia);
+            }
+        }
+
         $resourceAllocationItem->update($validated);
 
         // Recalcular el total de la asignación
