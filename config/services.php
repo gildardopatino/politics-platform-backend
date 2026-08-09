@@ -47,8 +47,18 @@ return [
         'auth_token' => env('N8N_AUTH_TOKEN'),
     ],
 
-    'google_maps' => [
-        'api_key' => env('GOOGLE_MAPS_API_KEY'),
+    /*
+    | Geocodificación (Spec 0055). Nominatim es el servicio de OpenStreetMap: no
+    | pide clave, pero sí un User-Agent identificable. Auto-hospedarlo es cambiar
+    | `GEOCODING_NOMINATIM_URL`; cambiar de proveedor, `GEOCODING_PROVIDER`.
+    */
+    'geocoding' => [
+        'provider' => env('GEOCODING_PROVIDER', 'nominatim'),
+        'nominatim_url' => env('GEOCODING_NOMINATIM_URL', 'https://nominatim.openstreetmap.org'),
+        'user_agent' => env('GEOCODING_USER_AGENT', 'SuiteElectoral/1.0'),
+        'contact_email' => env('GEOCODING_CONTACT_EMAIL', ''),
+        'cache_ttl' => (int) env('GEOCODING_CACHE_TTL', 60 * 60 * 24 * 30),
+        'timeout' => (int) env('GEOCODING_TIMEOUT', 8),
     ],
 
     'mercadopago' => [
