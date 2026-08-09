@@ -12,8 +12,10 @@ use App\Models\ResourceAllocationItem;
 use App\Models\ResourceItem;
 use App\Models\User;
 use App\Services\Logistics\AllocationStatusService;
+use App\Services\Logistics\InventoryReturnService;
 use App\Services\WhatsAppNotificationService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
@@ -328,6 +330,39 @@ class ResourceAllocationController extends Controller
                 'message' => 'Error al eliminar la asignación',
             ], 500);
         }
+    }
+
+    /**
+     * Cierra una asignación entregada declarando, por ítem, cuánto volvió y
+     * cuánto no (Spec 0057). Lo devuelto vuelve al stock; lo perdido o dañado
+     * queda como merma valorada con responsable. La devolución total es el caso
+     * particular en que todo se declara devuelto.
+     */
+    public function close(
+        Request $request,
+        ResourceAllocation $resourceAllocation,
+        InventoryReturnService $cierre
+    ): JsonResponse {
+        $validated = $request->validate([
+            'items' => 'present|array',
+            'items.*.id' => 'required|integer',
+            'items.*.quantity_returned' => 'nullable|numeric|min:0',
+            'items.*.quantity_lost' => 'nullable|numeric|min:0',
+            'items.*.quantity_damaged' => 'nullable|numeric|min:0',
+            'items.*.notes' => 'nullable|string',
+            'responsible_user_id' => 'nullable|exists:users,id',
+        ]);
+
+        $asignacion = $cierre->close(
+            $resourceAllocation,
+            $validated['items'],
+            $validated['responsible_user_id'] ?? null
+        );
+
+        return response()->json([
+            'data' => new ResourceAllocationResource($asignacion),
+            'message' => 'Asignación cerrada exitosamente',
+        ]);
     }
 
     /**

@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\V1\GeocodeController;
 use App\Http\Controllers\Api\V1\GeographicContactController;
 use App\Http\Controllers\Api\V1\GeographicStatsController;
 use App\Http\Controllers\Api\V1\GeographyController;
+use App\Http\Controllers\Api\V1\InventoryLossController;
 use App\Http\Controllers\Api\V1\Landing\BiografiaAdminController;
 use App\Http\Controllers\Api\V1\Landing\LandingBannerAdminController;
 use App\Http\Controllers\Api\V1\Landing\LandingEventoAdminController;
@@ -273,6 +274,11 @@ Route::prefix('v1')->group(function () {
                 ->middlewareFor('store', 'permission:create_resources')
                 ->middlewareFor('update', 'permission:edit_resources')
                 ->middlewareFor('destroy', 'permission:delete_resources');
+            // Cierre con devolucion parcial y merma (Spec 0057).
+            Route::post('/resource-allocations/{resourceAllocation}/close', [ResourceAllocationController::class, 'close'])
+                ->middleware('permission:edit_resources');
+            Route::get('/inventory-losses', [InventoryLossController::class, 'index'])
+                ->middleware('permission:view_resources');
             Route::get('/resource-allocations/by-meeting/{meeting}', [ResourceAllocationController::class, 'byMeeting'])
                 ->middleware('permission:view_resources');
             Route::get('/resource-allocations/by-leader/{user}', [ResourceAllocationController::class, 'byLeader'])
