@@ -1,5 +1,12 @@
 # Gestión de Efectivo y Notificaciones WhatsApp
 
+> ⚠️ **Este documento describe el diseño, no lo que el código hace hoy.**
+> La Spec 0056 caracterizó el módulo con pruebas y encontró desfases —entre
+> ellos que el ciclo de estados del efectivo no es alcanzable por la API—.
+> El contrato observado, con sus hallazgos, está en
+> [`LOGISTICS_CONTRACT.md`](LOGISTICS_CONTRACT.md), que manda sobre este
+> archivo cuando discrepen.
+
 ## Índice
 1. [Recursos de Efectivo (Cash)](#recursos-de-efectivo-cash)
 2. [Notificaciones WhatsApp](#notificaciones-whatsapp)

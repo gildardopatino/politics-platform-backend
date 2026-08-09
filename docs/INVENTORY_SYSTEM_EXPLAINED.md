@@ -1,5 +1,12 @@
 # Sistema de Control de Inventario - Recursos
 
+> ⚠️ **Este documento describe el diseño, no lo que el código hace hoy.**
+> La Spec 0056 caracterizó el módulo con pruebas y encontró desfases —entre
+> ellos que el ciclo de estados del inventario no es alcanzable por la API—.
+> El contrato observado, con sus hallazgos, está en
+> [`LOGISTICS_CONTRACT.md`](LOGISTICS_CONTRACT.md), que manda sobre este
+> archivo cuando discrepen.
+
 ## ¿Cómo Funciona?
 
 El backend **SIEMPRE** controla el inventario automáticamente. El frontend **SOLO** debe mostrar la información y permitir las acciones, pero **NUNCA** calcular o modificar directamente el stock.
