@@ -36,6 +36,10 @@ return Application::configure(basePath: dirname(__DIR__))
             // Webhook de Registraduría: autentica por secreto de tenant y fija
             // `current_tenant_id` sin que haya sesión (Spec 0030).
             'webhook.registraduria' => \App\Http\Middleware\VerifyRegistraduriaWebhook::class,
+            // Escrutinio E-14 (Spec 0061): autentica el panel por JWT y el
+            // lector de actas por token de servicio, y deja en ambos casos un
+            // usuario autenticado para que el resto de la cadena sea la misma.
+            'e14.auth' => \App\Http\Middleware\AuthenticateE14Client::class,
         ]);
 
         // Aislamiento multi-tenant (Constitución, Art. III / Spec 0004).
@@ -62,6 +66,10 @@ return Application::configure(basePath: dirname(__DIR__))
             \Illuminate\Contracts\Session\Middleware\AuthenticatesSessions::class,
             // `jwt.auth` (ver el alias arriba).
             \Tymon\JWTAuth\Http\Middleware\Authenticate::class,
+            // `e14.auth` sustituye a `jwt.auth` en las rutas de escrutinio y va
+            // en su mismo escalón: también tiene que autenticar antes de que
+            // EnsureTenant lea el usuario (Spec 0061).
+            \App\Http\Middleware\AuthenticateE14Client::class,
             \App\Http\Middleware\EnsureTenant::class,
             \App\Http\Middleware\CheckTenantExpiration::class,
             // Autorización después del tenant: los roles del usuario están
