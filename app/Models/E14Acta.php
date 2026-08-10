@@ -23,6 +23,15 @@ class E14Acta extends Model implements Auditable
     use HasFactory, HasTenant, LogsActivity;
     use \OwenIt\Auditing\Auditable;
 
+    /** Subida desde el panel, todavía sin encolar (Spec 0071). */
+    public const ESTADO_CARGADA = 'cargada';
+
+    /** En la cola, esperando a que un worker la reclame. */
+    public const ESTADO_PENDIENTE = 'pendiente';
+
+    /** Reclamada por un worker; nadie más puede tomarla. */
+    public const ESTADO_PROCESANDO = 'procesando';
+
     public const ESTADO_PROCESADA = 'procesada';
 
     public const ESTADO_INCONSISTENTE = 'inconsistente';
@@ -30,9 +39,51 @@ class E14Acta extends Model implements Auditable
     public const ESTADO_REVISION_MANUAL = 'revision_manual';
 
     public const ESTADOS = [
+        self::ESTADO_CARGADA,
+        self::ESTADO_PENDIENTE,
+        self::ESTADO_PROCESANDO,
         self::ESTADO_PROCESADA,
         self::ESTADO_INCONSISTENTE,
         self::ESTADO_REVISION_MANUAL,
+    ];
+
+    /**
+     * Estados en los que el acta ya se leyó. Son los únicos que el cliente de
+     * ingesta directa (Spec 0061) puede declarar: la cola es cosa del servidor.
+     */
+    public const ESTADOS_LEIDA = [
+        self::ESTADO_PROCESADA,
+        self::ESTADO_INCONSISTENTE,
+        self::ESTADO_REVISION_MANUAL,
+    ];
+
+    /**
+     * Tipos de elección (Spec 0071). Uninominales primero, corporaciones después:
+     * estas últimas se cargan y encolan, pero su lectura necesita el parser
+     * multipágina de la 0067.
+     */
+    public const TIPO_ALCALDIA = 'alcaldia';
+
+    public const TIPO_GOBERNACION = 'gobernacion';
+
+    public const TIPO_CONCEJO = 'concejo';
+
+    public const TIPO_SENADO = 'senado';
+
+    public const TIPO_ASAMBLEA = 'asamblea_departamental';
+
+    public const TIPOS = [
+        self::TIPO_ALCALDIA,
+        self::TIPO_GOBERNACION,
+        self::TIPO_CONCEJO,
+        self::TIPO_SENADO,
+        self::TIPO_ASAMBLEA,
+    ];
+
+    /** Los que se leen con el formato de una página. */
+    public const TIPOS_UNINOMINALES = [
+        self::TIPO_ALCALDIA,
+        self::TIPO_GOBERNACION,
     ];
 
     public const FUENTE_VISION = 'vision';
@@ -53,6 +104,8 @@ class E14Acta extends Model implements Auditable
         'lugar',
         'archivo_nombre',
         'archivo_hash',
+        'upload_batch_id',
+        'archivo_path',
         'estado',
         'suma_calculada',
         'suma_declarada',
@@ -66,6 +119,8 @@ class E14Acta extends Model implements Auditable
         'confianza',
         'observacion',
         'processed_at',
+        'claimed_at',
+        'intentos',
     ];
 
     protected $casts = [
@@ -79,6 +134,8 @@ class E14Acta extends Model implements Auditable
         'votos_no_marcados' => 'integer',
         'confianza' => 'decimal:2',
         'processed_at' => 'datetime',
+        'claimed_at' => 'datetime',
+        'intentos' => 'integer',
     ];
 
     public function getActivitylogOptions(): LogOptions
@@ -106,5 +163,16 @@ class E14Acta extends Model implements Auditable
     public function cuadra(): bool
     {
         return $this->estado === self::ESTADO_PROCESADA;
+    }
+
+    /** ¿Ya se leyó, o sigue en algún punto de la cola? */
+    public function fueLeida(): bool
+    {
+        return in_array($this->estado, self::ESTADOS_LEIDA, true);
+    }
+
+    public function esUninominal(): bool
+    {
+        return in_array($this->tipo, self::TIPOS_UNINOMINALES, true);
     }
 }

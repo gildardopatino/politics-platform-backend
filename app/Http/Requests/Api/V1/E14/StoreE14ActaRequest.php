@@ -34,7 +34,7 @@ class StoreE14ActaRequest extends FormRequest
         $cifra = $ilegible ? 'nullable' : 'required';
 
         return [
-            'tipo' => 'required|string|max:20',
+            'tipo' => ['required', Rule::in(E14Acta::TIPOS)],
             'electoral_event_id' => 'nullable|integer',
             'evento_nombre' => 'nullable|string|max:255',
             'evento_fecha' => 'nullable|date',
@@ -49,7 +49,9 @@ class StoreE14ActaRequest extends FormRequest
             'archivo_nombre' => 'nullable|string|max:255',
             'archivo_hash' => 'nullable|string|size:64|regex:/^[0-9a-f]{64}$/',
 
-            'estado' => ['nullable', Rule::in(E14Acta::ESTADOS)],
+            // Solo los estados de un acta ya leída: la cola (`cargada`,
+            // `pendiente`, `procesando`) la mueve el servidor, no el cliente.
+            'estado' => ['nullable', Rule::in(E14Acta::ESTADOS_LEIDA)],
             'fuente' => ['nullable', Rule::in([E14Acta::FUENTE_VISION, E14Acta::FUENTE_MANUAL])],
 
             'suma_declarada' => $cifra.'|integer|min:0',
