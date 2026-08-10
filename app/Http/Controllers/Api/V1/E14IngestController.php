@@ -9,6 +9,7 @@ use App\Http\Resources\Api\V1\E14ActaResource;
 use App\Models\E14Acta;
 use App\Services\E14\ConsolidadoService;
 use App\Services\E14\E14ArchivoService;
+use App\Services\E14\E14ColaService;
 use App\Services\E14\E14IngestService;
 use App\Support\DatabaseExpressions;
 use Illuminate\Contracts\Database\Eloquent\Builder;
@@ -28,6 +29,7 @@ class E14IngestController extends Controller
         private readonly E14IngestService $ingesta,
         private readonly ConsolidadoService $consolidado,
         private readonly E14ArchivoService $archivos,
+        private readonly E14ColaService $cola,
     ) {}
 
     /**
@@ -109,6 +111,22 @@ class E14IngestController extends Controller
             'message' => $acta->cuadra()
                 ? 'Acta corregida: ahora cuadra y entra al consolidado.'
                 : 'Acta corregida, pero sigue sin cuadrar: '.$acta->observacion,
+        ]);
+    }
+
+    /**
+     * Borra el acta, sus resultados y su archivo (Spec 0077).
+     *
+     * Hard delete: `E14Acta` no usa `SoftDeletes`, y aquí es lo que se quiere —
+     * la fila tiene que **desaparecer** para que se libere su `archivo_hash` y
+     * el mismo PDF pueda volver a cargarse mejor escaneado. Queda auditado.
+     */
+    public function destroy(E14Acta $acta): JsonResponse
+    {
+        $this->cola->eliminar($acta);
+
+        return response()->json([
+            'message' => 'Acta eliminada junto con su archivo. Puedes volver a cargarla.',
         ]);
     }
 

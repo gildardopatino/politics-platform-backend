@@ -6,6 +6,7 @@ use App\Models\E14Acta;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 /**
  * La cola de actas por leer (Spec 0071).
@@ -20,6 +21,35 @@ use Illuminate\Support\Facades\DB;
  */
 class E14ColaService
 {
+    /**
+     * Desde dónde se puede pedir una relectura (Spec 0077).
+     *
+     * Son los estados en los que el acta **no está en manos de nadie**: ya se
+     * leyó —bien, mal o sin poder— o se quedó cargada sin encolar. Los dos que
+     * faltan, `pendiente` y `procesando`, son justamente los de la cola en
+     * marcha; ver `reprocesar()`.
+     */
+    public const REPROCESABLES = [
+        E14Acta::ESTADO_CARGADA,
+        E14Acta::ESTADO_PROCESADA,
+        E14Acta::ESTADO_INCONSISTENTE,
+        E14Acta::ESTADO_REVISION_MANUAL,
+    ];
+
+    /**
+     * Lo que se borra al pedir una relectura: todo lo que salió de la lectura
+     * anterior. Las cifras vuelven a 0 —son columnas no nulas con ese
+     * defecto— y los metadatos de lectura a null.
+     *
+     * Fuera de esta lista queda lo que **identifica** al acta y no depende de
+     * quién la leyó: archivo, tipo, evento, ubicación y las constancias de los
+     * jurados. Si el archivo se fuera, no habría nada que volver a leer.
+     */
+    private const CIFRAS_LEIDAS = [
+        'suma_calculada', 'suma_declarada', 'votos_urna', 'votantes_e11',
+        'dif_nivelacion', 'votos_blanco', 'votos_nulos', 'votos_no_marcados',
+    ];
+
     public function __construct(
         private readonly E14ArchivoService $archivos,
         private readonly EventoResolver $eventos,
@@ -99,6 +129,88 @@ class E14ColaService
             'estado' => E14Acta::ESTADO_PENDIENTE,
             'updated_at' => now(),
         ]);
+    }
+
+    /**
+     * Devuelve un acta a la cola y **descarta la lectura anterior** (Spec 0077).
+     *
+     * Es la salida que faltaba en la revisión: cuando el lector no consiguió
+     * transcribir el acta no hay una casilla que corregir —está todo vacío—, y
+     * lo único útil es que la vuelva a leer. También sirve cuando el modelo de
+     * visión mejoró desde el primer intento.
+     *
+     * **Se rechaza si el acta está en vuelo** (`pendiente` o `procesando`). Con
+     * `procesando` es evidente: un worker la tiene y reencolarla mientras trabaja
+     * significa dos lecturas escribiendo sobre la misma fila. Con `pendiente` no
+     * hay peligro, pero tampoco hay nada que hacer: ya está en la cola, y decir
+     * que sí sería fingir un efecto. Ese rechazo es, de paso, lo que hace que
+     * pulsar dos veces no encole dos veces.
+     *
+     * Los `intentos` vuelven a cero a propósito: un acta que ya falló dos veces
+     * agotaría el tope en la primera relectura y volvería a revisión sola, sin
+     * haber tenido su oportunidad.
+     */
+    public function reprocesar(E14Acta $acta): E14Acta
+    {
+        if (! in_array($acta->estado, self::REPROCESABLES, true)) {
+            throw ValidationException::withMessages([
+                'estado' => $acta->estado === E14Acta::ESTADO_PROCESANDO
+                    ? 'Un worker está leyendo esta acta ahora mismo. Espera a que termine para volver a procesarla.'
+                    : 'Esta acta ya está en la cola esperando a que un worker la lea.',
+            ])->status(409);
+        }
+
+        return DB::transaction(function () use ($acta) {
+            // Explícito y no por cascada de la FK: que los resultados se vayan
+            // con el acta no puede depender de si el motor tiene las claves
+            // foráneas activadas.
+            $acta->resultados()->delete();
+
+            $acta->forceFill([
+                ...array_fill_keys(self::CIFRAS_LEIDAS, 0),
+                'estado' => E14Acta::ESTADO_PENDIENTE,
+                'intentos' => 0,
+                'confianza' => null,
+                'observacion' => null,
+                'claimed_at' => null,
+                'processed_at' => null,
+                // La va a leer la visión otra vez, aunque la corrección
+                // anterior fuera manual.
+                'fuente' => E14Acta::FUENTE_VISION,
+            ])->save();
+
+            return $acta->refresh();
+        });
+    }
+
+    /**
+     * Borra el acta, sus resultados y su archivo (Spec 0077).
+     *
+     * La otra salida de la revisión: cuando el escaneo es ilegible, releer el
+     * mismo archivo no lo va a arreglar y lo que hace falta es **volver a
+     * cargarlo** mejor. Eso choca con la deduplicación por contenido de la 0072,
+     * que devolvería el acta existente en vez de crear una nueva — y por eso
+     * borrar la fila es lo que libera el `archivo_hash` (índice único
+     * `tenant_id + archivo_hash`) y deja entrar de nuevo al mismo PDF.
+     *
+     * Se permite en cualquier estado, `procesando` incluido: quitar un acta no
+     * puede depender de que un worker termine. Si su resultado llega después,
+     * el acta ya no existe y recibe un 404, que es el contrato que el worker ya
+     * tolera.
+     */
+    public function eliminar(E14Acta $acta): void
+    {
+        DB::transaction(function () use ($acta) {
+            $acta->resultados()->delete();
+            $acta->delete();
+        });
+
+        // Después del commit y a propósito: borrar un objeto del disco no se
+        // deshace con un rollback. Es best-effort —un archivo que ya no está no
+        // puede dejar la fila colgada para siempre—, y como el nombre en disco
+        // es el hash del contenido bajo la carpeta del tenant, no hay otra acta
+        // de esta campaña que lo comparta.
+        $this->archivos->borrar($acta);
     }
 
     /**

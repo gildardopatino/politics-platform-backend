@@ -15,8 +15,9 @@ use Illuminate\Validation\Rule;
 /**
  * Carga de actas y cola de procesamiento (Spec 0071).
  *
- * Es la mitad que mira al panel: subir los PDFs y dar la orden de procesarlos.
- * La otra mitad —la que mira al worker— vive en `E14WorkerController`.
+ * Es la mitad que mira al panel: subir los PDFs, dar la orden de procesarlos y
+ * —desde la 0077— devolver a la cola un acta que hay que volver a leer. La otra
+ * mitad, la que mira al worker, vive en `E14WorkerController`.
  */
 class E14UploadController extends Controller
 {
@@ -71,6 +72,23 @@ class E14UploadController extends Controller
             'message' => $encoladas === 0
                 ? 'No había actas cargadas por procesar.'
                 : "Se encolaron {$encoladas} actas.",
+        ]);
+    }
+
+    /**
+     * Devuelve un acta ya leída a la cola, descartando su lectura (Spec 0077).
+     *
+     * Es la salida de la revisión cuando no hay nada que corregir a mano: el
+     * lector no transcribió el acta y lo único útil es que la vuelva a leer.
+     * Conserva el archivo; con el acta en vuelo responde 409.
+     */
+    public function reprocesar(E14Acta $acta): JsonResponse
+    {
+        $acta = $this->cola->reprocesar($acta);
+
+        return response()->json([
+            'data' => new E14ActaResource($acta->load('electoralEvent')),
+            'message' => 'Acta devuelta a la cola: se descartó la lectura anterior y el worker la volverá a leer.',
         ]);
     }
 

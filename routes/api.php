@@ -137,6 +137,13 @@ Route::prefix('v1')->group(function () {
             Route::post('/actas/procesar', [E14UploadController::class, 'procesar'])->middleware('permission:manage_e14');
             Route::get('/resumen', [E14UploadController::class, 'resumen'])->middleware('permission:view_e14');
 
+            // Volver a leer un acta (Spec 0077): la salida de la revisión
+            // cuando el lector no transcribió nada y no hay casilla que
+            // corregir. Va después de `upload`/`procesar` para que ningún
+            // segmento fijo se lea como un id.
+            Route::post('/actas/{acta}/reprocesar', [E14UploadController::class, 'reprocesar'])
+                ->middleware('permission:manage_e14');
+
             // Lo que consume el worker (Spec 0071).
             Route::post('/actas/siguiente', [E14WorkerController::class, 'siguiente'])->middleware('permission:manage_e14');
             Route::post('/actas/{acta}/resultado', [E14WorkerController::class, 'resultado'])->middleware('permission:manage_e14');
@@ -168,6 +175,11 @@ Route::prefix('v1')->group(function () {
             Route::get('/consolidado', [E14IngestController::class, 'consolidado'])->middleware('permission:view_e14');
             Route::get('/actas/{acta}', [E14IngestController::class, 'show'])->middleware('permission:view_e14');
             Route::put('/actas/{acta}', [E14IngestController::class, 'update'])->middleware('permission:manage_e14');
+
+            // Quitar un acta (Spec 0077): borra la fila, sus resultados y el
+            // archivo, con lo que se libera el `archivo_hash` y el mismo PDF
+            // puede volver a cargarse mejor escaneado.
+            Route::delete('/actas/{acta}', [E14IngestController::class, 'destroy'])->middleware('permission:manage_e14');
         });
 
     // Protected routes
