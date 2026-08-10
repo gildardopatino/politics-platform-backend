@@ -42,7 +42,7 @@ class AuthenticateE14Client
 
         $usuario = str_starts_with($credencial, E14ServiceToken::PREFIJO)
             ? $this->porTokenDeServicio($credencial, $request)
-            : $this->porJwt();
+            : $this->porJwt($request);
 
         if (! $usuario) {
             return $this->rechazar('Credencial no válida.');
@@ -84,15 +84,31 @@ class AuthenticateE14Client
         return $usuario;
     }
 
-    private function porJwt(): ?User
+    /**
+     * Resuelve el usuario del JWT.
+     *
+     * Se carga a mano en vez de con `authenticate()` del paquete por la misma
+     * razón que en el token de servicio: la búsqueda del propio paquete pasa por
+     * el proveedor Eloquent y, con él, por `TenantScope`. Autenticar no puede
+     * depender de un tenant que todavía no se ha establecido —es el usuario
+     * quien lo determina—, así que el scope se salta explícitamente.
+     *
+     * `getPayload()` valida firma y vigencia; si el token no sirve, lanza.
+     */
+    private function porJwt(Request $request): ?User
     {
         try {
-            $usuario = JWTAuth::parseToken()->authenticate();
+            // El parser del paquete guarda la petición con la que se construyó;
+            // sin esto, en un proceso de vida larga se leería la cabecera de
+            // otra petición.
+            JWTAuth::parser()->setRequest($request);
+
+            $id = JWTAuth::parseToken()->getPayload()->get('sub');
         } catch (\Throwable) {
             return null;
         }
 
-        return $usuario instanceof User ? $usuario : null;
+        return User::withoutGlobalScope(TenantScope::class)->find($id);
     }
 
     private function rechazar(string $mensaje): Response

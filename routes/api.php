@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\V1\CommitmentController;
 use App\Http\Controllers\Api\V1\CommuneController;
 use App\Http\Controllers\Api\V1\CorregimientoController;
 use App\Http\Controllers\Api\V1\DashboardController;
+use App\Http\Controllers\Api\V1\E14IngestController;
 use App\Http\Controllers\Api\V1\GeocodeController;
 use App\Http\Controllers\Api\V1\GeographicContactController;
 use App\Http\Controllers\Api\V1\GeographicStatsController;
@@ -106,6 +107,22 @@ Route::prefix('v1')->group(function () {
         Route::post('/voluntarios', [LandingPageController::class, 'storeVoluntario']);
         Route::post('/contacto', [LandingPageController::class, 'storeContacto']);
     });
+
+    // Escrutinio E-14 (Spec 0061). Fuera del grupo `jwt.auth` porque uno de sus
+    // dos clientes no tiene sesión: el lector de actas publica con un token de
+    // servicio de larga vida. `e14.auth` acepta ambas credenciales y deja un
+    // usuario autenticado, así que a partir de ahí la cadena es la de siempre
+    // —tenant, vigencia, permiso— sin un camino paralelo que se olvide de
+    // revisar. El throttle va delante para que el token no se pueda tantear.
+    Route::prefix('e14')
+        ->middleware(['throttle:120,1', 'e14.auth', 'tenant', 'tenant.active'])
+        ->group(function () {
+            Route::post('/actas', [E14IngestController::class, 'store'])->middleware('permission:manage_e14');
+            Route::get('/actas', [E14IngestController::class, 'index'])->middleware('permission:view_e14');
+            Route::get('/consolidado', [E14IngestController::class, 'consolidado'])->middleware('permission:view_e14');
+            Route::get('/actas/{acta}', [E14IngestController::class, 'show'])->middleware('permission:view_e14');
+            Route::put('/actas/{acta}', [E14IngestController::class, 'update'])->middleware('permission:manage_e14');
+        });
 
     // Protected routes
     Route::middleware('jwt.auth')->group(function () {
