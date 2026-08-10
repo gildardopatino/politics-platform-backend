@@ -23,7 +23,8 @@ class E14UploadController extends Controller
     public function __construct(private readonly E14ColaService $cola) {}
 
     /**
-     * Sube un acta. Deduplica por contenido: el mismo PDF no se carga dos veces.
+     * Sube un acta y **la deja en la cola**. Deduplica por contenido: el mismo
+     * PDF no se carga dos veces ni reabre una que ya se leyó.
      */
     public function upload(UploadE14ActaRequest $request): JsonResponse
     {
@@ -43,12 +44,16 @@ class E14UploadController extends Controller
             'duplicada' => $duplicada,
             'message' => $duplicada
                 ? 'Ese archivo ya estaba cargado; se devuelve el acta existente.'
-                : 'Acta cargada.',
+                : 'Acta cargada y encolada.',
         ], $duplicada ? 200 : 201);
     }
 
     /**
-     * Encola las actas cargadas: `cargada → pendiente`.
+     * Reencola lo que se quedó en `cargada`.
+     *
+     * Desde la 0072 subir ya encola, así que esto es la salida de emergencia
+     * para lo que entró antes de ese cambio o para un lote que alguien quiera
+     * volver a mandar a la cola.
      */
     public function procesar(Request $request): JsonResponse
     {

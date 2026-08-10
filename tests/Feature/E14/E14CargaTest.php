@@ -40,6 +40,30 @@ class E14CargaTest extends TestCase
         return $tenant;
     }
 
+    /**
+     * Un acta de las de antes de la 0072: subida y ahí olvidada, en `cargada`.
+     *
+     * Es el caso que `procesar` sigue existiendo para rescatar.
+     */
+    private function legado(Tenant $tenant, string $tipo): E14Acta
+    {
+        $evento = ElectoralEvent::withoutGlobalScope(TenantScope::class)->firstOrCreate([
+            'tenant_id' => $tenant->id,
+            'tipo' => $tipo,
+            'nombre' => ucfirst($tipo),
+        ]);
+
+        return E14Acta::withoutGlobalScope(TenantScope::class)->create([
+            'tenant_id' => $tenant->id,
+            'electoral_event_id' => $evento->id,
+            'tipo' => $tipo,
+            'archivo_nombre' => "vieja-{$tipo}.pdf",
+            'archivo_hash' => hash('sha256', "{$tenant->id}-{$tipo}-legado"),
+            'archivo_path' => "e14/{$tenant->id}/legado-{$tipo}.pdf",
+            'estado' => E14Acta::ESTADO_CARGADA,
+        ]);
+    }
+
     private function pdf(string $nombre = 'mesa001.pdf', string $contenido = 'ACTA-001'): UploadedFile
     {
         // Un PDF de verdad, mínimo pero con cabecera: la validación mira el
@@ -50,7 +74,7 @@ class E14CargaTest extends TestCase
         );
     }
 
-    public function test_un_acta_subida_queda_cargada_con_su_pdf_guardado(): void
+    public function test_un_acta_subida_queda_encolada_con_su_pdf_guardado(): void
     {
         $this->operador();
 
@@ -59,8 +83,9 @@ class E14CargaTest extends TestCase
             'archivo' => $this->pdf(),
         ]);
 
+        // Cargar es encolar (Spec 0072): no hay un segundo paso que olvidar.
         $respuesta->assertStatus(201)
-            ->assertJsonPath('data.estado', 'cargada')
+            ->assertJsonPath('data.estado', 'pendiente')
             ->assertJsonPath('data.tipo', 'alcaldia')
             ->assertJsonPath('data.archivo_nombre', 'mesa001.pdf')
             ->assertJsonPath('data.tiene_archivo', true)
@@ -208,7 +233,7 @@ class E14CargaTest extends TestCase
 
     // ------------------------------------------------------------- encolar
 
-    public function test_procesar_pasa_las_cargadas_a_pendientes(): void
+    public function test_subir_ya_no_deja_nada_pendiente_de_encolar(): void
     {
         $this->operador();
 
@@ -221,17 +246,20 @@ class E14CargaTest extends TestCase
             ])->json('upload_batch_id');
         }
 
-        $this->postJson('/api/v1/e14/actas/procesar', ['batch_id' => $lote])
-            ->assertStatus(200)
-            ->assertJsonPath('data.encoladas', 3);
-
         $this->assertSame(
             3,
-            E14Acta::withoutGlobalScope(TenantScope::class)->where('estado', 'pendiente')->count()
+            E14Acta::withoutGlobalScope(TenantScope::class)->where('estado', 'pendiente')->count(),
+            'Las tres entran a la cola por el hecho de subirlas.'
         );
+
+        // Y por tanto no queda nada que «procesar»: el paso que se podía
+        // olvidar ya no existe (Spec 0072).
+        $this->postJson('/api/v1/e14/actas/procesar', ['batch_id' => $lote])
+            ->assertStatus(200)
+            ->assertJsonPath('data.encoladas', 0);
     }
 
-    public function test_procesar_dos_veces_no_reencola_lo_que_ya_esta_en_marcha(): void
+    public function test_el_worker_puede_reclamar_un_acta_recien_subida(): void
     {
         $this->operador();
 
@@ -240,22 +268,43 @@ class E14CargaTest extends TestCase
             'archivo' => $this->pdf(),
         ])->assertStatus(201);
 
+        // Sin ningún paso intermedio: subir y que el lector la tome.
+        $this->postJson('/api/v1/e14/actas/siguiente')
+            ->assertStatus(200)
+            ->assertJsonPath('data.estado', 'procesando');
+    }
+
+    public function test_procesar_rescata_las_actas_que_se_quedaron_en_cargada(): void
+    {
+        $tenant = $this->operador();
+        $this->legado($tenant, 'alcaldia');
+
+        // Las que entraron antes de la 0072 siguen en `cargada`; el endpoint
+        // existe justo para eso.
+        $this->postJson('/api/v1/e14/actas/procesar')
+            ->assertStatus(200)
+            ->assertJsonPath('data.encoladas', 1);
+
+        $this->assertSame(
+            'pendiente',
+            E14Acta::withoutGlobalScope(TenantScope::class)->first()->estado
+        );
+    }
+
+    public function test_procesar_dos_veces_no_reencola_lo_que_ya_esta_en_marcha(): void
+    {
+        $tenant = $this->operador();
+        $this->legado($tenant, 'alcaldia');
+
         $this->postJson('/api/v1/e14/actas/procesar')->assertJsonPath('data.encoladas', 1);
         $this->postJson('/api/v1/e14/actas/procesar')->assertJsonPath('data.encoladas', 0);
     }
 
     public function test_se_puede_encolar_solo_un_tipo(): void
     {
-        $this->operador();
-
-        $this->postJson('/api/v1/e14/actas/upload', [
-            'tipo' => 'alcaldia',
-            'archivo' => $this->pdf('alc.pdf', 'ALC'),
-        ]);
-        $this->postJson('/api/v1/e14/actas/upload', [
-            'tipo' => 'concejo',
-            'archivo' => $this->pdf('con.pdf', 'CON'),
-        ]);
+        $tenant = $this->operador();
+        $this->legado($tenant, 'alcaldia');
+        $this->legado($tenant, 'concejo');
 
         $this->postJson('/api/v1/e14/actas/procesar', ['tipo' => 'alcaldia'])
             ->assertJsonPath('data.encoladas', 1);
@@ -269,10 +318,7 @@ class E14CargaTest extends TestCase
     public function test_encolar_no_alcanza_a_otra_campana(): void
     {
         $ajena = $this->operador();
-        $this->postJson('/api/v1/e14/actas/upload', [
-            'tipo' => 'alcaldia',
-            'archivo' => $this->pdf(),
-        ])->assertStatus(201);
+        $this->legado($ajena, 'alcaldia');
 
         $this->operador();
         $this->postJson('/api/v1/e14/actas/procesar')->assertJsonPath('data.encoladas', 0);
@@ -295,11 +341,11 @@ class E14CargaTest extends TestCase
                 'archivo' => $this->pdf("{$letra}.pdf", $letra),
             ]);
         }
-        $this->postJson('/api/v1/e14/actas/procesar');
 
         $respuesta = $this->getJson('/api/v1/e14/resumen')->assertStatus(200);
 
         $respuesta->assertJsonPath('data.por_estado.pendiente', 2)
+            ->assertJsonPath('data.por_estado.cargada', 0)
             ->assertJsonPath('data.por_estado.procesada', 0)
             ->assertJsonPath('data.por_tipo.alcaldia', 2)
             ->assertJsonPath('data.total', 2)

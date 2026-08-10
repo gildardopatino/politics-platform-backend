@@ -26,7 +26,13 @@ class E14ColaService
     ) {}
 
     /**
-     * Guarda un PDF y crea (o reencuentra) su acta.
+     * Guarda un PDF y crea (o reencuentra) su acta, **ya encolada**.
+     *
+     * Cargar es encolar (Spec 0072). Antes el acta nacía `cargada` y alguien
+     * tenía que pulsar «Procesar» después; quien subía un lote y se iba de la
+     * pantalla dejaba las actas ahí, sin que nada avisara y sin un botón a mano
+     * para arreglarlo. Un flujo que permite olvidarse de un paso no es un flujo
+     * con un paso de más: es un defecto.
      *
      * **Deduplica por contenido.** Si el mismo archivo ya se subió, se devuelve
      * el acta que ya existe sin tocarle el estado: subir dos veces la misma foto
@@ -65,7 +71,7 @@ class E14ColaService
             'archivo_hash' => $hash,
             'archivo_path' => $ruta,
             'upload_batch_id' => $batchId,
-            'estado' => E14Acta::ESTADO_CARGADA,
+            'estado' => E14Acta::ESTADO_PENDIENTE,
             'fuente' => E14Acta::FUENTE_VISION,
         ]);
 
@@ -73,11 +79,12 @@ class E14ColaService
     }
 
     /**
-     * Pone en la cola las actas cargadas que encajen con el filtro.
+     * Pone en la cola las actas que se quedaron en `cargada`.
      *
-     * Cargar y encolar son dos gestos separados a propósito: subir 120 PDFs
-     * lleva un rato y a media subida no hay nada que procesar todavía. La orden
-     * la da la persona cuando termina.
+     * Desde la 0072 el camino normal no pasa por aquí: subir ya encola. Queda
+     * para los casos de borde —actas cargadas antes de ese cambio, o un lote que
+     * alguien quiera reencolar a mano—, porque quitarlo dejaría sin rescate lo
+     * que ya estaba a medias.
      *
      * @param  array<string, mixed>  $filtros
      */

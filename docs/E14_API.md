@@ -48,7 +48,7 @@ cargada → pendiente → procesando → procesada | inconsistente | revision_ma
 
 | Estado | Qué significa |
 | --- | --- |
-| `cargada` | el PDF se subió; nadie ha dado la orden de procesarlo |
+| `cargada` | vestigio: hasta la 0072 el PDF subido esperaba una orden manual |
 | `pendiente` | en la cola, esperando a que un worker la reclame |
 | `procesando` | reclamada por un worker; nadie más puede tomarla |
 | `procesada` | leída y cuadra: entra al consolidado |
@@ -58,6 +58,11 @@ cargada → pendiente → procesando → procesada | inconsistente | revision_ma
 Los tres primeros los mueve **solo el servidor**. Un cliente que intente
 declararse `procesando` recibe 422: si pudiera, sacaría un acta de la cola sin
 haberla leído.
+
+**Desde la 0072 subir un acta la deja en `pendiente`**, así que el camino real
+empieza en el segundo estado. `cargada` sigue siendo válido —no hubo migración
+que lo retirara— pero ya nadie lo escribe; solo lo llevan las actas que se
+subieron antes del cambio, y `POST /actas/procesar` existe para rescatarlas.
 
 La corrección manual (`PUT`) reevalúa el cuadre y nunca marca `procesada` un
 acta que no cuadra.
@@ -164,6 +169,10 @@ devuelve lo que leyó.
 | `electoral_event_id` | opcional |
 | `upload_batch_id` | opcional; si no viene, el servidor abre uno y lo devuelve |
 
+**Subir es encolar (Spec 0072).** El acta nace en `pendiente` y el worker la
+toma sola. Antes nacía `cargada` y hacía falta un segundo paso; quien subía un
+lote y se iba de la pantalla lo dejaba ahí sin que nada avisara.
+
 **Deduplica por contenido.** El PDF se guarda como `e14/{tenant}/{sha256}.pdf`,
 así que subir el mismo escaneo con otro nombre —cosa que pasa todo el tiempo
 cuando varias personas cargan el mismo lote— devuelve el acta que ya existe, con
@@ -173,24 +182,24 @@ tenant.
 
 ```json
 {
-  "data": { "id": 12, "estado": "cargada", "tiene_archivo": true, "…": "…" },
+  "data": { "id": 12, "estado": "pendiente", "tiene_archivo": true, "…": "…" },
   "upload_batch_id": "0f8c…",
   "duplicada": false,
-  "message": "Acta cargada."
+  "message": "Acta cargada y encolada."
 }
 ```
 
-El acta queda `cargada`, sin zona/puesto/mesa: eso está dentro del papel y lo
-dirá el worker.
+El acta queda sin zona/puesto/mesa: eso está dentro del papel y lo dirá el
+worker.
 
-### `POST /actas/procesar` — encolar
+### `POST /actas/procesar` — reencolar (casos de borde)
 
 `{ "tipo"?, "batch_id"?, "ids"? }` → pasa de `cargada` a `pendiente` lo que
 encaje, y devuelve `{ "data": { "encoladas": N } }`. Permiso `manage_e14`.
 
-Cargar y encolar son dos gestos separados a propósito: subir 120 PDFs lleva un
-rato y a media subida no hay nada que procesar. La orden la da la persona cuando
-termina. Llamarlo dos veces no reencola lo que ya está en marcha.
+**Ya no hace falta en el camino normal**: desde la 0072 subir encola. Queda para
+las actas que se quedaron en `cargada` antes de ese cambio y para reencolar un
+lote a mano. Llamarlo dos veces no reencola lo que ya está en marcha.
 
 ### `POST /actas/siguiente` — reclamar (worker)
 
