@@ -449,8 +449,8 @@ class VotanteVotingPlaceTest extends TestCase
             ->assertStatus(200)
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.mesa', 5)
-            ->assertJsonPath('data.0.registrados', 1)
+            ->assertJsonPath('data.0.base', 1)
             ->assertJsonPath('data.0.votos_candidato', 30)
-            ->assertJsonPath('meta.cobertura.registrados_sin_conciliar', 0);
+            ->assertJsonPath('meta.cobertura.base_sin_conciliar', 0);
     }
 }

@@ -9,14 +9,30 @@ use App\Models\VotingPlace;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Potencial vs real: registrados contra los votos de mi candidato (Spec 0062).
+ * Déficit sobre la base identificada (Specs 0062 y 0076).
  *
  * Es la pregunta que paga la analítica electoral: en este puesto tengo 340
- * personas registradas y mi candidato saco 120 votos — ¿dónde se fue el resto?
+ * personas identificadas y mi candidato saco 120 votos — ¿qué pasó con las otras?
+ *
+ * ### Base ≠ censo (la corrección de la 0076)
+ *
+ * La 0062 llamó «registrados» a los `voters` del tenant y les aplicó una lógica que
+ * solo tiene sentido contra el **censo electoral** del puesto: marcaba anomalía
+ * cuando `votos > registrados`, con un «nadie puede votar donde no está
+ * registrado» que salta casi siempre y es falso. Los `voters` no son el censo: son
+ * la **base identificada** de la campaña —quien llegó por reuniones, call center,
+ * líderes— y por diseño un **subconjunto** del electorado. El candidato recibe
+ * votos de mucha gente que no está en el sistema, así que `votos > base` es lo
+ * esperable y no informa de nada.
+ *
+ * La señal que **sí** tiene información cierta es la contraria, el **déficit**:
+ * donde `votos < base`, al menos `base − votos` personas de la base no se
+ * reflejaron en votos ahí. Ese es el piso de fuga y el sitio a donde ir a
+ * preguntar. El caso inverso se reporta como **excedente**, dato neutro.
  *
  * Tres decisiones gobiernan el cálculo:
  *
- * 1. **Potencial = registrados**, no comprometidos ni encuestados: es el único
+ * 1. **Base = los `voters`** (opcionalmente `leads`) del tenant: es el único
  *    número que existe para todas las mesas.
  * 2. **Real = la fila del E-14 de mi candidato**, y solo de actas `procesada`.
  *    Una mesa que no cuadra consigo misma no se puede usar para juzgar a nadie.
@@ -32,7 +48,7 @@ class CruceService
 
     public const NIVEL_MESA = 'mesa';
 
-    /** Qué cuenta como «registrado». `voters` es el censo propio del tenant. */
+    /** Qué cuenta como base identificada del tenant (no como censo del puesto). */
     public const INCLUIR = RegistradosService::INCLUIR;
 
     public function __construct(
@@ -49,7 +65,7 @@ class CruceService
         if (! $evento->tieneCandidatoPropio()) {
             throw ValidationException::withMessages([
                 'event' => 'Esta elección todavía no tiene candidato propio. '
-                    .'Configúralo para poder cruzar los registrados con los votos reales.',
+                    .'Configúralo para poder cruzar tu base identificada con los votos reales.',
             ]);
         }
 
@@ -65,11 +81,11 @@ class CruceService
         // la primera acta que llegue después.
         $this->puestos->conciliarActas($evento->id);
 
-        $registrados = $this->registrados->contar($nivel, $incluir);
+        $base = $this->registrados->contar($nivel, $incluir);
         $actas = $this->actas($evento, $nivel);
         $votos = $this->votos($evento, $nivel);
 
-        $filas = $this->armarFilas($nivel, $registrados['grupos'], $actas, $votos);
+        $filas = $this->armarFilas($nivel, $base['grupos'], $actas, $votos);
         $filas = $this->filtrar($filas, $filtros);
 
         return [
@@ -84,7 +100,7 @@ class CruceService
                     'agrupacion' => $evento->candidato_propio_agrupacion,
                 ],
                 'totales' => $this->totales($filas),
-                'cobertura' => $this->cobertura($evento, $filas, $registrados),
+                'cobertura' => $this->cobertura($evento, $filas, $base),
             ],
         ];
     }
@@ -161,24 +177,24 @@ class CruceService
     /**
      * Une los tres lados y le pone nombre a cada puesto.
      *
-     * @param  array<string, array<string, mixed>>  $registrados
+     * @param  array<string, array<string, mixed>>  $base
      * @param  array<string, int>  $actas
      * @param  array<string, int>  $votos
      * @return array<int, array<string, mixed>>
      */
-    private function armarFilas(string $nivel, array $registrados, array $actas, array $votos): array
+    private function armarFilas(string $nivel, array $base, array $actas, array $votos): array
     {
-        $filas = $registrados;
+        $filas = $base;
 
-        // Un puesto con acta pero sin registrados también es una fila: es la
-        // mitad más interesante de la cobertura (ahí hay votos de alguien más).
+        // Un puesto con acta pero sin base también es una fila: ahí hay votos de
+        // gente que la campaña no tiene identificada, y eso se quiere ver.
         foreach (array_keys($actas + $votos) as $clave) {
             if (isset($filas[$clave])) {
                 continue;
             }
 
             [$puesto, $mesa] = $this->partirClave($clave);
-            $filas[$clave] = ['voting_place_id' => $puesto, 'mesa' => $mesa, 'registrados' => 0];
+            $filas[$clave] = ['voting_place_id' => $puesto, 'mesa' => $mesa, 'base' => 0];
         }
 
         $lugares = VotingPlace::query()
@@ -190,7 +206,7 @@ class CruceService
 
         foreach ($filas as $clave => $fila) {
             $lugar = $lugares->get($fila['voting_place_id']);
-            $cuenta = $fila['registrados'];
+            $cuenta = $fila['base'];
             $misVotos = $votos[$clave] ?? 0;
 
             $armada = [
@@ -198,13 +214,10 @@ class CruceService
                 'departamento' => $lugar?->departamento_votacion,
                 'municipio' => $lugar?->municipio_votacion,
                 'puesto' => $lugar?->puesto_votacion,
-                'registrados' => $cuenta,
+                'base' => $cuenta,
                 'votos_candidato' => $misVotos,
-                'penetracion' => $this->penetracion($misVotos, $cuenta),
+                'rendimiento' => $this->rendimiento($misVotos, $cuenta),
                 'diferencia' => $misVotos - $cuenta,
-                // Imposible legítimamente: nadie puede votar donde no está
-                // registrado. Es un dato a revisar, no un rendimiento a celebrar.
-                'anomalia' => $misVotos > $cuenta,
                 'tiene_acta' => ($actas[$clave] ?? 0) > 0,
                 'actas' => $actas[$clave] ?? 0,
             ];
@@ -265,46 +278,45 @@ class CruceService
      */
     private function totales(array $filas): array
     {
-        $registrados = (int) array_sum(array_column($filas, 'registrados'));
+        $base = (int) array_sum(array_column($filas, 'base'));
         $votos = (int) array_sum(array_column($filas, 'votos_candidato'));
 
         return [
             'puestos' => count($filas),
-            'registrados' => $registrados,
+            'base' => $base,
             'votos_candidato' => $votos,
-            'penetracion' => $this->penetracion($votos, $registrados),
-            'diferencia' => $votos - $registrados,
-            'anomalias' => count(array_filter(array_column($filas, 'anomalia'))),
+            'rendimiento' => $this->rendimiento($votos, $base),
+            'diferencia' => $votos - $base,
         ];
     }
 
     /**
-     * Calidad del cruce. Es la mitad del valor del informe: un 80 % de
-     * penetración sobre la cuarta parte de los puestos no dice lo mismo que sobre
-     * todos, y sin este bloque las dos cosas se leen igual.
+     * Calidad del cruce. Es la mitad del valor del informe: un 80 % de rendimiento
+     * sobre la cuarta parte de los puestos no dice lo mismo que sobre todos, y sin
+     * este bloque las dos cosas se leen igual.
      *
      * @param  array<int, array<string, mixed>>  $filas
-     * @param  array{sin_conciliar: int, nombres: array<string, array<string, mixed>>}  $registrados
+     * @param  array{sin_conciliar: int, nombres: array<string, array<string, mixed>>}  $base
      * @return array<string, mixed>
      */
-    private function cobertura(ElectoralEvent $evento, array $filas, array $registrados): array
+    private function cobertura(ElectoralEvent $evento, array $filas, array $base): array
     {
         $sinActa = 0;
-        $sinRegistrados = 0;
+        $sinBase = 0;
 
         foreach ($filas as $fila) {
             if (! $fila['tiene_acta']) {
                 $sinActa++;
             }
 
-            if ($fila['registrados'] === 0) {
-                $sinRegistrados++;
+            if ($fila['base'] === 0) {
+                $sinBase++;
             }
         }
 
         return [
             'puestos_sin_acta' => $sinActa,
-            'puestos_sin_registrados' => $sinRegistrados,
+            'puestos_sin_base' => $sinBase,
             // Actas leídas y cuadradas que no se pudieron colgar de ningún
             // puesto: sin `lugar` legible, o sin departamento con el que darlo de
             // alta. Sus votos no entran en ninguna fila.
@@ -313,16 +325,23 @@ class CruceService
                 ->where('estado', E14Acta::ESTADO_PROCESADA)
                 ->whereNull('voting_place_id')
                 ->count(),
-            'registrados_sin_conciliar' => $registrados['sin_conciliar'],
-            'nombres_sin_conciliar' => count($registrados['nombres']),
+            'base_sin_conciliar' => $base['sin_conciliar'],
+            'nombres_sin_conciliar' => count($base['nombres']),
         ];
     }
 
-    private function penetracion(int $votos, int $registrados): ?float
+    /**
+     * `votos / base`, en porcentaje.
+     *
+     * El 100 % **no es un techo**: significa «igualaste tu base identificada». Por
+     * debajo hay déficit; por encima, excedente —votos de gente que la campaña no
+     * tenía en el sistema, que es lo normal.
+     */
+    private function rendimiento(int $votos, int $base): ?float
     {
-        // Sin registrados no hay porcentaje que calcular. Devolver 0 diría «no
-        // penetro nada» donde lo que pasa es que no se sabe.
-        return $registrados > 0 ? round($votos / $registrados * 100, 2) : null;
+        // Sin base no hay porcentaje que calcular. Devolver 0 diría «no rindo
+        // nada» donde lo que pasa es que no se sabe.
+        return $base > 0 ? round($votos / $base * 100, 2) : null;
     }
 
     private function contiene(?string $texto, string $buscado): bool

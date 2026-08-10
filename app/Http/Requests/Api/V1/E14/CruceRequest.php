@@ -33,7 +33,7 @@ class CruceRequest extends FormRequest
     {
         return [
             'nivel.in' => 'El cruce se puede ver por puesto o por mesa.',
-            'incluir.in' => 'Los registrados se cuentan de votantes, de leads o de ambos.',
+            'incluir.in' => 'La base se cuenta de votantes, de leads o de ambos.',
         ];
     }
 }

@@ -13,12 +13,18 @@ use App\Support\Permissions;
 use Tests\TestCase;
 
 /**
- * Cruce potencial vs real (Spec 0062 · Parte A).
+ * Cruce: déficit sobre la base identificada (Specs 0062 y 0076).
  *
- * «Tengo 50 registrados en este puesto y mi candidato saco 30 votos»: eso es lo
- * que se prueba aquí, y con él las tres reglas que lo gobiernan — el potencial son
- * los registrados, el real es la fila del E-14 de mi candidato en actas que
- * cuadran, y el match es **exacto** por puesto canónico + mesa normalizada.
+ * «Tengo 50 personas identificadas en este puesto y mi candidato saco 30 votos»:
+ * eso es lo que se prueba aquí, y con él las tres reglas que lo gobiernan — la base
+ * son los `voters` (y opcionalmente los `leads`) del tenant, el real es la fila del
+ * E-14 de mi candidato en actas que cuadran, y el match es **exacto** por puesto
+ * canónico + mesa normalizada.
+ *
+ * La 0076 corrigió la semántica: la base **no** es el censo del puesto, es un
+ * subconjunto del electorado, así que `votos > base` es lo normal —**excedente**,
+ * dato neutro— y la señal accionable es la contraria, el **déficit**. El flag
+ * `anomalia` de la 0062 desapareció con su mensaje.
  *
  * Lo que no casa no se aproxima: se cuenta en la cobertura.
  */
@@ -101,7 +107,7 @@ class E14CruceTest extends TestCase
 
     // ---------------------------------------------------------- el cálculo
 
-    public function test_muestra_registrados_votos_penetracion_y_diferencia(): void
+    public function test_muestra_la_base_los_votos_el_rendimiento_y_la_diferencia(): void
     {
         $tenant = $this->operador();
         $lugar = $this->puestoDelCatalogo();
@@ -114,18 +120,20 @@ class E14CruceTest extends TestCase
             ->assertJsonPath('data.0.voting_place_id', $lugar->id)
             ->assertJsonPath('data.0.puesto', self::LUGAR)
             ->assertJsonPath('data.0.municipio', 'IBAGUE')
-            ->assertJsonPath('data.0.registrados', 50)
+            ->assertJsonPath('data.0.base', 50)
             ->assertJsonPath('data.0.votos_candidato', 30)
-            ->assertJsonPath('data.0.penetracion', 60)
+            ->assertJsonPath('data.0.rendimiento', 60)
             ->assertJsonPath('data.0.diferencia', -20)
-            ->assertJsonPath('data.0.anomalia', false)
+            // `anomalia` ya no existe (Spec 0076): la base identificada no es el
+            // censo del puesto, así que sacar más votos que ella no es un error.
+            ->assertJsonMissingPath('data.0.anomalia')
             ->assertJsonPath('data.0.tiene_acta', true)
             // Por puesto no hay columna de mesa: sería una columna siempre vacía.
             ->assertJsonMissingPath('data.0.mesa')
             ->assertJsonPath('meta.candidato.numero', 2)
-            ->assertJsonPath('meta.totales.registrados', 50)
+            ->assertJsonPath('meta.totales.base', 50)
             ->assertJsonPath('meta.totales.votos_candidato', 30)
-            ->assertJsonPath('meta.totales.penetracion', 60);
+            ->assertJsonPath('meta.totales.rendimiento', 60);
     }
 
     public function test_por_mesa_el_005_del_acta_casa_con_el_5_del_votante(): void
@@ -141,10 +149,10 @@ class E14CruceTest extends TestCase
         $respuesta = $this->getJson('/api/v1/e14/cruce?nivel=mesa')->assertStatus(200);
 
         $respuesta->assertJsonPath('data.0.mesa', 5)
-            ->assertJsonPath('data.0.registrados', 40)
+            ->assertJsonPath('data.0.base', 40)
             ->assertJsonPath('data.0.votos_candidato', 30)
             ->assertJsonPath('data.1.mesa', 6)
-            ->assertJsonPath('data.1.registrados', 10)
+            ->assertJsonPath('data.1.base', 10)
             ->assertJsonPath('data.1.votos_candidato', 0)
             ->assertJsonPath('data.1.tiene_acta', false)
             ->assertJsonPath('meta.cobertura.puestos_sin_acta', 1);
@@ -162,30 +170,30 @@ class E14CruceTest extends TestCase
 
         $this->getJson('/api/v1/e14/cruce')
             ->assertStatus(200)
-            ->assertJsonPath('data.0.registrados', 50)
+            ->assertJsonPath('data.0.base', 50)
             ->assertJsonPath('data.0.votos_candidato', 0)
             ->assertJsonPath('data.0.tiene_acta', false)
             ->assertJsonPath('meta.cobertura.puestos_sin_acta', 1);
     }
 
-    public function test_un_puesto_con_acta_y_sin_registrados_sale_en_la_cobertura(): void
+    public function test_un_puesto_con_acta_y_sin_base_sale_en_la_cobertura(): void
     {
         $tenant = $this->operador();
         $this->cargarActa();
         $this->evento($tenant);
 
-        // Ahí votó gente que esta campaña no tiene registrada: es la mitad más
+        // Ahí votó gente que esta campaña no tiene identificada: es la mitad más
         // interesante de la cobertura, así que la fila existe.
         $this->getJson('/api/v1/e14/cruce')
             ->assertStatus(200)
-            ->assertJsonPath('data.0.registrados', 0)
+            ->assertJsonPath('data.0.base', 0)
             ->assertJsonPath('data.0.votos_candidato', 30)
-            ->assertJsonPath('data.0.penetracion', null)
-            ->assertJsonPath('data.0.anomalia', true)
-            ->assertJsonPath('meta.cobertura.puestos_sin_registrados', 1);
+            ->assertJsonPath('data.0.rendimiento', null)
+            ->assertJsonMissingPath('data.0.anomalia')
+            ->assertJsonPath('meta.cobertura.puestos_sin_base', 1);
     }
 
-    public function test_marca_la_anomalia_cuando_hay_mas_votos_que_registrados(): void
+    public function test_mas_votos_que_la_base_ya_no_es_una_anomalia(): void
     {
         $tenant = $this->operador();
         $lugar = $this->puestoDelCatalogo();
@@ -193,12 +201,14 @@ class E14CruceTest extends TestCase
         $this->cargarActa();
         $this->evento($tenant);
 
-        // Nadie puede votar donde no está registrado: es un dato a revisar.
+        // La base identificada es un **subconjunto** del electorado: el candidato
+        // recibe votos de mucha gente que la campaña no tiene en el sistema. Por
+        // eso `votos > base` es lo normal y no informa de nada malo.
         $this->getJson('/api/v1/e14/cruce')
             ->assertStatus(200)
-            ->assertJsonPath('data.0.anomalia', true)
             ->assertJsonPath('data.0.diferencia', 20)
-            ->assertJsonPath('meta.totales.anomalias', 1);
+            ->assertJsonMissingPath('data.0.anomalia')
+            ->assertJsonMissingPath('meta.totales.anomalias');
     }
 
     public function test_cambiar_el_candidato_propio_recalcula_el_cruce(): void
@@ -217,7 +227,7 @@ class E14CruceTest extends TestCase
         // Nada guardado que recalcular: el cruce se calcula al preguntarlo.
         $this->getJson('/api/v1/e14/cruce')
             ->assertJsonPath('data.0.votos_candidato', 50)
-            ->assertJsonPath('data.0.penetracion', 50)
+            ->assertJsonPath('data.0.rendimiento', 50)
             ->assertJsonPath('meta.candidato.numero', 1);
     }
 
@@ -260,9 +270,9 @@ class E14CruceTest extends TestCase
         $this->getJson('/api/v1/e14/cruce')
             ->assertStatus(200)
             ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.registrados', 50)
+            ->assertJsonPath('data.0.base', 50)
             ->assertJsonPath('data.0.votos_candidato', 30)
-            ->assertJsonPath('meta.cobertura.registrados_sin_conciliar', 0);
+            ->assertJsonPath('meta.cobertura.base_sin_conciliar', 0);
     }
 
     public function test_el_votante_cuyo_puesto_no_resuelve_queda_por_conciliar(): void
@@ -281,8 +291,8 @@ class E14CruceTest extends TestCase
         $this->getJson('/api/v1/e14/cruce')
             ->assertStatus(200)
             ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.registrados', 0)
-            ->assertJsonPath('meta.cobertura.registrados_sin_conciliar', 50)
+            ->assertJsonPath('data.0.base', 0)
+            ->assertJsonPath('meta.cobertura.base_sin_conciliar', 50)
             ->assertJsonPath('meta.cobertura.nombres_sin_conciliar', 1);
     }
 
@@ -305,15 +315,15 @@ class E14CruceTest extends TestCase
         ]);
 
         $this->getJson('/api/v1/e14/cruce')
-            ->assertJsonPath('data.0.registrados', 30)
+            ->assertJsonPath('data.0.base', 30)
             ->assertJsonPath('meta.incluir', 'voters');
 
         $this->getJson('/api/v1/e14/cruce?incluir=ambos')
-            ->assertJsonPath('data.0.registrados', 31)
+            ->assertJsonPath('data.0.base', 31)
             ->assertJsonPath('meta.incluir', 'ambos');
 
         $this->getJson('/api/v1/e14/cruce?incluir=leads')
-            ->assertJsonPath('data.0.registrados', 1);
+            ->assertJsonPath('data.0.base', 1);
     }
 
     // ------------------------------------------------- cobertura y filtros
@@ -361,7 +371,7 @@ class E14CruceTest extends TestCase
         $this->getJson('/api/v1/e14/cruce?municipio=armero')
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.municipio', 'ARMERO')
-            ->assertJsonPath('meta.totales.registrados', 30);
+            ->assertJsonPath('meta.totales.base', 30);
 
         // Por id, como cuando se elige de la lista…
         $this->getJson("/api/v1/e14/cruce?voting_place={$ibague->id}")
@@ -414,7 +424,7 @@ class E14CruceTest extends TestCase
         $this->getJson('/api/v1/e14/cruce')
             ->assertStatus(200)
             ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.registrados', 10)
+            ->assertJsonPath('data.0.base', 10)
             ->assertJsonPath('data.0.votos_candidato', 7);
     }
 

@@ -6,16 +6,21 @@ use App\Models\Lead;
 use App\Models\Voter;
 
 /**
- * Cuántos registrados hay en cada puesto, y qué nombres no resolvieron
- * (Spec 0062 · Parte A).
+ * Cuánta **base identificada** hay en cada puesto, y qué nombres no resolvieron
+ * (Specs 0062 y 0076).
  *
  * Es el lado «potencial» del cruce y a la vez la materia prima de la pantalla de
  * conciliación: las dos preguntas se contestan con el mismo recuento, así que vive
  * aquí en vez de duplicarse en los dos servicios.
+ *
+ * La clase conserva su nombre —cuenta lo que la campaña tiene **registrado en el
+ * sistema**— pero su salida habla de `base` desde la 0076: estos `voters`/`leads`
+ * no son el censo electoral del puesto, son un subconjunto identificado del
+ * electorado, y confundir las dos cosas fue justo lo que la 0076 vino a corregir.
  */
 class RegistradosService
 {
-    /** Qué cuenta como «registrado». `voters` es el censo propio del tenant. */
+    /** Qué cuenta como base identificada. No es el censo del puesto. */
     public const INCLUIR = ['voters', 'leads', 'ambos'];
 
     public function __construct(private readonly PuestoResolver $puestos) {}
@@ -54,9 +59,9 @@ class RegistradosService
                 $nombres[$clave] ??= [
                     'municipio' => $municipio,
                     'puesto' => $nombrePuesto,
-                    'registrados' => 0,
+                    'base' => 0,
                 ];
-                $nombres[$clave]['registrados'] += $total;
+                $nombres[$clave]['base'] += $total;
 
                 return;
             }
@@ -65,9 +70,9 @@ class RegistradosService
             $grupos[$clave] ??= [
                 'voting_place_id' => $puesto,
                 'mesa' => $porMesa ? $mesa : null,
-                'registrados' => 0,
+                'base' => 0,
             ];
-            $grupos[$clave]['registrados'] += $total;
+            $grupos[$clave]['base'] += $total;
         };
 
         if ($incluir !== 'leads') {

@@ -214,10 +214,10 @@ class E14ConciliacionPuestosTest extends TestCase
         $this->getJson('/api/v1/e14/cruce')
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.voting_place_id', $deActa->id)
-            ->assertJsonPath('data.0.registrados', 50)
+            ->assertJsonPath('data.0.base', 50)
             ->assertJsonPath('data.0.votos_candidato', 30)
-            ->assertJsonPath('data.0.penetracion', 60)
-            ->assertJsonPath('meta.cobertura.puestos_sin_registrados', 0)
+            ->assertJsonPath('data.0.rendimiento', 60)
+            ->assertJsonPath('meta.cobertura.puestos_sin_base', 0)
             ->assertJsonPath('meta.cobertura.puestos_sin_acta', 0);
 
         $this->getJson('/api/v1/e14/puestos-por-conciliar')->assertJsonCount(0, 'data');
@@ -240,7 +240,7 @@ class E14ConciliacionPuestosTest extends TestCase
         $this->getJson('/api/v1/e14/cruce')
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.voting_place_id', $deVotantes->id)
-            ->assertJsonPath('data.0.registrados', 50)
+            ->assertJsonPath('data.0.base', 50)
             ->assertJsonPath('data.0.votos_candidato', 60)
             ->assertJsonPath('data.0.actas', 2);
     }
@@ -266,9 +266,9 @@ class E14ConciliacionPuestosTest extends TestCase
 
         $this->getJson('/api/v1/e14/cruce')
             ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.registrados', 30)
+            ->assertJsonPath('data.0.base', 30)
             ->assertJsonPath('data.0.votos_candidato', 30)
-            ->assertJsonPath('meta.cobertura.registrados_sin_conciliar', 0);
+            ->assertJsonPath('meta.cobertura.base_sin_conciliar', 0);
     }
 
     public function test_fusionar_dos_veces_deja_lo_mismo(): void
@@ -288,7 +288,7 @@ class E14ConciliacionPuestosTest extends TestCase
 
         $this->getJson('/api/v1/e14/cruce')
             ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.registrados', 50);
+            ->assertJsonPath('data.0.base', 50);
     }
 
     public function test_una_cadena_de_fusiones_no_deja_registros_a_medio_camino(): void
@@ -318,7 +318,7 @@ class E14ConciliacionPuestosTest extends TestCase
         $this->getJson('/api/v1/e14/cruce')
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.voting_place_id', $canonico->id)
-            ->assertJsonPath('data.0.registrados', 55);
+            ->assertJsonPath('data.0.base', 55);
     }
 
     // ------------------------------------------ validación y aislamiento

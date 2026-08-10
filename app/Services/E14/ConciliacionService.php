@@ -58,7 +58,7 @@ class ConciliacionService
         $porPuesto = [];
 
         foreach ($recuento['grupos'] as $grupo) {
-            $porPuesto[$grupo['voting_place_id']] = $grupo['registrados'];
+            $porPuesto[$grupo['voting_place_id']] = $grupo['base'];
         }
 
         $conActa = $this->actasPorPuesto($evento);
@@ -103,7 +103,10 @@ class ConciliacionService
                 'departamento' => null,
                 'municipio' => $nombre['municipio'],
                 'puesto' => $nombre['puesto'],
-                'registrados' => $nombre['registrados'],
+                // El contrato de esta pantalla sigue diciendo «registrados»: aquí
+                // la cifra es «cuántos registros llevan este nombre de puesto», no
+                // la métrica de base del cruce (Spec 0076).
+                'registrados' => $nombre['base'],
                 'actas' => 0,
                 'sugerencias' => $this->sugerencias(
                     $nombre['municipio'],

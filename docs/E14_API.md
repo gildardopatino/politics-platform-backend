@@ -157,7 +157,7 @@ sesión.
 
 En clave SaaS cada tenant es la campaña de **un** candidato a **un** cargo, y ese
 candidato es **una fila del E-14**. El consolidado no lo necesita —suma a todos—,
-pero el cruce sí: «registrados vs votos» no se puede calcular sin saber de quién
+pero el cruce sí: «base identificada vs votos» no se puede calcular sin saber de quién
 son los votos.
 
 Se configura **por elección**, no por tenant: una campaña puede tener cargada la
@@ -581,15 +581,37 @@ fuera invita a leerlo como definitivo cuando no lo es.
 
 ---
 
-## Cruce potencial vs real (Spec 0062)
+## Cruce: déficit sobre la base identificada (Specs 0062 y 0076)
 
-La pregunta que paga la analítica electoral: *tengo 340 registrados en este puesto
-y mi candidato sacó 120 votos — ¿dónde se fue el resto?*
+La pregunta que paga la analítica electoral: *tengo 340 personas identificadas en
+este puesto y mi candidato sacó 120 votos — ¿qué pasó con las otras?*
 
-Tres decisiones gobiernan el cálculo:
+### Base ≠ censo: qué corrigió la 0076
 
-1. **Potencial = registrados**, no comprometidos ni encuestados: es el único
-   número que existe para todas las mesas.
+La 0062 llamó «registrados» a los `voters` del tenant y les aplicó una lógica que
+solo tiene sentido contra el **censo electoral** del puesto: marcaba anomalía
+cuando `votos > registrados`, con un «nadie puede votar donde no está registrado»
+que salta casi siempre y que es **falso**.
+
+Los `voters` no son el censo: son la **base identificada** de la campaña —quien
+llegó por reuniones, call center, líderes— y por diseño un **subconjunto** del
+electorado. El candidato recibe votos de mucha gente que no está en el sistema, así
+que `votos > base` es lo esperable y no informa de nada: pudo ser toda la base más
+gente de fuera, o parte de la base que se fue y otros que la compensaron.
+
+La señal que **sí** tiene información cierta es la contraria, el **déficit**: donde
+`votos < base`, al menos `base − votos` personas de la base identificada no se
+reflejaron en votos ahí. Ese es el piso de fuga y el sitio a donde ir a preguntar
+—no fueron a votar, votaron por otro, faltó movilización—. El caso inverso se
+reporta como **excedente**: dato neutro, sin alarma.
+
+Por eso la 0076 quitó `anomalia`/`anomalias` del contrato y renombró
+`registrados` → `base` y `penetracion` → `rendimiento`.
+
+### Las tres decisiones del cálculo
+
+1. **Base = los `voters`** (opcionalmente `leads`) del tenant, no comprometidos ni
+   encuestados: es el único número que existe para todas las mesas.
 2. **Real = la fila del E-14 de mi candidato**, y solo de actas `procesada`. Una
    mesa que no cuadra consigo misma no sirve para juzgar el rendimiento de nadie.
 3. **El match es exacto** por `voting_place_id` + mesa normalizada. Lo que no
@@ -606,7 +628,7 @@ siguiente llamada.
 | `nivel` | `puesto` | `puesto` \| `mesa` |
 | `municipio` | — | coincidencia parcial sobre el municipio del puesto |
 | `voting_place` | — | el **id** si se eligió de la lista, o texto parcial del nombre |
-| `incluir` | `voters` | `voters` \| `leads` \| `ambos` — qué cuenta como registrado |
+| `incluir` | `voters` | `voters` \| `leads` \| `ambos` — qué cuenta como base |
 
 ```json
 {
@@ -616,11 +638,10 @@ siguiente llamada.
       "departamento": "TOLIMA",
       "municipio": "IBAGUE",
       "puesto": "COLEGIO SAN SIMON",
-      "registrados": 50,
+      "base": 50,
       "votos_candidato": 30,
-      "penetracion": 60,
+      "rendimiento": 60,
       "diferencia": -20,
-      "anomalia": false,
       "tiene_acta": true,
       "actas": 1
     }
@@ -631,14 +652,14 @@ siguiente llamada.
     "incluir": "voters",
     "candidato": { "numero": 2, "nombre": "JOHANA ARANDA", "agrupacion": null },
     "totales": {
-      "puestos": 1, "registrados": 50, "votos_candidato": 30,
-      "penetracion": 60, "diferencia": -20, "anomalias": 0
+      "puestos": 1, "base": 50, "votos_candidato": 30,
+      "rendimiento": 60, "diferencia": -20
     },
     "cobertura": {
       "puestos_sin_acta": 0,
-      "puestos_sin_registrados": 0,
+      "puestos_sin_base": 0,
       "actas_sin_conciliar": 0,
-      "registrados_sin_conciliar": 0,
+      "base_sin_conciliar": 0,
       "nombres_sin_conciliar": 0
     }
   }
@@ -648,14 +669,18 @@ siguiente llamada.
 `mesa` aparece en cada fila **solo** con `nivel=mesa`: una columna que siempre
 viene en null invita a mostrarla vacía.
 
-`penetracion` es un **porcentaje** con dos decimales, y es `null` —no `0`— cuando
-no hay registrados: decir «no penetro nada» donde lo que pasa es que no se sabe
-sería otra cosa. Ojo con el JSON: un porcentaje redondo llega como entero (`60`,
-no `60.0`).
+`rendimiento` es un **porcentaje** con dos decimales, y es `null` —no `0`— cuando
+no hay base: decir «no rindo nada» donde lo que pasa es que no se sabe sería otra
+cosa. Ojo con el JSON: un porcentaje redondo llega como entero (`60`, no `60.0`).
+El **100 % no es un techo**: significa «igualaste tu base identificada»; por debajo
+hay déficit, por encima excedente.
 
-`diferencia` = votos − registrados, con signo. `anomalia` marca `votos >
-registrados`, que es **imposible legítimamente** —nadie vota donde no está
-registrado— y por tanto un dato a revisar, no un rendimiento a celebrar.
+`diferencia` = votos − base, con signo.
+
+> **El campo `anomalia` de la 0062 ya no existe**, ni su total `anomalias`. Sacar
+> más votos que la base no es un error (ver «Base ≠ censo» arriba). Un chequeo real
+> de integridad —votos por encima del **censo** del puesto— necesitaría cargar el
+> potencial electoral por puesto, que hoy no existe; queda para una spec futura.
 
 `tiene_acta` se cuenta aparte de los votos porque son dos preguntas distintas: un
 puesto donde mi candidato sacó cero votos **tiene** acta, y confundirlo con uno sin
@@ -667,9 +692,9 @@ dato».
 
 ### Cómo se cuenta cada lado
 
-**Registrados** — `voters` del tenant agrupados por `voting_place_id`. Los que lo
-tienen nulo se mapean **por nombre**; los que ni así resuelven van a
-`registrados_sin_conciliar`. `leads` no tiene esa columna, así que va siempre por
+**Base** — `voters` del tenant agrupados por `voting_place_id`. Los que lo tienen
+nulo se mapean **por nombre**; los que ni así resuelven van a
+`base_sin_conciliar`. `leads` no tiene esa columna, así que va siempre por
 nombre.
 
 > **Desde la Spec 0075** las tres escrituras del votante —alta manual, edición y
@@ -690,15 +715,15 @@ del votante.
 
 ### La cobertura es la mitad del informe
 
-Un 80 % de penetración sobre la cuarta parte de los puestos no dice lo mismo que
+Un 80 % de rendimiento sobre la cuarta parte de los puestos no dice lo mismo que
 sobre todos, y sin este bloque las dos cosas se leen igual.
 
 | Campo | Qué cuenta |
 | --- | --- |
-| `puestos_sin_acta` | filas con registrados pero sin acta que cuadre |
-| `puestos_sin_registrados` | filas con acta pero sin nadie registrado (ahí votó gente que la campaña no tiene) |
+| `puestos_sin_acta` | filas con base pero sin acta que cuadre |
+| `puestos_sin_base` | filas con acta pero sin nadie de la base identificada (ahí votó gente que la campaña no tiene) |
 | `actas_sin_conciliar` | actas `procesada` sin puesto canónico: sin `lugar` legible, o sin departamento con el que darlo de alta. **Sus votos no entran en ninguna fila** |
-| `registrados_sin_conciliar` | votantes/leads cuyo nombre de puesto no resuelve |
+| `base_sin_conciliar` | votantes/leads cuyo nombre de puesto no resuelve |
 | `nombres_sin_conciliar` | cuántas variantes distintas de nombre están pendientes |
 
 Los tres primeros siguen a los filtros; los dos de «sin conciliar» son globales de
