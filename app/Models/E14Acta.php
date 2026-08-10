@@ -118,6 +118,10 @@ class E14Acta extends Model implements Auditable
         'fuente',
         'confianza',
         'observacion',
+        'hubo_recuento',
+        'constancias',
+        'recuento_solicitado_por',
+        'recuento_representacion',
         'processed_at',
         'claimed_at',
         'intentos',
@@ -133,6 +137,9 @@ class E14Acta extends Model implements Auditable
         'votos_nulos' => 'integer',
         'votos_no_marcados' => 'integer',
         'confianza' => 'decimal:2',
+        // Nullable de verdad: sí, no, y «no se pudo leer» son tres cosas
+        // distintas (Spec 0073).
+        'hubo_recuento' => 'boolean',
         'processed_at' => 'datetime',
         'claimed_at' => 'datetime',
         'intentos' => 'integer',
@@ -174,5 +181,16 @@ class E14Acta extends Model implements Auditable
     public function esUninominal(): bool
     {
         return in_array($this->tipo, self::TIPOS_UNINOMINALES, true);
+    }
+
+    /**
+     * ¿Los jurados dejaron algo escrito en la página 2? (Spec 0073)
+     *
+     * Es lo que decide si el revisor tiene contexto que leer antes de tocar las
+     * cifras de una mesa que no cuadra.
+     */
+    public function tieneConstancias(): bool
+    {
+        return filled($this->constancias) || $this->hubo_recuento === true;
     }
 }
