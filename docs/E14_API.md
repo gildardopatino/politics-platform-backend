@@ -36,6 +36,43 @@ Aparte va la **nivelación**: `dif_nivelacion = votantes_e11 − votos_urna`. Qu
 alguien se registrara y no depositara es una novedad del acta, no un error de
 lectura; se anota y no bloquea nada.
 
+### El acta sin datos no cuadra (Spec 0077)
+
+La igualdad de arriba tiene un cero a la izquierda: **`0 = 0 = 0` la cumple**. Un
+acta que el lector no consiguió transcribir —ninguna casilla, la urna vacía—
+salía por eso `procesada`, entraba al consolidado aportando nada y desaparecía de
+la cola de revisión. Peor que un error de suma, porque no se ve.
+
+Por eso `CuadreService::evaluar()` tiene un guardia **antes** de las
+comparaciones:
+
+```
+suma_calculada == 0  &&  suma_declarada == 0  &&  votos_urna == 0
+        →  estado = revision_manual
+        →  observacion = «el acta no tiene datos: ninguna casilla ni la urna registran votos»
+```
+
+No es una regla de cuadre más, es la pregunta previa: **si no hay nada que
+contar, no hay nada que cuadrar**. Tres consecuencias:
+
+- `votantes_e11` **no rescata** el cuadre. Que el E-11 diga que se registraron
+  250 personas no convierte en escrutinio un acta sin un solo voto. La
+  nivelación se anota igual, con la fórmula de siempre.
+- Aplica a los **tres** caminos que escriben `estado`: el resultado del worker
+  (`POST /actas/{id}/resultado`), la ingesta directa (`POST /actas`) y la
+  corrección manual (`PUT /actas/{id}`). Vaciar un acta a mano no la aprueba.
+- Con **un solo voto** en cualquier casilla el guardia deja de aplicar y vuelven
+  las reglas de coincidencia normales: una mesa con un voto es una mesa, no un
+  acta en blanco.
+
+El acta cae así en `revision_manual`, que es donde alguien puede releerla,
+corregirla o quitarla — ver [Volver a leer o quitar un acta](#volver-a-leer-o-quitar-un-acta-spec-0077).
+
+Excepción de redacción: si el propio cliente declara el acta `revision_manual`
+—«no pude transcribirla»— manda **su** explicación sobre la genérica de arriba.
+Los dos la mandan a revisión, así que no hay discrepancia que resolver, y «la
+casilla del candidato 3 está tachada» dice dónde mirar.
+
 ---
 
 ---
@@ -66,6 +103,74 @@ subieron antes del cambio, y `POST /actas/procesar` existe para rescatarlas.
 
 La corrección manual (`PUT`) reevalúa el cuadre y nunca marca `procesada` un
 acta que no cuadra.
+
+### Volver a leer o quitar un acta (Spec 0077)
+
+Los tres estados terminales son un callejón sin salida si el lector no transcribió
+nada: no hay una casilla que corregir, está todo vacío. Dos acciones lo abren, y
+son la respuesta a dos problemas distintos — *«que la lea otra vez»* y *«este
+escaneo no sirve, voy a subir uno mejor»*.
+
+#### `POST /actas/{id}/reprocesar` · `manage_e14`
+
+Devuelve el acta a la cola y **descarta la lectura anterior**. 200 con el acta ya
+`pendiente`.
+
+| Se limpia | Se conserva |
+| --- | --- |
+| `e14_resultados` del acta (borrado explícito) | `archivo_path`, `archivo_hash`, `archivo_nombre` |
+| `suma_calculada`, `suma_declarada`, `votos_urna`, `votantes_e11`, `dif_nivelacion` → `0` | `tipo`, `electoral_event_id` |
+| `votos_blanco`, `votos_nulos`, `votos_no_marcados` → `0` | ubicación (`departamento*`, `municipio*`, `lugar`, `voting_place_id`, `zona`, `puesto`, `mesa`) |
+| `confianza`, `observacion`, `claimed_at`, `processed_at` → `null` | constancias de los jurados (0073) |
+| `intentos` → `0`; `fuente` → `vision` | |
+
+Los `intentos` vuelven a cero a propósito: un acta que ya falló dos veces
+agotaría el tope (`e14.max_intentos`) en la primera relectura y volvería a
+revisión sola, sin haber tenido su oportunidad. El archivo se conserva porque es
+lo que se va a releer.
+
+**Rechaza con 409** cuando el acta está en vuelo:
+
+| Estado | Respuesta |
+| --- | --- |
+| `cargada`, `procesada`, `inconsistente`, `revision_manual` | 200, queda `pendiente` |
+| `procesando` | 409 — «Un worker está leyendo esta acta ahora mismo» |
+| `pendiente` | 409 — «Esta acta ya está en la cola» |
+
+Con `procesando` es evidente: reencolarla mientras un worker trabaja son dos
+lecturas escribiendo sobre la misma fila. Con `pendiente` no hay peligro, pero
+tampoco hay nada que hacer, y decir que sí sería fingir un efecto. De paso, ese
+rechazo es lo que hace que **pulsar dos veces no encole dos veces**.
+
+Reprocesar un acta `procesada` está permitido y **la saca del consolidado** hasta
+que se relea: el panel tiene que advertirlo en la confirmación.
+
+#### `DELETE /actas/{id}` · `manage_e14`
+
+Borra el acta, sus resultados y su archivo. 200 `{ message }`; después,
+`GET /actas/{id}` responde 404.
+
+Es **hard delete** —`E14Acta` no usa `SoftDeletes`— y aquí eso es el objetivo, no
+un detalle: la fila tiene que desaparecer para que se libere el índice único
+`tenant_id + archivo_hash`. Mientras existe, el dedup por contenido de la 0072
+devuelve el acta que ya está en vez de crear una nueva, así que **volver a cargar
+el mismo PDF** solo funciona si antes se eliminó. Ese es todo el propósito de la
+acción.
+
+Detalles que importan:
+
+- **Permitido en cualquier estado**, `procesando` incluido: quitar un acta no
+  puede depender de que un worker termine. Si su resultado llega después, el acta
+  ya no existe y recibe 404, que es el contrato que el worker ya tolera.
+- El borrado del **archivo es best-effort** y va después del commit: borrar del
+  disco no se deshace con un rollback, y un objeto que ya no está no puede dejar
+  la fila colgada para siempre.
+- Los resultados se borran **explícitamente**, no por cascada de la FK: que se
+  vayan con el acta no puede depender de si el motor tiene las claves foráneas
+  activadas.
+- **Auditado** (`event = deleted`, consultable con `view_audits`): borrar el
+  escrutinio de una mesa es justo lo que después alguien va a pedir cuentas.
+  Reprocesar queda como `updated`.
 
 ## Tipos de elección
 
@@ -139,7 +244,7 @@ Sin credencial válida la API responde **401 y no escribe nada**.
 | Permiso | Qué habilita |
 | --- | --- |
 | `view_e14` | `GET /actas`, `GET /actas/{id}`, `GET /consolidado`, `GET /resumen`, `GET /eventos`, `GET /cruce`, `GET /rendimiento-lideres`, `GET /puestos-por-conciliar` |
-| `manage_e14` | `POST /actas`, `POST /actas/upload`, `POST /actas/procesar`, `POST /actas/siguiente`, `POST /actas/{id}/resultado`, `PUT /actas/{id}`, `PUT /eventos/{id}/candidato-propio`, `POST /puestos/fusionar` |
+| `manage_e14` | `POST /actas`, `POST /actas/upload`, `POST /actas/procesar`, `POST /actas/siguiente`, `POST /actas/{id}/resultado`, `POST /actas/{id}/reprocesar`, `PUT /actas/{id}`, `DELETE /actas/{id}`, `PUT /eventos/{id}/candidato-propio`, `POST /puestos/fusionar` |
 
 Los tiene `admin` y `coordinator`; `viewer` solo `view_e14`. Sin el permiso, 403.
 
@@ -543,7 +648,12 @@ Acepta cualquier subconjunto de `suma_declarada`, `votos_urna`, `votantes_e11`,
 
 Al aplicarse deja `fuente: "manual"` y **vuelve a evaluar el cuadre**. Si ahora
 cuadra, el acta entra al consolidado; si no, sigue fuera. Corregir no es aprobar:
-no hay forma de marcar un acta como procesada sin que las cifras cuadren.
+no hay forma de marcar un acta como procesada sin que las cifras cuadren — ni
+vaciándola, porque un acta sin datos tampoco cuadra.
+
+Cuando no hay nada que corregir —el lector no transcribió el acta— las salidas
+son `POST /actas/{id}/reprocesar` y `DELETE /actas/{id}`, descritas en
+[Volver a leer o quitar un acta](#volver-a-leer-o-quitar-un-acta-spec-0077).
 
 ### `GET /consolidado`
 
