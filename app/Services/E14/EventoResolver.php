@@ -49,6 +49,32 @@ class EventoResolver
         );
     }
 
+    /**
+     * De qué elección se consulta (Spec 0062).
+     *
+     * Sin id se toma la más reciente del tenant: es lo que una campaña con una
+     * sola elección cargada —el caso normal— espera ver sin tener que elegirla.
+     * Aquí nunca se crea nada: consultar no es dar de alta.
+     */
+    public function delTenant(?int $id): ElectoralEvent
+    {
+        // Las búsquedas van con `TenantScope`: una elección de otra campaña
+        // sencillamente no existe desde aquí.
+        $evento = $id !== null
+            ? ElectoralEvent::find($id)
+            : ElectoralEvent::query()->orderByDesc('fecha')->orderByDesc('id')->first();
+
+        if ($evento) {
+            return $evento;
+        }
+
+        throw ValidationException::withMessages([
+            'event' => $id !== null
+                ? 'La elección indicada no existe en esta campaña.'
+                : 'Todavía no hay ninguna elección cargada en esta campaña.',
+        ]);
+    }
+
     private function nombrePorDefecto(string $tipo): string
     {
         return match ($tipo) {

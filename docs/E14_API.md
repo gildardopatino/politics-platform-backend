@@ -697,6 +697,117 @@ municipio.
 
 ---
 
+## Conciliación de puestos (Spec 0062)
+
+`norm()` une lo que se puede unir sin adivinar —mayúsculas, acentos, espacios—,
+pero «COL. SAN SIMON» y «COLEGIO SAN SIMON» son el mismo colegio y dos renglones
+distintos. El servidor **no los une por parecido**: los lista, sugiere candidatos, y
+ejecuta la decisión de una persona.
+
+### `GET /puestos-por-conciliar`
+
+Parámetros: `event` (por defecto la elección más reciente), `incluir` (igual que en
+el cruce).
+
+```json
+{
+  "data": [
+    {
+      "origen": "acta",
+      "voting_place_id": 44,
+      "departamento": "TOLIMA", "municipio": "IBAGUE", "puesto": "COLEGIO SAN SIMON",
+      "registrados": 0, "actas": 1,
+      "sugerencias": [
+        { "voting_place_id": 12, "municipio": "IBAGUE", "puesto": "COL. SAN SIMON",
+          "registrados": 50, "actas": 0, "palabras_en_comun": 2 }
+      ]
+    },
+    {
+      "origen": "votante",
+      "voting_place_id": null,
+      "municipio": "IBAGUE", "puesto": "COL. SAN SIMON",
+      "registrados": 50, "actas": 0,
+      "sugerencias": [ /* … */ ]
+    }
+  ],
+  "meta": {
+    "electoral_event_id": 3, "incluir": "voters", "total": 2,
+    "registrados_sin_conciliar": 50, "actas_sin_puesto": 0, "fusiones": 0
+  }
+}
+```
+
+Se listan las **dos formas de quedarse sin pareja**:
+
+- `origen: "acta"` — un puesto con acta y **cero registrados**. Casi siempre es un
+  renglón que creó la grafía del acta, y los votantes están en otro.
+- `origen: "votante"` — un nombre de puesto de `voters`/`leads` que no resuelve a
+  ningún renglón del catálogo.
+
+Lo que **no** se lista son los puestos con registrados y sin acta: eso no es un
+problema de nombres, son actas que todavía no han llegado, y ya salen en la
+cobertura del cruce. Meterlos aquí llenaría la pantalla de ruido la noche del
+escrutinio, justo cuando tiene que servir para algo.
+
+`meta.actas_sin_puesto` son las actas sin `lugar` legible: no tienen nombre que
+fusionar y se arreglan corrigiendo el acta (`PUT /actas/{id}`).
+
+Las `sugerencias` son eso, sugerencias: los puestos del mismo municipio que tienen
+lo que a este le falta, ordenados por cuántas palabras de 4+ letras comparten
+(compartir «SAN» no dice nada; compartir «COLEGIO SIMON» sí).
+
+### `POST /puestos/fusionar`
+
+```json
+{ "origen_id": 44, "destino_id": 12 }
+```
+```json
+{ "municipio": "IBAGUE", "puesto": "COL. SAN SIMON", "destino_id": 12 }
+```
+
+El origen viene de una de las dos formas de la lista: un renglón del catálogo
+(`origen_id`) o un nombre suelto que nunca llegó a tener renglón (`municipio` +
+`puesto`, obligatorios sin `origen_id`). Permiso `manage_e14`.
+
+Responde con el destino y cuántas filas se movieron:
+
+```json
+{
+  "data": {
+    "voting_place_id": 12, "departamento": "TOLIMA", "municipio": "IBAGUE",
+    "puesto": "COL. SAN SIMON", "nombre_fusionado": "COLEGIO SAN SIMON",
+    "votantes_movidos": 0, "actas_movidas": 1
+  },
+  "message": "«COLEGIO SAN SIMON» ahora cuenta en «COL. SAN SIMON»."
+}
+```
+
+Es **idempotente**: repetirla no mueve nada la segunda vez. Y las cadenas se
+aplanan — fusionar A→B cuando ya existía C→A deja las tres en B, para que nunca
+haya que seguir una cadena para saber dónde cuenta un registro.
+
+### Qué hace exactamente una fusión
+
+Dos cosas, y ninguna de ellas es tocar el catálogo global:
+
+1. **Guarda la decisión** en `e14_puesto_alias` (por tenant): «este nombre
+   normalizado va a este puesto». El resolver la consulta **antes** que el
+   catálogo, así que las actas que lleguen después también caen ahí. Sin esto, la
+   siguiente acta con la grafía absorbida desharía la fusión en silencio.
+2. **Reapunta las filas propias** del tenant que ya existían: sus `voters` y sus
+   `e14_actas`.
+
+`voting_places` **no se toca**: es un catálogo global compartido entre campañas, y
+borrar o mover un renglón cambiaría los datos de otros tenants sin que nadie lo
+haya pedido (Constitución, Art. III). Lo que se guarda es «en esta campaña, este
+nombre va a este puesto».
+
+El repunte se hace con un `UPDATE` masivo —pueden ser miles de votantes—, así que
+no deja auditoría fila por fila; el rastro de quién decidió qué y cuándo es el
+registro de `e14_puesto_alias`, que sí está auditado.
+
+---
+
 ## Esquema
 
 ### `electoral_events`
@@ -744,6 +855,16 @@ cero la escondería.
 `id`, `tenant_id`, `e14_acta_id`, `e14_candidate_id`, `numero`, `nombre`,
 `votos`, timestamps.
 Único: `(e14_acta_id, numero)`.
+
+### `e14_puesto_alias`
+`id`, `tenant_id`, `clave`, `voting_place_id`, `municipio`, `puesto`, timestamps.
+Único: `(tenant_id, clave)`.
+
+Las fusiones de puestos de la 0062. `clave` es `norm(municipio)|norm(puesto)`: la
+llave es el **nombre**, no un id, porque hay grafías que nunca llegaron a tener
+renglón en el catálogo y tienen que poder fusionarse igual. `municipio` y `puesto`
+se guardan crudos para que la auditoría pueda decir qué se fusionó y no solo su
+hash.
 
 ### `e14_service_tokens`
 `id`, `tenant_id`, `user_id`, `nombre`, `token_hash` (único), `last_used_at`,

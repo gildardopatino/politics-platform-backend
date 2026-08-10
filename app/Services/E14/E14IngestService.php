@@ -343,6 +343,12 @@ class E14IngestService
      */
     private function aplicarPuesto(E14Acta $acta): void
     {
+        // Registrar un acta es una operación suelta, así que empieza leyendo el
+        // catálogo y las fusiones al día: si alguien acaba de fusionar dos
+        // grafías, esta acta ya tiene que caer en la buena (ver
+        // `PuestoResolver::refrescar()`).
+        $this->puestos->refrescar();
+
         $acta->voting_place_id = $this->puestos->resolverActa($acta);
     }
 

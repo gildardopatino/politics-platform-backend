@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\E14CruceController;
 use App\Http\Controllers\Api\V1\E14EventoController;
 use App\Http\Controllers\Api\V1\E14IngestController;
+use App\Http\Controllers\Api\V1\E14PuestoController;
 use App\Http\Controllers\Api\V1\E14UploadController;
 use App\Http\Controllers\Api\V1\E14WorkerController;
 use App\Http\Controllers\Api\V1\GeocodeController;
@@ -143,6 +144,13 @@ Route::prefix('v1')->group(function () {
             // hay que cruzar. Va antes que `/actas/{acta}` por la misma razón
             // que `upload`: para que ningún segmento se lea como un id.
             Route::get('/cruce', [E14CruceController::class, 'index'])->middleware('permission:view_e14');
+
+            // Conciliación de puestos (Spec 0062): lo que la normalización no
+            // pudo unir lo decide una persona, nunca el servidor por parecido.
+            Route::get('/puestos-por-conciliar', [E14PuestoController::class, 'porConciliar'])
+                ->middleware('permission:view_e14');
+            Route::post('/puestos/fusionar', [E14PuestoController::class, 'fusionar'])
+                ->middleware('permission:manage_e14');
 
             Route::get('/eventos', [E14EventoController::class, 'index'])->middleware('permission:view_e14');
             Route::put('/eventos/{evento}/candidato-propio', [E14EventoController::class, 'updateCandidatoPropio'])

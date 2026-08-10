@@ -3,6 +3,7 @@
 namespace App\Services\E14;
 
 use App\Models\E14Acta;
+use App\Models\E14PuestoAlias;
 use App\Models\VotingPlace;
 
 /**
@@ -55,6 +56,36 @@ class PuestoResolver
      * @var array<string, int>|null
      */
     private ?array $catalogo = null;
+
+    /**
+     * Las fusiones que alguien de esta campaña ya decidió, por nombre
+     * normalizado. Manda sobre el catálogo: si una persona dijo que «COL. SAN
+     * SIMON» es «COLEGIO SAN SIMON», ninguna lectura posterior puede volver a
+     * separarlos.
+     *
+     * @var array<string, int>|null
+     */
+    private ?array $alias = null;
+
+    /**
+     * Vuelve a leer el catálogo y las fusiones en el siguiente uso.
+     *
+     * Los dos mapas se cachean **por instancia**, y la instancia puede vivir más
+     * de una petición: el router memoiza el controlador —y con él los servicios
+     * que le inyectó— dentro de un mismo proceso. Con eso, una fusión hecha en una
+     * petición no se vería en la siguiente, que es exactamente lo que no puede
+     * pasar: fusionar y que el siguiente acta lo deshaga.
+     *
+     * Así que el refresco es explícito y lo pide **quien empieza una operación**
+     * —registrar un acta, contar registrados, conciliar el lote—, no cada
+     * resolución: dentro de una operación que recorre miles de filas el mapa se
+     * lee una sola vez, que es para lo que existe.
+     */
+    public function refrescar(): void
+    {
+        $this->catalogo = null;
+        $this->alias = null;
+    }
 
     /**
      * Sin mayúsculas, sin acentos y con un solo espacio entre palabras.
@@ -131,6 +162,8 @@ class PuestoResolver
      */
     public function conciliarActas(?int $eventoId = null): int
     {
+        $this->refrescar();
+
         $pendientes = E14Acta::query()
             ->whereNull('voting_place_id')
             ->whereNotNull('municipio')
@@ -165,6 +198,14 @@ class PuestoResolver
             return null;
         }
 
+        // El alias primero: una fusión que alguien decidió no se puede deshacer
+        // por lo que traiga la siguiente acta.
+        $alias = $this->alias();
+
+        if (isset($alias[$clave])) {
+            return $alias[$clave];
+        }
+
         $catalogo = $this->catalogo();
 
         if (isset($catalogo[$clave])) {
@@ -187,6 +228,20 @@ class PuestoResolver
         $this->catalogo[$clave] = $lugar->id;
 
         return $lugar->id;
+    }
+
+    /**
+     * Las fusiones del tenant. `TenantScope` las acota: la decisión de una
+     * campaña no cambia el cruce de otra.
+     *
+     * @return array<string, int>
+     */
+    private function alias(): array
+    {
+        return $this->alias ??= E14PuestoAlias::query()
+            ->pluck('voting_place_id', 'clave')
+            ->map(fn ($id) => (int) $id)
+            ->all();
     }
 
     /**
