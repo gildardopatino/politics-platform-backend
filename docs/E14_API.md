@@ -138,8 +138,8 @@ Sin credencial válida la API responde **401 y no escribe nada**.
 
 | Permiso | Qué habilita |
 | --- | --- |
-| `view_e14` | `GET /actas`, `GET /actas/{id}`, `GET /consolidado`, `GET /resumen` |
-| `manage_e14` | `POST /actas`, `POST /actas/upload`, `POST /actas/procesar`, `POST /actas/siguiente`, `POST /actas/{id}/resultado`, `PUT /actas/{id}` |
+| `view_e14` | `GET /actas`, `GET /actas/{id}`, `GET /consolidado`, `GET /resumen`, `GET /eventos`, `GET /cruce`, `GET /puestos-por-conciliar` |
+| `manage_e14` | `POST /actas`, `POST /actas/upload`, `POST /actas/procesar`, `POST /actas/siguiente`, `POST /actas/{id}/resultado`, `PUT /actas/{id}`, `PUT /eventos/{id}/candidato-propio`, `POST /puestos/fusionar` |
 
 Los tiene `admin` y `coordinator`; `viewer` solo `view_e14`. Sin el permiso, 403.
 
@@ -150,6 +150,73 @@ Los tiene `admin` y `coordinator`; `viewer` solo `view_e14`. Sin el permiso, 403
 Todos bajo `/api/v1/e14`, con `throttle:120,1`. La descarga del PDF es la única
 excepción: cuelga de `/api/v1/e14/actas/{id}/archivo` y va por firma, no por
 sesión.
+
+---
+
+## Configuración de campaña: el candidato propio (Spec 0062)
+
+En clave SaaS cada tenant es la campaña de **un** candidato a **un** cargo, y ese
+candidato es **una fila del E-14**. El consolidado no lo necesita —suma a todos—,
+pero el cruce sí: «registrados vs votos» no se puede calcular sin saber de quién
+son los votos.
+
+Se configura **por elección**, no por tenant: una campaña puede tener cargada la
+de alcaldía y la de concejo, o la de 2027 y la de 2031, y el número del tarjetón
+es distinto en cada una.
+
+### `GET /eventos` — las elecciones y su configuración
+
+```json
+{
+  "data": [
+    {
+      "id": 3,
+      "nombre": "Alcaldía",
+      "tipo": "alcaldia",
+      "fecha": "2027-10-31",
+      "candidato_propio": { "numero": 4, "nombre": "MIGUEL ALCALDE", "agrupacion": "MOVIMIENTO X" },
+      "tiene_actas": true,
+      "actas": 812,
+      "candidatos": [
+        { "numero": 1, "nombre": "JORGE BOLIVAR TORRES", "agrupacion": null, "cargo": "alcaldia" }
+      ]
+    }
+  ]
+}
+```
+
+El tarjetón (`candidatos`) viaja **con** la elección y no en un endpoint aparte:
+la pantalla de configuración lo necesita siempre, y pedirlo en dos viajes solo
+abriría la ventana para mostrar un selector vacío mientras llega el segundo.
+
+`tiene_actas` es lo que le dice al frontend si el número se escribe a mano o se
+elige de una lista — la misma regla que valida el servidor.
+
+### `PUT /eventos/{id}/candidato-propio`
+
+```json
+{ "numero": 4, "nombre": "MIGUEL ALCALDE", "agrupacion": "MOVIMIENTO X" }
+```
+
+| Campo | Regla |
+| --- | --- |
+| `numero` | **obligatorio en la petición**, admite `null` para deshacer; 1–999 |
+| `nombre` | opcional; si falta se toma del catálogo |
+| `agrupacion` | opcional; si falta se toma del catálogo |
+
+**Los dos momentos.** Antes de la primera acta el número se acepta a ciegas: se
+sabe semanas antes de que haya un acta que leer, y obligar a esperar dejaría la
+campaña sin configurar justo cuando tiene tiempo de hacerlo. En cuanto existe el
+catálogo `e14_candidates`, un número que no está en él responde 422 — apuntaría el
+cruce a una fila que ninguna acta va a traer.
+
+`numero: null` borra la ficha completa (nombre y agrupación incluidos) y deja el
+cruce sin calcular: un nombre suelto de un candidato que ya no se cruza solo
+confunde a quien lo lea después.
+
+Cambiar el número **no recalcula nada guardado**: el cruce se calcula al
+preguntarlo, así que la siguiente llamada a `/cruce` ya sale con el candidato
+nuevo.
 
 ---
 
@@ -517,8 +584,12 @@ fuera invita a leerlo como definitivo cuando no lo es.
 ## Esquema
 
 ### `electoral_events`
-`id`, `tenant_id`, `nombre`, `fecha`, `tipo`, timestamps.
+`id`, `tenant_id`, `nombre`, `fecha`, `tipo`, `candidato_propio_numero`,
+`candidato_propio_nombre`, `candidato_propio_agrupacion`, timestamps.
 Único: `(tenant_id, tipo, nombre)`.
+
+Las tres columnas de candidato propio son de la 0062 y son nullable: una elección
+recién creada por la ingesta todavía no sabe de quién es la campaña.
 
 ### `e14_candidates`
 `id`, `tenant_id`, `electoral_event_id`, `numero`, `nombre`, `agrupacion`,

@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\V1\CommitmentController;
 use App\Http\Controllers\Api\V1\CommuneController;
 use App\Http\Controllers\Api\V1\CorregimientoController;
 use App\Http\Controllers\Api\V1\DashboardController;
+use App\Http\Controllers\Api\V1\E14EventoController;
 use App\Http\Controllers\Api\V1\E14IngestController;
 use App\Http\Controllers\Api\V1\E14UploadController;
 use App\Http\Controllers\Api\V1\E14WorkerController;
@@ -136,6 +137,13 @@ Route::prefix('v1')->group(function () {
             // Lo que consume el worker (Spec 0071).
             Route::post('/actas/siguiente', [E14WorkerController::class, 'siguiente'])->middleware('permission:manage_e14');
             Route::post('/actas/{acta}/resultado', [E14WorkerController::class, 'resultado'])->middleware('permission:manage_e14');
+
+            // Configuración de campaña (Spec 0062): de quién son los votos que
+            // hay que cruzar. Va antes que `/actas/{acta}` por la misma razón
+            // que `upload`: para que ningún segmento se lea como un id.
+            Route::get('/eventos', [E14EventoController::class, 'index'])->middleware('permission:view_e14');
+            Route::put('/eventos/{evento}/candidato-propio', [E14EventoController::class, 'updateCandidatoPropio'])
+                ->middleware('permission:manage_e14');
 
             Route::post('/actas', [E14IngestController::class, 'store'])->middleware('permission:manage_e14');
             Route::get('/actas', [E14IngestController::class, 'index'])->middleware('permission:view_e14');

@@ -27,10 +27,14 @@ class ElectoralEvent extends Model implements Auditable
         'nombre',
         'fecha',
         'tipo',
+        'candidato_propio_numero',
+        'candidato_propio_nombre',
+        'candidato_propio_agrupacion',
     ];
 
     protected $casts = [
         'fecha' => 'date',
+        'candidato_propio_numero' => 'integer',
     ];
 
     public function tenant(): BelongsTo
@@ -46,5 +50,16 @@ class ElectoralEvent extends Model implements Auditable
     public function actas(): HasMany
     {
         return $this->hasMany(E14Acta::class);
+    }
+
+    /**
+     * ¿Ya se sabe de quién son los votos que hay que cruzar? (Spec 0062)
+     *
+     * Es el número del tarjetón el que manda: sin él no hay fila del E-14 que
+     * mirar, aunque estén el nombre y el partido.
+     */
+    public function tieneCandidatoPropio(): bool
+    {
+        return $this->candidato_propio_numero !== null;
     }
 }
