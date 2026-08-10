@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\V1\CommuneController;
 use App\Http\Controllers\Api\V1\CorregimientoController;
 use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\E14IngestController;
+use App\Http\Controllers\Api\V1\E14UploadController;
 use App\Http\Controllers\Api\V1\GeocodeController;
 use App\Http\Controllers\Api\V1\GeographicContactController;
 use App\Http\Controllers\Api\V1\GeographicStatsController;
@@ -117,6 +118,12 @@ Route::prefix('v1')->group(function () {
     Route::prefix('e14')
         ->middleware(['throttle:120,1', 'e14.auth', 'tenant', 'tenant.active'])
         ->group(function () {
+            // Carga desde el panel y cola (Spec 0071). `upload` va antes que
+            // `/actas/{acta}` para que «upload» no se lea como un id.
+            Route::post('/actas/upload', [E14UploadController::class, 'upload'])->middleware('permission:manage_e14');
+            Route::post('/actas/procesar', [E14UploadController::class, 'procesar'])->middleware('permission:manage_e14');
+            Route::get('/resumen', [E14UploadController::class, 'resumen'])->middleware('permission:view_e14');
+
             Route::post('/actas', [E14IngestController::class, 'store'])->middleware('permission:manage_e14');
             Route::get('/actas', [E14IngestController::class, 'index'])->middleware('permission:view_e14');
             Route::get('/consolidado', [E14IngestController::class, 'consolidado'])->middleware('permission:view_e14');

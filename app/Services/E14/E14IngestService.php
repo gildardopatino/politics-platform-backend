@@ -24,7 +24,10 @@ use Illuminate\Validation\ValidationException;
  */
 class E14IngestService
 {
-    public function __construct(private readonly CuadreService $cuadre) {}
+    public function __construct(
+        private readonly CuadreService $cuadre,
+        private readonly EventoResolver $eventos,
+    ) {}
 
     /**
      * @param  array<string, mixed>  $datos
@@ -32,7 +35,7 @@ class E14IngestService
     public function registrar(array $datos, int $tenantId): E14Acta
     {
         return DB::transaction(function () use ($datos, $tenantId) {
-            $evento = $this->resolverEvento($datos, $tenantId);
+            $evento = $this->eventos->resolver($datos, $tenantId);
             $resultados = $datos['resultados'] ?? [];
 
             $ilegible = ($datos['estado'] ?? null) === E14Acta::ESTADO_REVISION_MANUAL;
@@ -142,42 +145,6 @@ class E14IngestService
 
             return $acta->load(['resultados.candidate', 'electoralEvent']);
         });
-    }
-
-    /**
-     * El evento al que pertenece el acta.
-     *
-     * Si el cliente no lo nombra se resuelve por tipo y se crea al vuelo. Exigir
-     * que alguien dé de alta la elección antes de poder leer un acta sería un
-     * paso de configuración que la noche del escrutinio nadie va a dar; el
-     * `firstOrCreate` sobre la clave natural evita que se multipliquen.
-     *
-     * @param  array<string, mixed>  $datos
-     */
-    private function resolverEvento(array $datos, int $tenantId): ElectoralEvent
-    {
-        if (! empty($datos['electoral_event_id'])) {
-            $evento = ElectoralEvent::find($datos['electoral_event_id']);
-
-            if (! $evento) {
-                throw ValidationException::withMessages([
-                    'electoral_event_id' => 'La elección indicada no existe en esta campaña.',
-                ]);
-            }
-
-            return $evento;
-        }
-
-        $tipo = $datos['tipo'];
-
-        return ElectoralEvent::firstOrCreate(
-            [
-                'tenant_id' => $tenantId,
-                'tipo' => $tipo,
-                'nombre' => $datos['evento_nombre'] ?? ucfirst($tipo),
-            ],
-            ['fecha' => $datos['evento_fecha'] ?? null],
-        );
     }
 
     /**

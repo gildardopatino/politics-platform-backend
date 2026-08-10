@@ -39,6 +39,10 @@ class E14ActaResource extends JsonResource
 
             'archivo_nombre' => $this->archivo_nombre,
             'archivo_hash' => $this->archivo_hash,
+            'upload_batch_id' => $this->upload_batch_id,
+            // La ruta en el disco no sale: el PDF se alcanza con una URL firmada
+            // que se emite al reclamar el acta, no con una ruta adivinable.
+            'tiene_archivo' => filled($this->archivo_path),
 
             'estado' => $this->estado,
             'observacion' => $this->observacion,
@@ -67,6 +71,8 @@ class E14ActaResource extends JsonResource
                 ->all()
             ),
 
+            'intentos' => $this->intentos,
+            'claimed_at' => $this->claimed_at?->toIso8601String(),
             'processed_at' => $this->processed_at?->toIso8601String(),
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
