@@ -144,10 +144,35 @@ class PuestoResolver
 
     /**
      * Resolver de respaldo del votante: solo busca, nunca crea (Spec 0062).
+     *
+     * Es también la puerta del **alta y la edición manual** del votante (Spec
+     * 0075): un nombre de puesto tecleado en un formulario no da de alta un
+     * renglón del catálogo global. Si no resuelve, el votante queda sin puesto y
+     * lo recoge la cobertura del cruce y la pantalla de conciliación.
      */
     public function buscarPorNombre(?string $municipio, ?string $puesto): ?int
     {
         return $this->resolver(null, $municipio, $puesto, crear: false);
+    }
+
+    /**
+     * El puesto de un votante que llega de Registraduría (Spec 0075).
+     *
+     * Mismo camino que `resolverActa()` —alias del tenant, catálogo normalizado y
+     * alta solo con departamento—, y por la misma razón: la consulta de
+     * Registraduría es el **censo oficial** de dónde vota esa persona, así que si
+     * su puesto no está en el catálogo lo que falta es el renglón, no el dato.
+     *
+     * Existe para que el webhook **no** tenga su propio resolvedor. Cuando lo
+     * tenía —un `firstOrCreate` sobre el texto crudo— dos grafías del mismo
+     * colegio creaban dos renglones: el acta apuntaba al canónico y el votante al
+     * duplicado, y el cruce por `voting_place_id` fallaba en silencio. Peor que un
+     * nulo, porque `buscarPorNombre()` solo rescata los nulos y un id equivocado
+     * no-nulo nunca cae al respaldo.
+     */
+    public function resolverRegistraduria(?string $departamento, ?string $municipio, ?string $puesto): ?int
+    {
+        return $this->resolver($departamento, $municipio, $puesto, crear: true);
     }
 
     /**

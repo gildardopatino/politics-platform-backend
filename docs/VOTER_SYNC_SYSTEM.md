@@ -485,9 +485,27 @@ Sin cursor ni paginación: la única forma de avanzar es actualizar los primeros
 | `direccion_votacion` | opcional, máx 500 |
 | `mesa_votacion` | opcional, **entero** |
 
-Crea el `VotingPlace` si no existía (`firstOrCreate` por departamento +
-municipio + puesto), lo liga en `voters.voting_place_id` y escribe los cinco
-campos en el votante.
+Escribe los cinco campos en el votante y liga `voters.voting_place_id` al puesto
+**canónico** del catálogo, resuelto por el mismo `PuestoResolver` que usa el E-14
+(Spec 0075): **alias del tenant → catálogo normalizado → alta**. Normalizado =
+insensible a mayúsculas, acentos y espacios de más, así que «Ibagué / colegio san
+simón » y «IBAGUE / COLEGIO SAN SIMON» son el **mismo** renglón.
+
+Puede **crear** el renglón si no existe (con departamento presente, que la
+validación exige): la consulta de Registraduría es el censo oficial de dónde vota
+esa persona, así que si el puesto no está en el catálogo lo que falta es el
+renglón. Es la misma regla que el acta E-14 (`resolverActa`). La contraria —el alta
+y la edición manual— **solo busca**; ver «Los tres caminos» más abajo.
+
+La **dirección del puesto** se completa solo si el renglón no la tenía: el catálogo
+es global y la dirección que ya tenga pudo ponerla otra campaña.
+
+> **Hasta la Spec 0075** esta ruta tenía su propio `VotingPlace::firstOrCreate`
+> sobre el texto **crudo**, y ahí estaba el cabo suelto de la 0062: dos grafías del
+> mismo colegio creaban **dos** renglones, el acta apuntaba al canónico y el
+> votante al duplicado, y el cruce por `voting_place_id` fallaba **en silencio**.
+> Peor que un nulo: el resolver de respaldo por nombre solo rescata los
+> `voting_place_id` nulos, así que un id equivocado no-nulo nunca caía en él.
 
 Un `id` de otra campaña se rechaza **igual que uno inexistente** —mismo código y
 mismo cuerpo—, así que el webhook no sirve para averiguar qué ids tiene la

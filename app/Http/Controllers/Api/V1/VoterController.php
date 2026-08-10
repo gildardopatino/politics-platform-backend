@@ -9,6 +9,7 @@ use App\Http\Resources\Api\V1\VoterResource;
 use App\Models\Voter;
 use App\Models\VotingPlace;
 use App\Services\DocumentVerificationService;
+use App\Services\E14\PuestoResolver;
 use App\Traits\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,6 +19,15 @@ use Illuminate\Validation\Rule;
 class VoterController extends Controller
 {
     use ApiResponse;
+
+    /**
+     * El mismo resolver de puestos que usa el E-14 (Spec 0075).
+     *
+     * Inyectado y no instanciado aquí porque su gracia es cachear el catálogo y
+     * los alias del tenant una sola vez: resolver por votante con su propia
+     * consulta sería el N+1 que la spec prohíbe.
+     */
+    public function __construct(private readonly PuestoResolver $puestos) {}
 
     /**
      * Display a listing of voters with filters.
@@ -318,17 +328,23 @@ class VoterController extends Controller
 
         $data = $validator->validated();
 
-        // `voting_places` es un catálogo global, compartido entre campañas.
-        $votingPlace = VotingPlace::firstOrCreate(
-            [
-                'departamento_votacion' => $data['departamento_votacion'],
-                'municipio_votacion' => $data['municipio_votacion'],
-                'puesto_votacion' => $data['puesto_votacion'],
-            ],
-            [
-                'direccion_votacion' => $data['direccion_votacion'] ?? null,
-            ]
+        // El mismo resolver que el E-14 (Spec 0075): alias del tenant → catálogo
+        // normalizado → alta. `voting_places` sigue siendo un catálogo global
+        // compartido entre campañas; lo que cambió es que ya no se le añade un
+        // renglón por cada diferencia de tildes o de espacios.
+        //
+        // `refrescar()` porque la instancia puede venir de una petición anterior
+        // —el router memoiza el controlador dentro de un proceso— y una fusión
+        // hecha hace un momento tiene que contar ya.
+        $this->puestos->refrescar();
+
+        $puestoId = $this->puestos->resolverRegistraduria(
+            $data['departamento_votacion'],
+            $data['municipio_votacion'],
+            $data['puesto_votacion'],
         );
+
+        $this->sembrarDireccionDelPuesto($puestoId, $data['direccion_votacion'] ?? null);
 
         // Acotado por `TenantScope`; la regla `exists` de arriba ya lo garantiza,
         // esto es la segunda cerradura.
@@ -344,7 +360,7 @@ class VoterController extends Controller
             'puesto_votacion' => $data['puesto_votacion'],
             'direccion_votacion' => $data['direccion_votacion'] ?? null,
             'mesa_votacion' => $data['mesa_votacion'] ?? null,
-            'voting_place_id' => $votingPlace->id,
+            'voting_place_id' => $puestoId,
         ]);
 
         return response()->json([
@@ -355,5 +371,24 @@ class VoterController extends Controller
                 'updated' => true,
             ],
         ]);
+    }
+
+    /**
+     * Completa la dirección del puesto que acabó de resolverse (Spec 0075).
+     *
+     * El resolver decide **identidad** —a qué renglón del catálogo pertenece este
+     * nombre— y no atributos, así que la dirección se rellena aquí. Solo si está
+     * vacía: el catálogo es global y la dirección que ya tenga un puesto pudo
+     * ponerla otra campaña o un acta, y no se pisa con la de este webhook.
+     */
+    private function sembrarDireccionDelPuesto(?int $puestoId, ?string $direccion): void
+    {
+        if ($puestoId === null || blank($direccion)) {
+            return;
+        }
+
+        VotingPlace::where('id', $puestoId)
+            ->whereNull('direccion_votacion')
+            ->update(['direccion_votacion' => $direccion]);
     }
 }

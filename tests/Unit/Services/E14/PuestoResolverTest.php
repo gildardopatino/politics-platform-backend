@@ -60,6 +60,26 @@ class PuestoResolverTest extends TestCase
         $this->assertNull(PuestoResolver::mesa('0'));
     }
 
+    /**
+     * El lado autoritativo del votante entra por la misma puerta (Spec 0075).
+     *
+     * Se comprueba la firma y nada más porque el comportamiento necesita base de
+     * datos y vive en `tests/Feature/Voters/VotanteVotingPlaceTest.php`. Lo que
+     * fija esta prueba es el contrato de RF-1: el webhook de Registraduría no
+     * tiene su propio resolvedor, tiene un método **de este** resolver.
+     */
+    public function test_expone_el_resolver_autoritativo_del_votante(): void
+    {
+        $metodo = new \ReflectionMethod(PuestoResolver::class, 'resolverRegistraduria');
+
+        $this->assertTrue($metodo->isPublic());
+        $this->assertSame(
+            ['departamento', 'municipio', 'puesto'],
+            array_map(fn (\ReflectionParameter $p) => $p->getName(), $metodo->getParameters())
+        );
+        $this->assertSame('?int', (string) $metodo->getReturnType());
+    }
+
     public function test_la_clave_junta_municipio_y_puesto(): void
     {
         $this->assertSame(
