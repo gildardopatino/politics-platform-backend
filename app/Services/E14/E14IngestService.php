@@ -89,11 +89,7 @@ class E14IngestService
                 'votos_no_marcados' => (int) ($datos['votos_no_marcados'] ?? 0),
                 'fuente' => $datos['fuente'] ?? E14Acta::FUENTE_VISION,
                 'confianza' => $datos['confianza'] ?? null,
-                // El motivo del servidor manda sobre el del cliente: si
-                // discrepan, el que explica el estado guardado es este.
-                'observacion' => $veredicto->motivo !== ''
-                    ? $veredicto->motivo
-                    : ($datos['observacion'] ?? null),
+                'observacion' => $this->observacionDe($ilegible, $veredicto, $datos),
                 'processed_at' => now(),
             ]);
 
@@ -169,6 +165,33 @@ class E14IngestService
 
             return $acta->load(['resultados.candidate', 'electoralEvent']);
         });
+    }
+
+    /**
+     * Qué explica el estado guardado: el motivo del servidor o el del cliente.
+     *
+     * La regla general es que **manda el servidor**: si el lector dice que el
+     * acta cuadra y las cifras dicen que no, quien explica el estado que se
+     * guardó es el cuadre.
+     *
+     * La excepción es el acta que el propio cliente declara **ilegible**. Ahí no
+     * hay discrepancia que resolver —los dos la mandan a revisión— y su
+     * explicación es la útil: «la casilla del candidato 3 está tachada» dice
+     * dónde mirar, mientras que el motivo genérico de «sin datos» (Spec 0077)
+     * solo repite lo que ya se sabe. Es la misma preferencia que aplica
+     * `registrarResultado()` por el camino del worker.
+     *
+     * @param  array<string, mixed>  $datos
+     */
+    private function observacionDe(bool $ilegible, Cuadre $veredicto, array $datos): ?string
+    {
+        if ($ilegible) {
+            return ($datos['observacion'] ?? null) ?: ($veredicto->motivo ?: null);
+        }
+
+        return $veredicto->motivo !== ''
+            ? $veredicto->motivo
+            : ($datos['observacion'] ?? null);
     }
 
     /**

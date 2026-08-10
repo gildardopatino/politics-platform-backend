@@ -111,6 +111,81 @@ class CuadreServiceTest extends TestCase
         $this->assertSame(1, $veredicto->difNivelacion);
     }
 
+    // ------------------------------------------------- el acta sin datos (0077)
+
+    public function test_un_acta_sin_datos_no_cuadra_aunque_los_ceros_coincidan(): void
+    {
+        // El bug que la 0077 vino a cerrar: `0 = 0 = 0` satisface las dos
+        // igualdades del cuadre, así que un acta que el lector no consiguió
+        // transcribir salía «procesada» y entraba al consolidado sumando nada.
+        $veredicto = $this->cuadre->evaluar(
+            sumaCandidatos: 0,
+            votosBlanco: 0,
+            votosNulos: 0,
+            votosNoMarcados: 0,
+            sumaDeclarada: 0,
+            votosUrna: 0,
+            votantesE11: 0,
+        );
+
+        $this->assertFalse($veredicto->cuadra);
+        $this->assertSame('revision_manual', $veredicto->estado);
+        $this->assertStringContainsString('no tiene datos', $veredicto->motivo);
+    }
+
+    public function test_el_e11_no_rescata_el_cuadre_de_un_acta_sin_votos(): void
+    {
+        // Que el E-11 diga que se registraron 250 personas no convierte en
+        // escrutinio un acta donde no hay un solo voto: sin votos no hay nada
+        // que consolidar. La novedad de nivelación se anota igual.
+        $veredicto = $this->cuadre->evaluar(
+            sumaCandidatos: 0,
+            votosBlanco: 0,
+            votosNulos: 0,
+            votosNoMarcados: 0,
+            sumaDeclarada: 0,
+            votosUrna: 0,
+            votantesE11: 250,
+        );
+
+        $this->assertFalse($veredicto->cuadra);
+        $this->assertSame('revision_manual', $veredicto->estado);
+        $this->assertSame(250, $veredicto->difNivelacion);
+    }
+
+    public function test_un_solo_voto_en_cualquier_casilla_devuelve_las_reglas_de_siempre(): void
+    {
+        // El guardia es un caso de borde, no una regla nueva: en cuanto hay algo
+        // que contar, manda la coincidencia de casillas/declarada/urna.
+        $cuadra = $this->cuadre->evaluar(
+            sumaCandidatos: 0,
+            votosBlanco: 1,
+            votosNulos: 0,
+            votosNoMarcados: 0,
+            sumaDeclarada: 1,
+            votosUrna: 1,
+            votantesE11: 1,
+        );
+
+        $this->assertTrue($cuadra->cuadra);
+        $this->assertSame('procesada', $cuadra->estado);
+
+        $noCuadra = $this->cuadre->evaluar(
+            sumaCandidatos: 1,
+            votosBlanco: 0,
+            votosNulos: 0,
+            votosNoMarcados: 0,
+            sumaDeclarada: 0,
+            votosUrna: 0,
+            votantesE11: 0,
+        );
+
+        // Casillas con un voto y urna vacía es una inconsistencia de lectura, no
+        // un acta en blanco: tiene que decir *qué* no coincide.
+        $this->assertSame('inconsistente', $noCuadra->estado);
+        $this->assertStringContainsString('no coincide', $noCuadra->motivo);
+    }
+
     public function test_mas_votos_que_votantes_da_una_nivelacion_negativa(): void
     {
         // No debe truncarse a cero: una urna con más votos que votantes
