@@ -39,7 +39,9 @@ class StoreE14ResultadoRequest extends FormRequest
             ])],
 
             'departamento_code' => 'nullable|string|max:10',
+            'departamento' => 'nullable|string|max:255',
             'municipio_code' => 'nullable|string|max:10',
+            'municipio' => 'nullable|string|max:255',
             'zona' => $cifra.'|string|max:10',
             'puesto' => $cifra.'|string|max:10',
             'mesa' => $cifra.'|string|max:10',

@@ -30,8 +30,12 @@ class E14ActaResource extends JsonResource
             ]),
             'tipo' => $this->tipo,
 
+            // Código y nombre viajan juntos (Spec 0074): el código sirve para
+            // agrupar y el nombre para que alguien entienda qué está mirando.
             'departamento_code' => $this->departamento_code,
+            'departamento' => $this->departamento,
             'municipio_code' => $this->municipio_code,
+            'municipio' => $this->municipio,
             'zona' => $this->zona,
             'puesto' => $this->puesto,
             'mesa' => $this->mesa,

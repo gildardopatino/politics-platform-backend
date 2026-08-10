@@ -265,7 +265,8 @@ el worker acaba de leer:
 {
   "estado": "procesada",
   "zona": "01", "puesto": "01", "mesa": "001",
-  "departamento_code": "73", "municipio_code": "73001",
+  "departamento_code": "73", "departamento": "TOLIMA",
+  "municipio_code": "73001", "municipio": "IBAGUE",
   "lugar": "INSTITUCION EDUCATIVA SAN JOSE",
   "fuente": "vision",
   "suma_declarada": 111, "votos_urna": 111, "votantes_e11": 111,
@@ -429,9 +430,25 @@ de radicación, y dejarlo pasar metería los mismos votos dos veces en el total.
 Permiso `view_e14`. Filtros: `estado`, `tipo`, `zona`, `puesto`, `mesa`,
 `electoral_event_id`, `per_page` (50 por defecto). Ordena por zona, puesto y mesa.
 
+Filtros de ubicación (Spec 0074). Hay dos formas de preguntar por lo mismo
+porque son dos usos distintos:
+
+| Filtro | Cómo compara |
+|---|---|
+| `departamento_code`, `municipio_code` | exacto, sobre el código; sirve para agrupar |
+| `departamento`, `municipio` | coincidencia parcial sobre el **nombre** o exacta sobre el código |
+| `lugar` | coincidencia parcial |
+
+Las parciales son insensibles a mayúsculas en los dos drivers (`ILIKE` en
+PostgreSQL, `like` en SQLite). `departamento`/`municipio` son la casilla de
+búsqueda del panel: quien escribe pone lo que recuerda —el nombre o el código—
+y espera que `tolima` encuentre `TOLIMA`.
+
 ```
 GET /api/v1/e14/actas?estado=revision_manual
 GET /api/v1/e14/actas?estado=inconsistente&zona=01
+GET /api/v1/e14/actas?departamento_code=73&municipio_code=73001
+GET /api/v1/e14/actas?departamento=tolima&lugar=cooperativa
 ```
 
 ### `GET /actas/{id}`
@@ -454,7 +471,8 @@ Un acta de otro tenant responde **404**.
 
 Acepta cualquier subconjunto de `suma_declarada`, `votos_urna`, `votantes_e11`,
 `votos_blanco`, `votos_nulos`, `votos_no_marcados`, `departamento_code`,
-`municipio_code`, `lugar`, `observacion` y `resultados`.
+`departamento`, `municipio_code`, `municipio`, `lugar`, `observacion` y
+`resultados`.
 
 Al aplicarse deja `fuente: "manual"` y **vuelve a evaluar el cuadre**. Si ahora
 cuadra, el acta entra al consolidado; si no, sigue fuera. Corregir no es aprobar:
@@ -480,10 +498,16 @@ Votos por candidato **solo de las actas `procesada`**. Filtros:
   },
   "desglose": {
     "por_puesto": [{ "puesto": "01", "candidatos": [], "total": 889 }],
-    "por_zona":   [{ "zona": "01",   "candidatos": [], "total": 889 }]
+    "por_zona":   [{ "zona": "01",   "candidatos": [], "total": 889 }],
+    "por_lugar":  [{ "lugar": "INSTITUCION EDUCATIVA SAN JOSE", "candidatos": [], "total": 889 }]
   }
 }
 ```
+
+`por_lugar` (Spec 0074) es el mismo corte que `por_puesto` pero legible: el
+nombre impreso del puesto en vez de su código. Las actas sin ese dato no hacen
+grupo — un renglón sin nombre con votos dentro se lee como si fuera un puesto de
+votación más.
 
 `meta.actas` está ahí a propósito: un consolidado sin decir cuántas actas quedaron
 fuera invita a leerlo como definitivo cuando no lo es.
@@ -503,7 +527,8 @@ fuera invita a leerlo como definitivo cuando no lo es.
 
 ### `e14_actas`
 `id`, `tenant_id`, `electoral_event_id`, `tipo`, `departamento_code`,
-`municipio_code`, `zona`, `puesto`, `mesa`, `lugar`, `archivo_nombre`,
+`departamento`, `municipio_code`, `municipio`, `zona`, `puesto`, `mesa`,
+`lugar`, `archivo_nombre`,
 `archivo_hash`, `upload_batch_id`, `archivo_path`, `estado`, `suma_calculada`,
 `suma_declarada`, `votos_urna`, `votantes_e11`, `dif_nivelacion`,
 `votos_blanco`, `votos_nulos`, `votos_no_marcados`, `fuente`, `confianza`,
@@ -562,6 +587,11 @@ Colgar el escrutinio de ahí sería apoyarlo en datos que ningún proceso garant
 
 Se enlaza por códigos, que es la alternativa que la propia spec contempla. Cuando
 exista un catálogo de mesas de verdad, añadir la FK es aditivo.
+
+Los **nombres** (`departamento`, `municipio`, `lugar`) se guardan como texto por
+la misma razón, y además porque son lo que dice **el papel**: el papel manda
+aunque venga con una tilde de más o con un nombre viejo. Sin ellos el panel
+mostraba «73 / 73001» y había que saberse el DIVIPOLA de memoria (Spec 0074).
 
 ---
 

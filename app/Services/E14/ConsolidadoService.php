@@ -52,6 +52,9 @@ class ConsolidadoService
             'desglose' => [
                 'por_puesto' => $this->desglose($ids, 'puesto'),
                 'por_zona' => $this->desglose($ids, 'zona'),
+                // Por nombre del puesto (Spec 0074). Es el mismo corte que
+                // `por_puesto`, pero legible: «COLEGIO SAN SIMON» en vez de «01».
+                'por_lugar' => $this->desglose($ids, 'lugar'),
             ],
         ];
     }
@@ -138,6 +141,12 @@ class ConsolidadoService
         $agrupado = [];
 
         foreach ($filas as $fila) {
+            // Un acta sin ese eje no hace grupo: un renglón «(sin nombre)» con
+            // votos dentro se lee como si fuera un puesto de votación más.
+            if (blank($fila->eje)) {
+                continue;
+            }
+
             $agrupado[$fila->eje] ??= [$eje => $fila->eje, 'candidatos' => [], 'total' => 0];
             $agrupado[$fila->eje]['candidatos'][] = [
                 'numero' => (int) $fila->numero,

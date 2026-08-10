@@ -40,7 +40,9 @@ class StoreE14ActaRequest extends FormRequest
             'evento_fecha' => 'nullable|date',
 
             'departamento_code' => 'nullable|string|max:10',
+            'departamento' => 'nullable|string|max:255',
             'municipio_code' => 'nullable|string|max:10',
+            'municipio' => 'nullable|string|max:255',
             'zona' => 'required|string|max:10',
             'puesto' => 'required|string|max:10',
             'mesa' => 'required|string|max:10',

@@ -24,6 +24,14 @@ use Illuminate\Validation\ValidationException;
  */
 class E14IngestService
 {
+    /**
+     * La ubicación que trae el encabezado impreso del acta (Spec 0074).
+     *
+     * Código **y** nombre de departamento y municipio, más el nombre del puesto.
+     * Es metadato: se copia tal cual y no entra en el cuadre.
+     */
+    private const UBICACION = ['departamento_code', 'departamento', 'municipio_code', 'municipio', 'lugar'];
+
     public function __construct(
         private readonly CuadreService $cuadre,
         private readonly EventoResolver $eventos,
@@ -63,7 +71,9 @@ class E14IngestService
 
             $acta = E14Acta::updateOrCreate($clave, [
                 'departamento_code' => $datos['departamento_code'] ?? null,
+                'departamento' => $datos['departamento'] ?? null,
                 'municipio_code' => $datos['municipio_code'] ?? null,
+                'municipio' => $datos['municipio'] ?? null,
                 'lugar' => $datos['lugar'] ?? null,
                 'archivo_nombre' => $datos['archivo_nombre'] ?? null,
                 'archivo_hash' => $datos['archivo_hash'] ?? null,
@@ -108,7 +118,7 @@ class E14IngestService
                 $acta->load('resultados');
             }
 
-            foreach (['departamento_code', 'municipio_code', 'lugar', 'observacion'] as $campo) {
+            foreach ([...self::UBICACION, 'observacion'] as $campo) {
                 if (array_key_exists($campo, $datos)) {
                     $acta->{$campo} = $datos[$campo];
                 }
@@ -219,6 +229,13 @@ class E14IngestService
             // va a querer tener delante.
             $this->aplicarConstancias($acta, $datos);
 
+            // Y la ubicación por la misma razón (Spec 0074): el encabezado va
+            // impreso y se lee casi siempre; las que se tuercen son las casillas
+            // manuscritas. Descartarlo dejaría al revisor sin saber siquiera de
+            // qué puesto es el papel que tiene delante. Va sin zona/puesto/mesa:
+            // esas son la clave única de la mesa y se deciden más abajo.
+            $this->aplicarUbicacion($acta, $datos);
+
             if ($ilegible) {
                 return $this->dejarEnRevision(
                     $acta,
@@ -240,7 +257,7 @@ class E14IngestService
                 );
             }
 
-            foreach (['departamento_code', 'municipio_code', 'zona', 'puesto', 'mesa', 'lugar'] as $campo) {
+            foreach (['zona', 'puesto', 'mesa'] as $campo) {
                 if (array_key_exists($campo, $datos)) {
                     $acta->{$campo} = $datos[$campo];
                 }
@@ -283,6 +300,24 @@ class E14IngestService
 
             return $acta->load(['resultados.candidate', 'electoralEvent']);
         });
+    }
+
+    /**
+     * Copia al acta el encabezado impreso: dónde está la mesa (Spec 0074).
+     *
+     * Se copia campo a campo y no con `fill()` para distinguir «no lo mandó» de
+     * «lo mandó vacío»: quien corrige a mano tiene que poder borrar un nombre
+     * mal transcrito, y una relectura que no trae el campo no debe pisarlo.
+     *
+     * @param  array<string, mixed>  $datos
+     */
+    private function aplicarUbicacion(E14Acta $acta, array $datos): void
+    {
+        foreach (self::UBICACION as $campo) {
+            if (array_key_exists($campo, $datos)) {
+                $acta->{$campo} = $datos[$campo];
+            }
+        }
     }
 
     /**

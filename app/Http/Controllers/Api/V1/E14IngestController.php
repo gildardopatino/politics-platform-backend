@@ -10,6 +10,8 @@ use App\Models\E14Acta;
 use App\Services\E14\ConsolidadoService;
 use App\Services\E14\E14ArchivoService;
 use App\Services\E14\E14IngestService;
+use App\Support\DatabaseExpressions;
+use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -57,6 +59,7 @@ class E14IngestController extends Controller
             ->when($request->filled('zona'), fn ($q) => $q->where('zona', $request->input('zona')))
             ->when($request->filled('puesto'), fn ($q) => $q->where('puesto', $request->input('puesto')))
             ->when($request->filled('mesa'), fn ($q) => $q->where('mesa', $request->input('mesa')))
+            ->tap(fn ($q) => $this->filtrarPorUbicacion($q, $request))
             ->when(
                 $request->filled('electoral_event_id'),
                 fn ($q) => $q->where('electoral_event_id', $request->input('electoral_event_id'))
@@ -115,6 +118,46 @@ class E14IngestController extends Controller
             $request->filled('electoral_event_id') ? (int) $request->input('electoral_event_id') : null,
             $request->input('tipo'),
         ));
+    }
+
+    /**
+     * Filtros por la ubicación del acta (Spec 0074).
+     *
+     * Dos formas de preguntar por lo mismo, porque son dos usos distintos:
+     * `departamento_code`/`municipio_code` son exactos y sirven para agrupar
+     * (un tablero pide «29» y quiere las 4.000 mesas de Tolima), mientras que
+     * `departamento`/`municipio` son la casilla de búsqueda del panel, donde
+     * quien escribe pone lo que recuerda —el nombre o el código— y espera que
+     * «tolima» encuentre «TOLIMA».
+     *
+     * `lugar` solo existe como búsqueda: nadie teclea «UNIVERSIDAD COOPERATIVA
+     * NUEVA SEDE» entero para encontrar su puesto.
+     */
+    private function filtrarPorUbicacion(Builder $query, Request $request): void
+    {
+        $como = DatabaseExpressions::caseInsensitiveLike();
+
+        $query
+            ->when(
+                $request->filled('departamento_code'),
+                fn ($q) => $q->where('departamento_code', $request->input('departamento_code'))
+            )
+            ->when(
+                $request->filled('municipio_code'),
+                fn ($q) => $q->where('municipio_code', $request->input('municipio_code'))
+            )
+            ->when(
+                $request->filled('lugar'),
+                fn ($q) => $q->where('lugar', $como, '%'.$request->input('lugar').'%')
+            );
+
+        foreach (['departamento', 'municipio'] as $eje) {
+            $query->when($request->filled($eje), fn ($q) => $q->where(
+                fn ($busqueda) => $busqueda
+                    ->where($eje, $como, '%'.$request->input($eje).'%')
+                    ->orWhere("{$eje}_code", $request->input($eje))
+            ));
+        }
     }
 
     /**

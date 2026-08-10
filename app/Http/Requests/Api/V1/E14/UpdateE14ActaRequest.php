@@ -27,7 +27,9 @@ class UpdateE14ActaRequest extends FormRequest
     {
         return [
             'departamento_code' => 'sometimes|nullable|string|max:10',
+            'departamento' => 'sometimes|nullable|string|max:255',
             'municipio_code' => 'sometimes|nullable|string|max:10',
+            'municipio' => 'sometimes|nullable|string|max:255',
             'lugar' => 'sometimes|nullable|string|max:255',
 
             'suma_declarada' => 'sometimes|integer|min:0',
