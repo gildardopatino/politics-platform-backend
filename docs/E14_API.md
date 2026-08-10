@@ -581,6 +581,122 @@ fuera invita a leerlo como definitivo cuando no lo es.
 
 ---
 
+## Cruce potencial vs real (Spec 0062)
+
+La pregunta que paga la analítica electoral: *tengo 340 registrados en este puesto
+y mi candidato sacó 120 votos — ¿dónde se fue el resto?*
+
+Tres decisiones gobiernan el cálculo:
+
+1. **Potencial = registrados**, no comprometidos ni encuestados: es el único
+   número que existe para todas las mesas.
+2. **Real = la fila del E-14 de mi candidato**, y solo de actas `procesada`. Una
+   mesa que no cuadra consigo misma no sirve para juzgar el rendimiento de nadie.
+3. **El match es exacto** por `voting_place_id` + mesa normalizada. Lo que no
+   resuelve no se aproxima: se cuenta en la cobertura y se manda a conciliar.
+
+Nada se guarda: cambiar el candidato propio o fusionar dos puestos se ve en la
+siguiente llamada.
+
+### `GET /cruce`
+
+| Parámetro | Por defecto | Qué hace |
+| --- | --- | --- |
+| `event` | la elección más reciente del tenant | de qué elección se cruza |
+| `nivel` | `puesto` | `puesto` \| `mesa` |
+| `municipio` | — | coincidencia parcial sobre el municipio del puesto |
+| `voting_place` | — | el **id** si se eligió de la lista, o texto parcial del nombre |
+| `incluir` | `voters` | `voters` \| `leads` \| `ambos` — qué cuenta como registrado |
+
+```json
+{
+  "data": [
+    {
+      "voting_place_id": 12,
+      "departamento": "TOLIMA",
+      "municipio": "IBAGUE",
+      "puesto": "COLEGIO SAN SIMON",
+      "registrados": 50,
+      "votos_candidato": 30,
+      "penetracion": 60,
+      "diferencia": -20,
+      "anomalia": false,
+      "tiene_acta": true,
+      "actas": 1
+    }
+  ],
+  "meta": {
+    "electoral_event_id": 3,
+    "nivel": "puesto",
+    "incluir": "voters",
+    "candidato": { "numero": 2, "nombre": "JOHANA ARANDA", "agrupacion": null },
+    "totales": {
+      "puestos": 1, "registrados": 50, "votos_candidato": 30,
+      "penetracion": 60, "diferencia": -20, "anomalias": 0
+    },
+    "cobertura": {
+      "puestos_sin_acta": 0,
+      "puestos_sin_registrados": 0,
+      "actas_sin_conciliar": 0,
+      "registrados_sin_conciliar": 0,
+      "nombres_sin_conciliar": 0
+    }
+  }
+}
+```
+
+`mesa` aparece en cada fila **solo** con `nivel=mesa`: una columna que siempre
+viene en null invita a mostrarla vacía.
+
+`penetracion` es un **porcentaje** con dos decimales, y es `null` —no `0`— cuando
+no hay registrados: decir «no penetro nada» donde lo que pasa es que no se sabe
+sería otra cosa. Ojo con el JSON: un porcentaje redondo llega como entero (`60`,
+no `60.0`).
+
+`diferencia` = votos − registrados, con signo. `anomalia` marca `votos >
+registrados`, que es **imposible legítimamente** —nadie vota donde no está
+registrado— y por tanto un dato a revisar, no un rendimiento a celebrar.
+
+`tiene_acta` se cuenta aparte de los votos porque son dos preguntas distintas: un
+puesto donde mi candidato sacó cero votos **tiene** acta, y confundirlo con uno sin
+escrutar sería leer un cero real como un dato que falta.
+
+Sin candidato propio configurado responde **422** pidiendo configurarlo, no un
+cruce en ceros: un tablero lleno de ceros se lee como «perdí», no como «falta un
+dato».
+
+### Cómo se cuenta cada lado
+
+**Registrados** — `voters` del tenant agrupados por `voting_place_id`. Los que lo
+tienen nulo (captura vieja, o el webhook de Registraduría) se mapean **por
+nombre**; los que ni así resuelven van a `registrados_sin_conciliar`. `leads` no
+tiene esa columna, así que va siempre por nombre.
+
+**Votos** — `e14_resultados` con `numero = candidato_propio_numero`, solo de actas
+`procesada`, agrupados por el `voting_place_id` del acta.
+
+Ambos lados normalizan la mesa a entero, así que el `005` del acta casa con el `5`
+del votante.
+
+### La cobertura es la mitad del informe
+
+Un 80 % de penetración sobre la cuarta parte de los puestos no dice lo mismo que
+sobre todos, y sin este bloque las dos cosas se leen igual.
+
+| Campo | Qué cuenta |
+| --- | --- |
+| `puestos_sin_acta` | filas con registrados pero sin acta que cuadre |
+| `puestos_sin_registrados` | filas con acta pero sin nadie registrado (ahí votó gente que la campaña no tiene) |
+| `actas_sin_conciliar` | actas `procesada` sin puesto canónico: sin `lugar` legible, o sin departamento con el que darlo de alta. **Sus votos no entran en ninguna fila** |
+| `registrados_sin_conciliar` | votantes/leads cuyo nombre de puesto no resuelve |
+| `nombres_sin_conciliar` | cuántas variantes distintas de nombre están pendientes |
+
+Los tres primeros siguen a los filtros; los dos de «sin conciliar» son globales de
+la elección, porque un registro sin puesto no se puede atribuir a ningún
+municipio.
+
+---
+
 ## Esquema
 
 ### `electoral_events`

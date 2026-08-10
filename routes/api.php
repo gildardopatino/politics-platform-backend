@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\V1\CommitmentController;
 use App\Http\Controllers\Api\V1\CommuneController;
 use App\Http\Controllers\Api\V1\CorregimientoController;
 use App\Http\Controllers\Api\V1\DashboardController;
+use App\Http\Controllers\Api\V1\E14CruceController;
 use App\Http\Controllers\Api\V1\E14EventoController;
 use App\Http\Controllers\Api\V1\E14IngestController;
 use App\Http\Controllers\Api\V1\E14UploadController;
@@ -141,6 +142,8 @@ Route::prefix('v1')->group(function () {
             // Configuración de campaña (Spec 0062): de quién son los votos que
             // hay que cruzar. Va antes que `/actas/{acta}` por la misma razón
             // que `upload`: para que ningún segmento se lea como un id.
+            Route::get('/cruce', [E14CruceController::class, 'index'])->middleware('permission:view_e14');
+
             Route::get('/eventos', [E14EventoController::class, 'index'])->middleware('permission:view_e14');
             Route::put('/eventos/{evento}/candidato-propio', [E14EventoController::class, 'updateCandidatoPropio'])
                 ->middleware('permission:manage_e14');
