@@ -129,6 +129,30 @@ class PuestoResolver
     }
 
     /**
+     * La llave con la que se agrupan las tres piezas del cruce: el puesto
+     * canónico y —solo cuando se mira por mesa— su mesa ya normalizada.
+     *
+     * Vive aquí, junto a `mesa()`, porque la base, las actas y los votos tienen
+     * que escribirla igual para encontrarse: dos sitios que la formen por su
+     * cuenta son dos informes que un día dejan de cuadrar sin que nadie sepa
+     * por qué.
+     */
+    public static function claveMesa(int $puesto, ?int $mesa): string
+    {
+        return $puesto.'|'.($mesa ?? '');
+    }
+
+    /**
+     * @return array{0: int, 1: ?int}
+     */
+    public static function partirClaveMesa(string $clave): array
+    {
+        [$puesto, $mesa] = explode('|', $clave, 2);
+
+        return [(int) $puesto, $mesa === '' ? null : (int) $mesa];
+    }
+
+    /**
      * El puesto de un acta, creándolo en el catálogo si hace falta.
      *
      * Crear es correcto aquí y no en el lado del votante: el acta es el

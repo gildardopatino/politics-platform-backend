@@ -66,7 +66,9 @@ class RegistradosService
                 return;
             }
 
-            $clave = $puesto.'|'.($porMesa ? $mesa ?? '' : '');
+            // La misma llave que escriben las actas y los votos: la forma el
+            // resolver para que los tres lados se encuentren (ver `claveMesa()`).
+            $clave = PuestoResolver::claveMesa($puesto, $porMesa ? $mesa : null);
             $grupos[$clave] ??= [
                 'voting_place_id' => $puesto,
                 'mesa' => $porMesa ? $mesa : null,

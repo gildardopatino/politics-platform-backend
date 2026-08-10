@@ -3,7 +3,6 @@
 namespace App\Services\E14;
 
 use App\Models\E14Acta;
-use App\Models\E14Resultado;
 use App\Models\ElectoralEvent;
 use App\Models\VotingPlace;
 use Illuminate\Validation\ValidationException;
@@ -54,6 +53,7 @@ class CruceService
     public function __construct(
         private readonly PuestoResolver $puestos,
         private readonly RegistradosService $registrados,
+        private readonly VotosService $votos,
     ) {}
 
     /**
@@ -82,8 +82,8 @@ class CruceService
         $this->puestos->conciliarActas($evento->id);
 
         $base = $this->registrados->contar($nivel, $incluir);
-        $actas = $this->actas($evento, $nivel);
-        $votos = $this->votos($evento, $nivel);
+        $actas = $this->votos->actasProcesadas($evento, $nivel);
+        $votos = $this->votos->deMiCandidato($evento, $nivel);
 
         $filas = $this->armarFilas($nivel, $base['grupos'], $actas, $votos);
         $filas = $this->filtrar($filas, $filtros);
@@ -106,75 +106,6 @@ class CruceService
     }
 
     /**
-     * Las actas `procesada` que ya tienen puesto, por puesto (y mesa).
-     *
-     * Se cuentan aparte de los votos porque son dos preguntas distintas: «¿hay
-     * acta de este puesto?» y «¿cuántos votos saco mi candidato ahí?». Un puesto
-     * donde mi candidato saco cero votos **tiene** acta, y confundirlo con uno sin
-     * escrutar sería leer un cero real como un dato que falta.
-     *
-     * @return array<string, int>
-     */
-    private function actas(ElectoralEvent $evento, string $nivel): array
-    {
-        $filas = E14Acta::query()
-            ->where('electoral_event_id', $evento->id)
-            ->where('estado', E14Acta::ESTADO_PROCESADA)
-            ->whereNotNull('voting_place_id')
-            ->selectRaw('voting_place_id')
-            ->selectRaw('mesa')
-            ->selectRaw('COUNT(*) as total')
-            ->groupBy('voting_place_id', 'mesa')
-            ->get();
-
-        $conteo = [];
-
-        foreach ($filas as $fila) {
-            $clave = $this->claveDeFila(
-                (int) $fila->voting_place_id,
-                $nivel === self::NIVEL_MESA ? PuestoResolver::mesa($fila->mesa) : null
-            );
-
-            $conteo[$clave] = ($conteo[$clave] ?? 0) + (int) $fila->total;
-        }
-
-        return $conteo;
-    }
-
-    /**
-     * Los votos de mi candidato, por puesto (y mesa).
-     *
-     * @return array<string, int>
-     */
-    private function votos(ElectoralEvent $evento, string $nivel): array
-    {
-        $filas = E14Resultado::query()
-            ->join('e14_actas', 'e14_actas.id', '=', 'e14_resultados.e14_acta_id')
-            ->where('e14_actas.electoral_event_id', $evento->id)
-            ->where('e14_actas.estado', E14Acta::ESTADO_PROCESADA)
-            ->whereNotNull('e14_actas.voting_place_id')
-            ->where('e14_resultados.numero', $evento->candidato_propio_numero)
-            ->selectRaw('e14_actas.voting_place_id as voting_place_id')
-            ->selectRaw('e14_actas.mesa as mesa')
-            ->selectRaw('SUM(e14_resultados.votos) as votos')
-            ->groupBy('e14_actas.voting_place_id', 'e14_actas.mesa')
-            ->get();
-
-        $conteo = [];
-
-        foreach ($filas as $fila) {
-            $clave = $this->claveDeFila(
-                (int) $fila->voting_place_id,
-                $nivel === self::NIVEL_MESA ? PuestoResolver::mesa($fila->mesa) : null
-            );
-
-            $conteo[$clave] = ($conteo[$clave] ?? 0) + (int) $fila->votos;
-        }
-
-        return $conteo;
-    }
-
-    /**
      * Une los tres lados y le pone nombre a cada puesto.
      *
      * @param  array<string, array<string, mixed>>  $base
@@ -193,7 +124,7 @@ class CruceService
                 continue;
             }
 
-            [$puesto, $mesa] = $this->partirClave($clave);
+            [$puesto, $mesa] = PuestoResolver::partirClaveMesa($clave);
             $filas[$clave] = ['voting_place_id' => $puesto, 'mesa' => $mesa, 'base' => 0];
         }
 
@@ -360,20 +291,5 @@ class CruceService
     private function contiene(?string $texto, string $buscado): bool
     {
         return str_contains(PuestoResolver::norm($texto), PuestoResolver::norm($buscado));
-    }
-
-    private function claveDeFila(int $puesto, ?int $mesa): string
-    {
-        return $puesto.'|'.($mesa ?? '');
-    }
-
-    /**
-     * @return array{0: int, 1: ?int}
-     */
-    private function partirClave(string $clave): array
-    {
-        [$puesto, $mesa] = explode('|', $clave, 2);
-
-        return [(int) $puesto, $mesa === '' ? null : (int) $mesa];
     }
 }
