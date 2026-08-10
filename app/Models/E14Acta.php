@@ -104,6 +104,7 @@ class E14Acta extends Model implements Auditable
         'puesto',
         'mesa',
         'lugar',
+        'voting_place_id',
         'archivo_nombre',
         'archivo_hash',
         'upload_batch_id',
@@ -167,6 +168,18 @@ class E14Acta extends Model implements Auditable
     public function resultados(): HasMany
     {
         return $this->hasMany(E14Resultado::class, 'e14_acta_id');
+    }
+
+    /**
+     * El puesto canónico al que resolvió el `lugar` impreso (Spec 0062).
+     *
+     * Es la llave del cruce con los registrados. Puede ser nulo: un acta sin
+     * `lugar` legible no tiene con qué resolverlo, y eso se reporta como
+     * cobertura en vez de inventarse un puesto.
+     */
+    public function votingPlace(): BelongsTo
+    {
+        return $this->belongsTo(VotingPlace::class);
     }
 
     public function cuadra(): bool

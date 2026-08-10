@@ -599,7 +599,7 @@ recién creada por la ingesta todavía no sabe de quién es la campaña.
 ### `e14_actas`
 `id`, `tenant_id`, `electoral_event_id`, `tipo`, `departamento_code`,
 `departamento`, `municipio_code`, `municipio`, `zona`, `puesto`, `mesa`,
-`lugar`, `archivo_nombre`,
+`lugar`, `voting_place_id`, `archivo_nombre`,
 `archivo_hash`, `upload_batch_id`, `archivo_path`, `estado`, `suma_calculada`,
 `suma_declarada`, `votos_urna`, `votantes_e11`, `dif_nivelacion`,
 `votos_blanco`, `votos_nulos`, `votos_no_marcados`, `fuente`, `confianza`,
@@ -663,6 +663,25 @@ Los **nombres** (`departamento`, `municipio`, `lugar`) se guardan como texto por
 la misma razón, y además porque son lo que dice **el papel**: el papel manda
 aunque venga con una tilde de más o con un nombre viejo. Sin ellos el panel
 mostraba «73 / 73001» y había que saberse el DIVIPOLA de memoria (Spec 0074).
+
+### …y por qué la 0062 sí añadió `voting_place_id`
+
+Lo anterior sigue siendo cierto, pero el cruce con los registrados cambió el
+cálculo: `voting_places` pasó de ser «un catálogo que nadie garantiza» a ser **lo
+único común entre los dos lados**.
+
+- el votante se registra con municipio (nombre) + puesto (nombre) + mesa sin
+  ceros, y ya tenía `voting_place_id`;
+- el acta trae puesto por código + `lugar` (nombre) + mesa con ceros.
+
+No hay código de puesto compartido, así que cruzar por códigos es imposible, y
+cruzar por nombres sueltos daría un falso negativo con cada abreviatura. La
+solución es que **ambos lados resuelvan al mismo renglón del catálogo**:
+`voting_place_id` + mesa normalizada, exacto.
+
+`voting_place_id` es **nullable** y se queda nulo cuando no hay con qué
+resolverlo. Esas actas salen en la cobertura del cruce; nunca se les inventa un
+puesto.
 
 ---
 

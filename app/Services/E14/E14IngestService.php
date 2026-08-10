@@ -35,6 +35,7 @@ class E14IngestService
     public function __construct(
         private readonly CuadreService $cuadre,
         private readonly EventoResolver $eventos,
+        private readonly PuestoResolver $puestos,
     ) {}
 
     /**
@@ -97,6 +98,7 @@ class E14IngestService
             ]);
 
             $this->aplicarConstancias($acta, $datos);
+            $this->aplicarPuesto($acta);
             $acta->save();
 
             $this->sincronizarResultados($acta, $evento, $resultados);
@@ -127,6 +129,11 @@ class E14IngestService
             // Quien mira el papel suele descifrar la letra de los jurados mejor
             // que la visión, así que puede completar el bloque (Spec 0073).
             $this->aplicarConstancias($acta, $datos);
+
+            // Corregir el nombre del puesto es lo que hace que un acta entre al
+            // cruce (Spec 0062): el puesto canónico se recalcula con el nombre
+            // corregido, no con el que leyó mal la visión.
+            $this->aplicarPuesto($acta);
 
             foreach (['suma_declarada', 'votos_urna', 'votantes_e11', 'votos_blanco', 'votos_nulos', 'votos_no_marcados'] as $cifra) {
                 if (array_key_exists($cifra, $datos)) {
@@ -236,6 +243,12 @@ class E14IngestService
             // esas son la clave única de la mesa y se deciden más abajo.
             $this->aplicarUbicacion($acta, $datos);
 
+            // Y el puesto canónico con ella (Spec 0062): va antes de las dos
+            // salidas de abajo porque un acta que se manda a revisión sigue
+            // siendo de un puesto, y saber cuál es parte de lo que necesita
+            // quien la revise.
+            $this->aplicarPuesto($acta);
+
             if ($ilegible) {
                 return $this->dejarEnRevision(
                     $acta,
@@ -318,6 +331,19 @@ class E14IngestService
                 $acta->{$campo} = $datos[$campo];
             }
         }
+    }
+
+    /**
+     * Resuelve el `lugar` impreso al puesto canónico del catálogo (Spec 0062).
+     *
+     * Es función de la ubicación que el acta tiene **en este momento**, así que se
+     * recalcula siempre y no solo cuando el campo viene en la petición: una
+     * corrección del nombre del puesto tiene que mover el acta de sitio en el
+     * cruce.
+     */
+    private function aplicarPuesto(E14Acta $acta): void
+    {
+        $acta->voting_place_id = $this->puestos->resolverActa($acta);
     }
 
     /**

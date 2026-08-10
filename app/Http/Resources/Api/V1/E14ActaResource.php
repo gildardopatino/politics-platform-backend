@@ -40,6 +40,10 @@ class E14ActaResource extends JsonResource
             'puesto' => $this->puesto,
             'mesa' => $this->mesa,
             'lugar' => $this->lugar,
+            // El puesto canónico al que resolvió el `lugar` (Spec 0062). Nulo
+            // mientras no haya con qué resolverlo: es lo que la pantalla de
+            // conciliación necesita poder ver.
+            'voting_place_id' => $this->voting_place_id,
 
             'archivo_nombre' => $this->archivo_nombre,
             'archivo_hash' => $this->archivo_hash,
