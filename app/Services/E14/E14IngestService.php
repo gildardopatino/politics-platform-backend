@@ -86,6 +86,9 @@ class E14IngestService
                 'processed_at' => now(),
             ]);
 
+            $this->aplicarConstancias($acta, $datos);
+            $acta->save();
+
             $this->sincronizarResultados($acta, $evento, $resultados);
 
             return $acta->load(['resultados.candidate', 'electoralEvent']);
@@ -110,6 +113,10 @@ class E14IngestService
                     $acta->{$campo} = $datos[$campo];
                 }
             }
+
+            // Quien mira el papel suele descifrar la letra de los jurados mejor
+            // que la visión, así que puede completar el bloque (Spec 0073).
+            $this->aplicarConstancias($acta, $datos);
 
             foreach (['suma_declarada', 'votos_urna', 'votantes_e11', 'votos_blanco', 'votos_nulos', 'votos_no_marcados'] as $cifra) {
                 if (array_key_exists($cifra, $datos)) {
@@ -206,6 +213,12 @@ class E14IngestService
         return DB::transaction(function () use ($acta, $datos) {
             $ilegible = ($datos['estado'] ?? null) === E14Acta::ESTADO_REVISION_MANUAL;
 
+            // Antes de cualquier bifurcación: las constancias se guardan pase lo
+            // que pase (Spec 0073). Si las casillas no se dejaron leer pero el
+            // bloque de la página 2 sí, ese texto es justo lo que quien revise
+            // va a querer tener delante.
+            $this->aplicarConstancias($acta, $datos);
+
             if ($ilegible) {
                 return $this->dejarEnRevision(
                     $acta,
@@ -270,6 +283,24 @@ class E14IngestService
 
             return $acta->load(['resultados.candidate', 'electoralEvent']);
         });
+    }
+
+    /**
+     * Copia al acta lo que los jurados escribieron en la página 2 (Spec 0073).
+     *
+     * Son informativas: **no tocan el cuadre**. Un acta no cuadra menos porque
+     * alguien explique por qué no cuadra, y confundir las dos cosas sería dejar
+     * que un texto libre decidiera qué votos entran al consolidado.
+     *
+     * @param  array<string, mixed>  $datos
+     */
+    private function aplicarConstancias(E14Acta $acta, array $datos): void
+    {
+        foreach (['hubo_recuento', 'constancias', 'recuento_solicitado_por', 'recuento_representacion'] as $campo) {
+            if (array_key_exists($campo, $datos)) {
+                $acta->{$campo} = $datos[$campo];
+            }
+        }
     }
 
     private function dejarEnRevision(E14Acta $acta, string $motivo): E14Acta

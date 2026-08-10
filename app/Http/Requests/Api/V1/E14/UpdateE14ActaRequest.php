@@ -39,6 +39,14 @@ class UpdateE14ActaRequest extends FormRequest
 
             'observacion' => 'sometimes|nullable|string|max:2000',
 
+            // Lo que los jurados dejaron escrito. En revisión manual se puede
+            // completar: es habitual que la visión no acierte con la letra y la
+            // persona que mira el papel sí (Spec 0073).
+            'hubo_recuento' => 'sometimes|nullable|boolean',
+            'constancias' => 'sometimes|nullable|string|max:5000',
+            'recuento_solicitado_por' => 'sometimes|nullable|string|max:255',
+            'recuento_representacion' => 'sometimes|nullable|string|max:255',
+
             'resultados' => 'sometimes|array|min:1',
             'resultados.*.numero' => 'required_with:resultados|integer|min:0|max:999|distinct',
             'resultados.*.nombre' => 'nullable|string|max:255',

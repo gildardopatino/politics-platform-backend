@@ -46,6 +46,16 @@ class E14ActaResource extends JsonResource
 
             'estado' => $this->estado,
             'observacion' => $this->observacion,
+
+            // Constancias de los jurados (página 2 del acta, Spec 0073). Van
+            // sueltas y no dentro de `observacion` porque son cosas distintas:
+            // la observación la escribe el servidor para explicar el estado, y
+            // esto es lo que escribieron los jurados en la mesa.
+            'hubo_recuento' => $this->hubo_recuento,
+            'constancias' => $this->constancias,
+            'recuento_solicitado_por' => $this->recuento_solicitado_por,
+            'recuento_representacion' => $this->recuento_representacion,
+            'tiene_constancias' => $this->tieneConstancias(),
             'fuente' => $this->fuente,
             'confianza' => $this->confianza,
 

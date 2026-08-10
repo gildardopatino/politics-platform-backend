@@ -270,9 +270,16 @@ el worker acaba de leer:
   "fuente": "vision",
   "suma_declarada": 111, "votos_urna": 111, "votantes_e11": 111,
   "votos_blanco": 4, "votos_nulos": 4, "votos_no_marcados": 4,
-  "resultados": [ { "numero": 1, "nombre": "JORGE BOLIVAR TORRES", "votos": 50 } ]
+  "resultados": [ { "numero": 1, "nombre": "JORGE BOLIVAR TORRES", "votos": 50 } ],
+
+  "hubo_recuento": true,
+  "constancias": "Se recontaron los votos por diferencia de un tarjetón.",
+  "recuento_solicitado_por": "CARLOS PEREZ",
+  "recuento_representacion": "PARTIDO VERDE"
 }
 ```
+
+Los cuatro últimos campos son las **constancias de los jurados** — ver abajo.
 
 El servidor **rehace la cuenta** y fija el estado. Lo que el worker diga en
 `estado` se ignora, con una excepción: `revision_manual` es su forma de decir
@@ -288,6 +295,39 @@ segunda responde `200` con `estado: revision_manual` y el motivo apuntando al
 acta que ya tenía esa mesa — y **no** se le guarda la mesa leída, porque
 escribirla chocaría con el índice único que es justo lo que está avisando. La
 cola sigue y el consolidado no cuenta doble.
+
+### Las constancias de los jurados (Spec 0073)
+
+La segunda página del E-14 trae un bloque manuscrito —«CONSTANCIAS DE LOS
+JURADOS DE VOTACIÓN»— donde se anota lo que pasó en la mesa, más «HUBO RECUENTO
+DE VOTOS (SÍ/NO)» y quién lo pidió. Muy a menudo **ahí está la explicación del
+acta que no cuadra**, así que se guarda tal cual y se muestra junto al acta.
+
+| Campo | |
+| --- | --- |
+| `hubo_recuento` | `true` / `false` / `null` |
+| `constancias` | el texto libre, transcrito sin interpretar (máx. 5000) |
+| `recuento_solicitado_por` | quién pidió el recuento |
+| `recuento_representacion` | en representación de quién |
+
+Tres reglas:
+
+- **No entran en el cuadre.** Un acta no cuadra menos porque alguien explique por
+  qué no cuadra. El `estado` lo sigue decidiendo la aritmética, y nada más.
+- **`hubo_recuento` es `null` cuando no se pudo leer**, y eso no es un «no».
+  Tratar lo ilegible como negativo sería inventarse el dato más interesante del
+  bloque.
+- **Se guardan aunque el resto del acta no se haya podido leer.** Un acta que
+  entra como `revision_manual` conserva sus constancias: es justo lo que quien
+  revise va a querer tener delante.
+
+Se aceptan en `POST /actas/{id}/resultado`, en `PUT /actas/{id}` —quien mira el
+papel suele descifrar la letra mejor que la visión— y también en la ingesta
+directa `POST /actas`, para que el lector de carpeta local no las pierda por
+entrar por otra puerta.
+
+`E14ActaResource` los expone tal cual, más un `tiene_constancias` (booleano) que
+es lo que el panel usa para marcar dónde hay algo que leer.
 
 ### `GET /resumen` — avance para el panel
 
@@ -467,7 +507,8 @@ fuera invita a leerlo como definitivo cuando no lo es.
 `archivo_hash`, `upload_batch_id`, `archivo_path`, `estado`, `suma_calculada`,
 `suma_declarada`, `votos_urna`, `votantes_e11`, `dif_nivelacion`,
 `votos_blanco`, `votos_nulos`, `votos_no_marcados`, `fuente`, `confianza`,
-`observacion`, `processed_at`, `claimed_at`, `intentos`, timestamps.
+`observacion`, `hubo_recuento`, `constancias`, `recuento_solicitado_por`,
+`recuento_representacion`, `processed_at`, `claimed_at`, `intentos`, timestamps.
 
 **`zona`, `puesto` y `mesa` son opcionales** desde la 0071: un acta recién
 subida todavía no sabe de qué mesa es. El índice único por mesa sigue en pie

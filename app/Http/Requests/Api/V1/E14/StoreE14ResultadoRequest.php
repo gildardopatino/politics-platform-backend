@@ -49,6 +49,14 @@ class StoreE14ResultadoRequest extends FormRequest
             'confianza' => 'nullable|numeric|between:0,100',
             'observacion' => 'nullable|string|max:2000',
 
+            // Constancias de los jurados, página 2 del acta (Spec 0073). Son
+            // informativas: se guardan aunque el resto no se haya podido leer, y
+            // no entran en el cuadre.
+            'hubo_recuento' => 'sometimes|nullable|boolean',
+            'constancias' => 'sometimes|nullable|string|max:5000',
+            'recuento_solicitado_por' => 'sometimes|nullable|string|max:255',
+            'recuento_representacion' => 'sometimes|nullable|string|max:255',
+
             'suma_declarada' => $cifra.'|integer|min:0',
             'votos_urna' => $cifra.'|integer|min:0',
             'votantes_e11' => 'nullable|integer|min:0',

@@ -66,6 +66,15 @@ class StoreE14ActaRequest extends FormRequest
             'confianza' => 'nullable|numeric|between:0,100',
             'observacion' => 'nullable|string|max:2000',
 
+            // Constancias de los jurados (Spec 0073). Se aceptan también por
+            // esta puerta: el lector de carpeta local lee la misma página 2 que
+            // el worker, y perderlas según por dónde entre el acta sería una
+            // asimetría que nadie recordaría después.
+            'hubo_recuento' => 'sometimes|nullable|boolean',
+            'constancias' => 'sometimes|nullable|string|max:5000',
+            'recuento_solicitado_por' => 'sometimes|nullable|string|max:255',
+            'recuento_representacion' => 'sometimes|nullable|string|max:255',
+
             'resultados' => $ilegible ? 'nullable|array' : 'required|array|min:1',
             'resultados.*.numero' => 'required|integer|min:0|max:999|distinct',
             'resultados.*.nombre' => 'nullable|string|max:255',
