@@ -74,6 +74,13 @@ final class Permissions
 
     public const MANAGE_PETTY_CASH = 'manage_petty_cash';
 
+    // Escrutinio E-14 (Spec 0061). Los resultados reales son el dato más
+    // delicado del sistema: `manage_e14` es el que tiene el token del lector
+    // headless, así que se separa de la simple consulta.
+    public const VIEW_E14 = 'view_e14';
+
+    public const MANAGE_E14 = 'manage_e14';
+
     // Voters
     public const VIEW_VOTERS = 'view_voters';
 
@@ -117,6 +124,7 @@ final class Permissions
             'commitments' => [self::VIEW_COMMITMENTS, self::CREATE_COMMITMENTS, self::EDIT_COMMITMENTS, self::DELETE_COMMITMENTS],
             'resources' => [self::VIEW_RESOURCES, self::CREATE_RESOURCES, self::EDIT_RESOURCES, self::DELETE_RESOURCES],
             'petty_cash' => [self::VIEW_PETTY_CASH, self::MANAGE_PETTY_CASH],
+            'e14' => [self::VIEW_E14, self::MANAGE_E14],
             'voters' => [self::VIEW_VOTERS],
             'calls' => [self::VIEW_CALLS],
             'contacts' => [self::VIEW_CONTACTS],
@@ -162,6 +170,7 @@ final class Permissions
                 self::VIEW_COMMITMENTS, self::CREATE_COMMITMENTS, self::EDIT_COMMITMENTS,
                 self::VIEW_RESOURCES, self::CREATE_RESOURCES, self::EDIT_RESOURCES,
                 self::VIEW_PETTY_CASH, self::MANAGE_PETTY_CASH,
+                self::VIEW_E14, self::MANAGE_E14,
                 self::VIEW_VOTERS, self::VIEW_CALLS, self::VIEW_CONTACTS, self::VIEW_EVENTS,
                 self::MANAGE_LIAISONS, self::MANAGE_LANDINGPAGE,
                 self::VIEW_REPORTS, self::VIEW_PROGRESS, self::VIEW_DASHBOARD_MAP,
@@ -179,7 +188,7 @@ final class Permissions
                 self::VIEW_USERS,
                 self::VIEW_MEETINGS,
                 self::VIEW_COMMITMENTS,
-                self::VIEW_RESOURCES, self::VIEW_PETTY_CASH,
+                self::VIEW_RESOURCES, self::VIEW_PETTY_CASH, self::VIEW_E14,
                 self::VIEW_VOTERS, self::VIEW_CALLS, self::VIEW_CONTACTS, self::VIEW_EVENTS,
                 self::VIEW_REPORTS, self::VIEW_PROGRESS,
             ],

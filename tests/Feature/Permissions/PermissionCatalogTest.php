@@ -32,6 +32,9 @@ class PermissionCatalogTest extends TestCase
         // Caja menor (Spec 0057): mover dinero es un permiso aparte del de mover
         // inventario, para que administrar sillas no implique entregar plata.
         'petty_cash' => ['view_petty_cash', 'manage_petty_cash'],
+        // Escrutinio E-14 (Spec 0061): `manage_e14` es el permiso que lleva el
+        // token del lector headless; consultarlo no implica poder escribirlo.
+        'e14' => ['view_e14', 'manage_e14'],
         'voters' => ['view_voters'],
         'calls' => ['view_calls'],
         'contacts' => ['view_contacts'],
