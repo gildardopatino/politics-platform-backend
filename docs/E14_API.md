@@ -668,9 +668,19 @@ dato».
 ### Cómo se cuenta cada lado
 
 **Registrados** — `voters` del tenant agrupados por `voting_place_id`. Los que lo
-tienen nulo (captura vieja, o el webhook de Registraduría) se mapean **por
-nombre**; los que ni así resuelven van a `registrados_sin_conciliar`. `leads` no
-tiene esa columna, así que va siempre por nombre.
+tienen nulo se mapean **por nombre**; los que ni así resuelven van a
+`registrados_sin_conciliar`. `leads` no tiene esa columna, así que va siempre por
+nombre.
+
+> **Desde la Spec 0075** las tres escrituras del votante —alta manual, edición y
+> webhook de Registraduría— resuelven `voting_place_id` con **este mismo**
+> `PuestoResolver`, así que el camino normal es el match exacto por id y el mapeo
+> por nombre queda como red de seguridad para datos viejos y para `leads`. Antes el
+> webhook casaba por igualdad exacta de cadenas con su propio `firstOrCreate`: dos
+> grafías del mismo colegio dejaban dos renglones del catálogo, el acta apuntaba a
+> uno y el votante al otro, y la fila del cruce **no casaba en silencio** —peor que
+> un nulo, porque el respaldo por nombre solo rescata los nulos. Ver
+> `docs/VOTER_SYNC_SYSTEM.md` y el comando `voters:reapuntar-voting-place`.
 
 **Votos** — `e14_resultados` con `numero = candidato_propio_numero`, solo de actas
 `procesada`, agrupados por el `voting_place_id` del acta.

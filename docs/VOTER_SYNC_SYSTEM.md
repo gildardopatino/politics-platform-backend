@@ -590,6 +590,18 @@ de seguridad) y `RegistraduriaWebhookCharacterizationTest.php` (lo que hacen).
 | `registraduria:secret {tenant} [--rotate]` | `GenerateRegistraduriaSecret` | no (manual, Spec 0030) |
 | `voters:sync {--tenant=}` | `SyncVotersFromAttendees` | sí, `twiceDaily(6, 18)` en `routes/console.php` |
 | `voters:sync-attendees {--tenant-id=}` | `SyncAttendeesToVoters` | no |
+| `voters:reapuntar-voting-place {--tenant=}` | `ReapuntarVotingPlaceVotantes` | no (manual, Spec 0075) |
+
+`voters:reapuntar-voting-place` re-resuelve `voters.voting_place_id` con el resolver
+normalizado, corrigiendo los duplicados que dejó el `firstOrCreate` crudo anterior a
+la 0075 —un id equivocado **no-nulo** no lo rescata el resolver de respaldo, que
+solo mira los nulos—. Es autoritativo como el webhook (da de alta el renglón que
+falte, con departamento) e **idempotente**: escribe solo cuando el id cambia, así
+que la segunda corrida no toca nada y sobre una base recién sembrada no hace nada.
+
+Recorre **campaña por campaña** enlazando `current_tenant_id`: en consola no hay
+petición que lo enlace, y sin él ni `TenantScope` acotaría los votantes ni el
+resolver usaría los alias del tenant correcto (Art. III).
 
 ⚠️ Los dos de sincronización hacen casi lo mismo. Solo `voters:sync` está
 programado; a `voters:sync-attendees` no lo invoca nadie.
