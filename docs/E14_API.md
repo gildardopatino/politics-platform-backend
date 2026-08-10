@@ -1,11 +1,19 @@
 # API de escrutinio E-14
 
-Spec `0061` · Parte A. Registra los resultados reales por candidato y mesa,
-leídos de las actas E-14, y los consolida.
+Specs `0061` (tablas, ingesta directa, credencial de servicio) y `0071`
+(carga desde el panel, cola y worker). Registra los resultados reales por
+candidato y mesa, leídos de las actas E-14, y los consolida.
 
-El cliente principal es el **lector de actas** (`plafform-politics-e14`, Parte B),
-que corre sin navegador y publica cada acta que consigue leer. El panel usa la
-misma API para consultarlas y corregirlas.
+Hay **dos caminos** para que un acta entre, y conviene no confundirlos:
+
+| Camino | Quién | Cómo |
+| --- | --- | --- |
+| **Ingesta directa** (0061) | el lector con la carpeta de PDFs en su máquina | lee primero y publica el resultado ya cuadrado con `POST /actas` |
+| **Carga + cola** (0071) | el panel sube los PDFs, un worker los lee | `upload` → `procesar` → `siguiente` → `resultado` |
+
+El segundo es el que se usa en producción; el primero sigue en pie para lotes
+locales y desarrollo. Los dos terminan en la misma tabla y con la misma regla
+de cuadre.
 
 ---
 
@@ -27,6 +35,46 @@ justamente lo que permite que una discrepancia se note.
 Aparte va la **nivelación**: `dif_nivelacion = votantes_e11 − votos_urna`. Que
 alguien se registrara y no depositara es una novedad del acta, no un error de
 lectura; se anota y no bloquea nada.
+
+---
+
+---
+
+## Estados de un acta
+
+```
+cargada → pendiente → procesando → procesada | inconsistente | revision_manual
+```
+
+| Estado | Qué significa |
+| --- | --- |
+| `cargada` | el PDF se subió; nadie ha dado la orden de procesarlo |
+| `pendiente` | en la cola, esperando a que un worker la reclame |
+| `procesando` | reclamada por un worker; nadie más puede tomarla |
+| `procesada` | leída y cuadra: entra al consolidado |
+| `inconsistente` | leída y **no** cuadra: fuera del consolidado, con el motivo |
+| `revision_manual` | ilegible, abandonada demasiadas veces, o mesa duplicada |
+
+Los tres primeros los mueve **solo el servidor**. Un cliente que intente
+declararse `procesando` recibe 422: si pudiera, sacaría un acta de la cola sin
+haberla leído.
+
+La corrección manual (`PUT`) reevalúa el cuadre y nunca marca `procesada` un
+acta que no cuadra.
+
+## Tipos de elección
+
+`alcaldia`, `gobernacion`, `concejo`, `senado`, `asamblea_departamental`.
+
+Los dos primeros son **uninominales**: una página, es lo que el lector sabe leer
+hoy. Los otros tres son **corporaciones con voto preferente**, multipágina por
+lista, y necesitan el parser de la spec 0067. Hasta entonces se pueden cargar y
+encolar sin problema; el worker pide solo los tipos que sabe leer (`tipos` en
+`/siguiente`) y los demás se quedan en la cola sin estorbar.
+
+En PostgreSQL ambos campos llevan CHECK; en SQLite —donde corren las pruebas— el
+motor lo ignora, así que quien atrapa el valor inválido es la validación de
+entrada.
 
 ---
 
@@ -85,8 +133,8 @@ Sin credencial válida la API responde **401 y no escribe nada**.
 
 | Permiso | Qué habilita |
 | --- | --- |
-| `view_e14` | `GET /e14/actas`, `GET /e14/actas/{id}`, `GET /e14/consolidado` |
-| `manage_e14` | `POST /e14/actas`, `PUT /e14/actas/{id}` |
+| `view_e14` | `GET /actas`, `GET /actas/{id}`, `GET /consolidado`, `GET /resumen` |
+| `manage_e14` | `POST /actas`, `POST /actas/upload`, `POST /actas/procesar`, `POST /actas/siguiente`, `POST /actas/{id}/resultado`, `PUT /actas/{id}` |
 
 Los tiene `admin` y `coordinator`; `viewer` solo `view_e14`. Sin el permiso, 403.
 
@@ -94,9 +142,168 @@ Los tiene `admin` y `coordinator`; `viewer` solo `view_e14`. Sin el permiso, 403
 
 ## Endpoints
 
-Todos bajo `/api/v1/e14`, con `throttle:120,1`.
+Todos bajo `/api/v1/e14`, con `throttle:120,1`. La descarga del PDF es la única
+excepción: cuelga de `/api/v1/e14/actas/{id}/archivo` y va por firma, no por
+sesión.
 
-### `POST /actas` — registrar un acta
+---
+
+## Flujo web: carga y cola (Spec 0071)
+
+Cuatro llamadas: se cargan los PDFs, se da la orden, el worker toma de a una y
+devuelve lo que leyó.
+
+### `POST /actas/upload` — subir un acta
+
+`multipart/form-data`. Permiso `manage_e14`.
+
+| Campo | |
+| --- | --- |
+| `tipo` | requerido, uno de los cinco |
+| `archivo` | requerido, PDF (se valida el mimetype real, no la extensión) |
+| `electoral_event_id` | opcional |
+| `upload_batch_id` | opcional; si no viene, el servidor abre uno y lo devuelve |
+
+**Deduplica por contenido.** El PDF se guarda como `e14/{tenant}/{sha256}.pdf`,
+así que subir el mismo escaneo con otro nombre —cosa que pasa todo el tiempo
+cuando varias personas cargan el mismo lote— devuelve el acta que ya existe, con
+`duplicada: true` y `200` en vez de `201`, y **sin tocarle el estado**: volver a
+subir una que ya se leyó no la devuelve a la cola. La deduplicación es por
+tenant.
+
+```json
+{
+  "data": { "id": 12, "estado": "cargada", "tiene_archivo": true, "…": "…" },
+  "upload_batch_id": "0f8c…",
+  "duplicada": false,
+  "message": "Acta cargada."
+}
+```
+
+El acta queda `cargada`, sin zona/puesto/mesa: eso está dentro del papel y lo
+dirá el worker.
+
+### `POST /actas/procesar` — encolar
+
+`{ "tipo"?, "batch_id"?, "ids"? }` → pasa de `cargada` a `pendiente` lo que
+encaje, y devuelve `{ "data": { "encoladas": N } }`. Permiso `manage_e14`.
+
+Cargar y encolar son dos gestos separados a propósito: subir 120 PDFs lleva un
+rato y a media subida no hay nada que procesar. La orden la da la persona cuando
+termina. Llamarlo dos veces no reencola lo que ya está en marcha.
+
+### `POST /actas/siguiente` — reclamar (worker)
+
+`{ "tipos"?: ["alcaldia", "gobernacion"] }`. Permiso `manage_e14`.
+
+Devuelve **una** acta `pendiente`, ya marcada `procesando` a nombre de quien
+preguntó, junto con la URL firmada de su PDF:
+
+```json
+{
+  "data": { "id": 12, "estado": "procesando", "intentos": 1, "…": "…" },
+  "archivo_url": "https://…/api/v1/e14/actas/12/archivo?tenant=3&expires=…&signature=…"
+}
+```
+
+**`204` cuando no hay nada.** Es la señal para dormir un rato en vez de girar en
+vacío.
+
+#### Cómo es atómico
+
+La garantía no está en el bloqueo de fila sino en el `UPDATE`:
+
+```sql
+UPDATE e14_actas SET estado = 'procesando', claimed_at = now(), intentos = intentos + 1
+ WHERE id = ? AND estado = 'pendiente'
+```
+
+Una sola sentencia, así que es el motor quien decide el ganador: dos workers con
+la misma acta en la mano obtienen 1 y 0 filas afectadas, y el que pierde
+reintenta con la siguiente. Esto vale igual en PostgreSQL que en SQLite. El
+`SELECT … FOR UPDATE` que lo precede es la optimización que evita que dos
+workers lleguen siquiera a competir por la misma fila.
+
+#### Actas colgadas
+
+Un worker que se cae deja el acta en `procesando` y sin dueño. Pasados
+`E14_CLAIM_TIMEOUT_MINUTES` (15 por defecto) vuelve a la cola: releerla es
+barato —el resultado es idempotente— y perderla en silencio no lo es. Con tope:
+a los `E14_MAX_INTENTOS` reclamos (3) el acta va a `revision_manual`, para que un
+PDF que tumba al worker no lo tumbe indefinidamente a costa del resto. El
+reencolado se dispara solo, en cada llamada a `/siguiente`.
+
+### `GET /actas/{id}/archivo` — el PDF
+
+Ruta **pública por firma**, no por descuido. La URL llega ya firmada en
+`/siguiente` y se usa segundos después.
+
+- Dura `E14_URL_TTL_MINUTES` (15 por defecto), no los seis días del máximo de S3.
+- La firma cubre el **id del acta y el del tenant**: cambiar cualquiera de los
+  dos la invalida (403), así que no se puede editar para pedir otra ni
+  transferir a otra campaña.
+- Es una ruta firmada de Laravel y no un enlace prefirmado de S3, así que
+  funciona igual con el disco local. (Para volúmenes grandes, redirigir a un
+  prefirmado de S3 es un cambio aditivo aquí dentro.)
+
+### `POST /actas/{id}/resultado` — publicar la lectura (worker)
+
+Permiso `manage_e14`. Mismo cuerpo que `POST /actas` salvo que no lleva `tipo`
+ni datos de archivo —el acta ya existe—, y que la ubicación de la mesa es lo que
+el worker acaba de leer:
+
+```json
+{
+  "estado": "procesada",
+  "zona": "01", "puesto": "01", "mesa": "001",
+  "departamento_code": "73", "municipio_code": "73001",
+  "lugar": "INSTITUCION EDUCATIVA SAN JOSE",
+  "fuente": "vision",
+  "suma_declarada": 111, "votos_urna": 111, "votantes_e11": 111,
+  "votos_blanco": 4, "votos_nulos": 4, "votos_no_marcados": 4,
+  "resultados": [ { "numero": 1, "nombre": "JORGE BOLIVAR TORRES", "votos": 50 } ]
+}
+```
+
+El servidor **rehace la cuenta** y fija el estado. Lo que el worker diga en
+`estado` se ignora, con una excepción: `revision_manual` es su forma de decir
+«no pude leerla», y entonces se acepta sin cifras, con el motivo en
+`observacion`.
+
+**Idempotente**: reenviar el mismo resultado deja lo mismo, así que un worker
+que publica y se cae antes de leer la respuesta puede repetir sin miedo.
+
+**Mesa duplicada.** Dos fotos distintas del mismo papel tienen hashes distintos,
+así que la deduplicación de la carga no las ve; se descubre al leerlas. La
+segunda responde `200` con `estado: revision_manual` y el motivo apuntando al
+acta que ya tenía esa mesa — y **no** se le guarda la mesa leída, porque
+escribirla chocaría con el índice único que es justo lo que está avisando. La
+cola sigue y el consolidado no cuenta doble.
+
+### `GET /resumen` — avance para el panel
+
+Permiso `view_e14`. Filtros `batch_id`, `tipo`.
+
+```json
+{
+  "data": {
+    "por_estado": { "cargada": 0, "pendiente": 4, "procesando": 1, "procesada": 115, "inconsistente": 2, "revision_manual": 1 },
+    "por_tipo":  { "alcaldia": 123 },
+    "por_lote":  { "0f8c…": 123 },
+    "total": 123,
+    "en_cola": 5
+  }
+}
+```
+
+`en_cola` (pendientes + procesando) es el número que mira quien está esperando a
+que termine.
+
+---
+
+## Ingesta directa (Spec 0061)
+
+### `POST /actas` — registrar un acta ya leída
 
 **Idempotente por mesa.** La clave natural es
 `(tenant, evento, tipo, zona, puesto, mesa)`: reenviar la misma mesa **actualiza**
@@ -164,10 +371,14 @@ diga otra cosa: si la visión leyó mal un nombre, hay rastro.
 Ese último 422 es deliberado: el mismo PDF archivado bajo dos mesas es un error
 de radicación, y dejarlo pasar metería los mismos votos dos veces en el total.
 
+---
+
+## Consulta y corrección (comunes a los dos caminos)
+
 ### `GET /actas` — listado y cola de revisión
 
-Filtros: `estado`, `tipo`, `zona`, `puesto`, `mesa`, `electoral_event_id`,
-`per_page` (50 por defecto). Ordena por zona, puesto y mesa.
+Permiso `view_e14`. Filtros: `estado`, `tipo`, `zona`, `puesto`, `mesa`,
+`electoral_event_id`, `per_page` (50 por defecto). Ordena por zona, puesto y mesa.
 
 ```
 GET /api/v1/e14/actas?estado=revision_manual
@@ -232,10 +443,16 @@ fuera invita a leerlo como definitivo cuando no lo es.
 ### `e14_actas`
 `id`, `tenant_id`, `electoral_event_id`, `tipo`, `departamento_code`,
 `municipio_code`, `zona`, `puesto`, `mesa`, `lugar`, `archivo_nombre`,
-`archivo_hash`, `estado`, `suma_calculada`, `suma_declarada`, `votos_urna`,
-`votantes_e11`, `dif_nivelacion`, `votos_blanco`, `votos_nulos`,
-`votos_no_marcados`, `fuente`, `confianza`, `observacion`, `processed_at`,
-timestamps.
+`archivo_hash`, `upload_batch_id`, `archivo_path`, `estado`, `suma_calculada`,
+`suma_declarada`, `votos_urna`, `votantes_e11`, `dif_nivelacion`,
+`votos_blanco`, `votos_nulos`, `votos_no_marcados`, `fuente`, `confianza`,
+`observacion`, `processed_at`, `claimed_at`, `intentos`, timestamps.
+
+**`zona`, `puesto` y `mesa` son opcionales** desde la 0071: un acta recién
+subida todavía no sabe de qué mesa es. El índice único por mesa sigue en pie
+—varios nulos no colisionan entre sí ni en PostgreSQL ni en SQLite—, así que las
+actas sin leer conviven y la unicidad empieza a aplicar en cuanto el worker dice
+de qué mesa era cada una.
 
 Dos índices únicos:
 
@@ -257,6 +474,16 @@ cero la escondería.
 ### `e14_service_tokens`
 `id`, `tenant_id`, `user_id`, `nombre`, `token_hash` (único), `last_used_at`,
 `revoked_at`, timestamps.
+
+### Configuración (`config/e14.php`)
+
+| Variable | Por defecto | Para qué |
+| --- | --- | --- |
+| `E14_DISK` | el disco por defecto de la app | dónde viven los PDFs (Wasabi/S3 en producción) |
+| `E14_MAX_UPLOAD_KB` | `20480` | tamaño máximo de un acta |
+| `E14_URL_TTL_MINUTES` | `15` | vigencia de la URL firmada del PDF |
+| `E14_CLAIM_TIMEOUT_MINUTES` | `15` | cuánto puede estar un acta en `procesando` antes de volver a la cola |
+| `E14_MAX_INTENTOS` | `3` | reclamos por acta antes de mandarla a revisión |
 
 Todas las tablas llevan `HasTenant` y auditoría (`owen-it`); `e14_actas` además
 registra en `activity_log` los cambios de `estado`, `suma_declarada`,
