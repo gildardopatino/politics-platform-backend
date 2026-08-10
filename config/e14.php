@@ -46,4 +46,24 @@ return [
      */
     'max_intentos' => (int) env('E14_MAX_INTENTOS', 3),
 
+    /**
+     * Umbrales de la señal «posible inflado» del scorecard de líderes (0063).
+     *
+     * Son un **parámetro revisable, no un veredicto**: marcan a quién mirar
+     * primero —mucha movilización en mesas que rindieron por debajo de la base
+     * identificada—, nunca a quién acusar. Las dos condiciones van juntas a
+     * propósito: sin volumen no hay base que inflar, y sin déficit no hay nada
+     * que explicar.
+     */
+    'rendimiento_lideres' => [
+        /** Personas identificadas a partir de las cuales la movilización es «mucha». */
+        'umbral_movilizados' => (int) env('E14_UMBRAL_MOVILIZADOS', 20),
+
+        /**
+         * Puntos porcentuales de su base que no se reflejaron en votos, ponderados
+         * por su presencia en cada mesa. 30 = sus mesas rindieron al 70 % o menos.
+         */
+        'umbral_deficit_ponderado' => (float) env('E14_UMBRAL_DEFICIT_PONDERADO', 30),
+    ],
+
 ];

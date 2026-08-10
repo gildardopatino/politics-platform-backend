@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\V1\E14CruceController;
 use App\Http\Controllers\Api\V1\E14EventoController;
 use App\Http\Controllers\Api\V1\E14IngestController;
 use App\Http\Controllers\Api\V1\E14PuestoController;
+use App\Http\Controllers\Api\V1\E14RendimientoLideresController;
 use App\Http\Controllers\Api\V1\E14UploadController;
 use App\Http\Controllers\Api\V1\E14WorkerController;
 use App\Http\Controllers\Api\V1\GeocodeController;
@@ -144,6 +145,12 @@ Route::prefix('v1')->group(function () {
             // hay que cruzar. Va antes que `/actas/{acta}` por la misma razón
             // que `upload`: para que ningún segmento se lea como un id.
             Route::get('/cruce', [E14CruceController::class, 'index'])->middleware('permission:view_e14');
+
+            // Scorecard operativo del líder (Spec 0063): su actividad —que es
+            // cierta— y el rendimiento de sus mesas como proxy declarado. Se
+            // apoya en el mismo conteo de votos por mesa que el cruce.
+            Route::get('/rendimiento-lideres', [E14RendimientoLideresController::class, 'index'])
+                ->middleware('permission:view_e14');
 
             // Conciliación de puestos (Spec 0062): lo que la normalización no
             // pudo unir lo decide una persona, nunca el servidor por parecido.
