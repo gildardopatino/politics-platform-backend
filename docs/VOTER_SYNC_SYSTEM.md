@@ -402,6 +402,40 @@ assert($voter->direccion === 'Calle 10 # 20-30');
 
 ---
 
+## El puesto de votación del votante (`voting_place_id`)
+
+Spec 0075. `voters.voting_place_id` es la **llave del cruce** con el escrutinio
+E-14 (Spec 0062): el acta y el votante tienen que resolver al **mismo** renglón de
+`voting_places`, porque es lo único que los dos lados comparten (el votante no trae
+código de puesto y el acta no trae el nombre tal como lo teclea la campaña).
+
+Los tres caminos de escritura del votante pasan por el mismo
+`App\Services\E14\PuestoResolver`, con una asimetría deliberada:
+
+| Camino | Qué hace | Por qué |
+| --- | --- | --- |
+| Webhook Registraduría | `resolverRegistraduria()` — **find-or-create** normalizado | es el censo oficial de dónde vota esa persona: si el puesto no está en el catálogo, lo que falta es el renglón (igual que el acta E-14) |
+| `POST /voters` (alta manual) | `buscarPorNombre()` — **solo busca** | un nombre tecleado en un formulario no da de alta un puesto en el catálogo **global**; si no resuelve queda nulo y lo recoge la conciliación de la 0062 |
+| `PUT/PATCH /voters/{id}` | `buscarPorNombre()` — **solo busca**, y recalcula | el id es función de la ubicación con la que **queda** el votante |
+
+Reglas que valen para los tres:
+
+- **Normalizado**: insensible a mayúsculas, acentos y espacios de más, y con los
+  **alias** (fusiones) del tenant por delante del catálogo. Nada de puntuación ni
+  abreviaturas: «COL.» no es «COLEGIO» hasta que alguien lo fusione a mano.
+- `voting_place_id` **nunca** se acepta del cliente: no está en las reglas de
+  `Store/UpdateVoterRequest` y se deriva siempre en el servidor de
+  `municipio_votacion` + `puesto_votacion`.
+- **La edición resuelve sobre la ubicación efectiva.** Un `PATCH` que solo cambia
+  el puesto resuelve con el municipio que el votante ya tenía; vaciar el municipio
+  o el puesto sí deja el id en **nulo** —un puesto que ya no corresponde a la
+  ubicación no se conserva.
+- `mesa_votacion` **no** influye: la llave es a nivel de **puesto**.
+- Sin N+1: el resolver va inyectado y carga catálogo y alias **una vez por
+  petición** (`refrescar()` al inicio de la escritura).
+
+---
+
 ## Webhooks de Registraduría
 
 Dos rutas para que n8n complete la información electoral de los votantes.

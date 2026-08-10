@@ -60,6 +60,8 @@ class VoterController extends Controller
             $data['tipo_votante_id'] = 1; // Elector por defecto
         }
 
+        $data = $this->conPuestoResuelto($data);
+
         // tenant_id is auto-filled by the HasTenant trait; created_by is set here.
         $voter = Voter::create(array_merge($data, [
             'created_by' => auth()->id(),
@@ -103,6 +105,8 @@ class VoterController extends Controller
         if (array_key_exists('tipo_votante_id', $data) && empty($data['tipo_votante_id'])) {
             $data['tipo_votante_id'] = 1; // Elector por defecto si viene vacío
         }
+
+        $data = $this->conPuestoResuelto($data, $voter);
 
         $voter->update($data);
         $voter->load(['barrio', 'corregimiento', 'vereda', 'meeting', 'tipoVotante']);
@@ -371,6 +375,50 @@ class VoterController extends Controller
                 'updated' => true,
             ],
         ]);
+    }
+
+    /**
+     * Deriva `voting_place_id` de la ubicación tecleada (Spec 0075).
+     *
+     * **Solo busca, nunca crea**: un nombre de puesto escrito en un formulario no
+     * da de alta un renglón del catálogo global —eso lo llenaría de basura—, así
+     * que si no resuelve el votante queda sin puesto y aparece en la conciliación
+     * de la 0062. Crear es privilegio de las dos fuentes oficiales: el acta E-14 y
+     * la consulta de Registraduría.
+     *
+     * `voting_place_id` **nunca** llega del cliente (no está en las reglas del
+     * FormRequest): se deriva siempre aquí de `municipio_votacion` +
+     * `puesto_votacion`.
+     *
+     * En la edición se resuelve sobre la ubicación **con la que queda** el
+     * votante, no sobre lo que trae la petición: un `PATCH` que solo cambia el
+     * puesto tiene que resolver con el municipio que el votante ya tenía, en vez
+     * de borrarle un puesto válido por un campo que no viajó. Vaciar el municipio
+     * o el puesto sí deja el id en nulo — un puesto que ya no corresponde a la
+     * ubicación no se conserva.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function conPuestoResuelto(array $data, ?Voter $voter = null): array
+    {
+        $tocaLaUbicacion = array_key_exists('municipio_votacion', $data)
+            || array_key_exists('puesto_votacion', $data);
+
+        // Un alta o una edición que no mencionan la ubicación no mueven a nadie de
+        // puesto.
+        if (! $tocaLaUbicacion) {
+            return $data;
+        }
+
+        $this->puestos->refrescar();
+
+        $data['voting_place_id'] = $this->puestos->buscarPorNombre(
+            array_key_exists('municipio_votacion', $data) ? $data['municipio_votacion'] : $voter?->municipio_votacion,
+            array_key_exists('puesto_votacion', $data) ? $data['puesto_votacion'] : $voter?->puesto_votacion,
+        );
+
+        return $data;
     }
 
     /**
