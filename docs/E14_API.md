@@ -387,7 +387,19 @@ GET /api/v1/e14/actas?estado=inconsistente&zona=01
 
 ### `GET /actas/{id}`
 
-El acta con sus votos por candidato. Un acta de otro tenant responde **404**.
+El acta con sus votos por candidato, y la **URL firmada de su PDF** si lo tiene:
+
+```json
+{ "data": { "id": 12, "…": "…" }, "archivo_url": "https://…/archivo?…" }
+```
+
+Quien revisa un acta a mano necesita mirar el papel. La URL se emite en la
+respuesta y no se guarda —una URL firmada guardada es una URL que caduca en la
+base de datos— y es la misma ruta corta y atada al tenant que usa el worker.
+`archivo_url` es `null` cuando el acta entró por la ingesta directa y no tiene
+archivo.
+
+Un acta de otro tenant responde **404**.
 
 ### `PUT /actas/{id}` — corrección manual
 

@@ -274,6 +274,34 @@ class E14ReclamoTest extends TestCase
         $this->flushHeaders()->get($url)->assertStatus(403);
     }
 
+    public function test_el_panel_recibe_la_url_firmada_al_abrir_un_acta(): void
+    {
+        $tenant = $this->operador();
+        [$acta] = $this->pendientes($tenant, 1);
+
+        // Quien revisa un acta a mano necesita mirar el papel; la URL se emite
+        // en el detalle, no se guarda (Spec 0071).
+        $url = $this->getJson("/api/v1/e14/actas/{$acta->id}")
+            ->assertStatus(200)
+            ->json('archivo_url');
+
+        $this->assertNotNull($url);
+
+        $this->flushHeaders()->get($url)->assertStatus(200);
+    }
+
+    public function test_un_acta_sin_pdf_no_trae_url(): void
+    {
+        $tenant = $this->operador();
+        [$acta] = $this->pendientes($tenant, 1);
+
+        $acta->forceFill(['archivo_path' => null])->save();
+
+        $this->getJson("/api/v1/e14/actas/{$acta->id}")
+            ->assertStatus(200)
+            ->assertJsonPath('archivo_url', null);
+    }
+
     public function test_sin_firma_no_hay_pdf(): void
     {
         $tenant = $this->operador();

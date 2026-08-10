@@ -8,6 +8,7 @@ use App\Http\Requests\Api\V1\E14\UpdateE14ActaRequest;
 use App\Http\Resources\Api\V1\E14ActaResource;
 use App\Models\E14Acta;
 use App\Services\E14\ConsolidadoService;
+use App\Services\E14\E14ArchivoService;
 use App\Services\E14\E14IngestService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -24,6 +25,7 @@ class E14IngestController extends Controller
     public function __construct(
         private readonly E14IngestService $ingesta,
         private readonly ConsolidadoService $consolidado,
+        private readonly E14ArchivoService $archivos,
     ) {}
 
     /**
@@ -75,10 +77,20 @@ class E14IngestController extends Controller
         ]);
     }
 
+    /**
+     * El detalle de un acta, con la URL firmada de su PDF si lo tiene.
+     *
+     * La URL se emite aquí y no se guarda: quien revisa un acta a mano necesita
+     * mirar el papel, y una URL firmada guardada es una URL que caduca en la
+     * base de datos (Spec 0071).
+     */
     public function show(E14Acta $acta): JsonResponse
     {
+        $acta->load(['resultados.candidate', 'electoralEvent']);
+
         return response()->json([
-            'data' => new E14ActaResource($acta->load(['resultados.candidate', 'electoralEvent'])),
+            'data' => new E14ActaResource($acta),
+            'archivo_url' => $this->archivos->urlFirmada($acta),
         ]);
     }
 
