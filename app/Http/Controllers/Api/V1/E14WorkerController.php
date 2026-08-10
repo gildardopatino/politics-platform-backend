@@ -3,11 +3,13 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\V1\E14\StoreE14ResultadoRequest;
 use App\Http\Resources\Api\V1\E14ActaResource;
 use App\Models\E14Acta;
 use App\Scopes\TenantScope;
 use App\Services\E14\E14ArchivoService;
 use App\Services\E14\E14ColaService;
+use App\Services\E14\E14IngestService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -25,6 +27,7 @@ class E14WorkerController extends Controller
     public function __construct(
         private readonly E14ColaService $cola,
         private readonly E14ArchivoService $archivos,
+        private readonly E14IngestService $ingesta,
     ) {}
 
     /**
@@ -51,6 +54,30 @@ class E14WorkerController extends Controller
             // Se emite aquí y no se guarda: una URL firmada guardada es una URL
             // que caduca en la base de datos.
             'archivo_url' => $this->archivos->urlFirmada($acta),
+        ]);
+    }
+
+    /**
+     * Recibe lo que el worker leyó y decide el estado del acta.
+     *
+     * El veredicto lo pone `CuadreService` con los números crudos, igual que en
+     * la ingesta directa de la 0061: lo que el cliente diga en `estado` se
+     * ignora salvo cuando dice que no pudo leerla.
+     *
+     * Idempotente: reenviar el mismo resultado deja lo mismo. Un worker que
+     * publica y se cae antes de leer la respuesta puede repetir sin miedo.
+     */
+    public function resultado(StoreE14ResultadoRequest $request, E14Acta $acta): JsonResponse
+    {
+        $acta = $this->ingesta->registrarResultado($acta, $request->validated());
+
+        return response()->json([
+            'data' => new E14ActaResource($acta),
+            'message' => match ($acta->estado) {
+                E14Acta::ESTADO_PROCESADA => 'Acta procesada.',
+                E14Acta::ESTADO_INCONSISTENTE => 'Acta registrada sin cuadrar: '.$acta->observacion,
+                default => 'Acta enviada a revisión manual: '.$acta->observacion,
+            },
         ]);
     }
 

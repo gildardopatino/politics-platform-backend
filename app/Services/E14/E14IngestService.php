@@ -188,6 +188,123 @@ class E14IngestService
     }
 
     /**
+     * Guarda lo que el worker leyó de un acta que ya existía en la cola
+     * (Spec 0071).
+     *
+     * Se diferencia de `registrar()` en de dónde viene la identidad de la mesa:
+     * allí el cliente la trae y el acta se crea o se actualiza a partir de ella;
+     * aquí el acta ya existe —alguien subió su PDF— y lo que llega es de qué
+     * mesa resultó ser. Por eso puede chocar con otra ya registrada.
+     *
+     * Idempotente: reenviar el mismo resultado deja lo mismo. Un worker que
+     * publica y se cae antes de leer la respuesta puede repetir sin miedo.
+     *
+     * @param  array<string, mixed>  $datos
+     */
+    public function registrarResultado(E14Acta $acta, array $datos): E14Acta
+    {
+        return DB::transaction(function () use ($acta, $datos) {
+            $ilegible = ($datos['estado'] ?? null) === E14Acta::ESTADO_REVISION_MANUAL;
+
+            if ($ilegible) {
+                return $this->dejarEnRevision(
+                    $acta,
+                    ($datos['observacion'] ?? null) ?: 'el lector no pudo transcribir el acta'
+                );
+            }
+
+            if ($otra = $this->mesaYaRegistradaEnOtraActa($acta, $datos)) {
+                // Dos escaneos distintos de la misma mesa: los hashes no
+                // coinciden, así que la deduplicación de la carga no los vio.
+                // Decide una persona cuál vale; mientras tanto la cola sigue.
+                //
+                // La mesa leída **no se guarda**: escribirla chocaría con el
+                // índice único, que es justo lo que está avisando. Va en el
+                // motivo, que es donde alguien la va a leer.
+                return $this->dejarEnRevision(
+                    $acta,
+                    "la mesa {$datos['mesa']} (zona {$datos['zona']}, puesto {$datos['puesto']}) ya está registrada en el acta #{$otra->id}"
+                );
+            }
+
+            foreach (['departamento_code', 'municipio_code', 'zona', 'puesto', 'mesa', 'lugar'] as $campo) {
+                if (array_key_exists($campo, $datos)) {
+                    $acta->{$campo} = $datos[$campo];
+                }
+            }
+
+            $resultados = $datos['resultados'] ?? [];
+
+            $veredicto = $this->cuadre->evaluar(
+                sumaCandidatos: (int) array_sum(array_column($resultados, 'votos')),
+                votosBlanco: (int) ($datos['votos_blanco'] ?? 0),
+                votosNulos: (int) ($datos['votos_nulos'] ?? 0),
+                votosNoMarcados: (int) ($datos['votos_no_marcados'] ?? 0),
+                sumaDeclarada: (int) ($datos['suma_declarada'] ?? 0),
+                votosUrna: (int) ($datos['votos_urna'] ?? 0),
+                votantesE11: (int) ($datos['votantes_e11'] ?? 0),
+            );
+
+            $acta->fill([
+                'estado' => $veredicto->estado,
+                'suma_calculada' => $veredicto->sumaCalculada,
+                'suma_declarada' => $veredicto->sumaDeclarada,
+                'votos_urna' => $veredicto->votosUrna,
+                'votantes_e11' => (int) ($datos['votantes_e11'] ?? 0),
+                'dif_nivelacion' => $veredicto->difNivelacion,
+                'votos_blanco' => (int) ($datos['votos_blanco'] ?? 0),
+                'votos_nulos' => (int) ($datos['votos_nulos'] ?? 0),
+                'votos_no_marcados' => (int) ($datos['votos_no_marcados'] ?? 0),
+                'fuente' => $datos['fuente'] ?? E14Acta::FUENTE_VISION,
+                'confianza' => $datos['confianza'] ?? null,
+                'observacion' => $veredicto->motivo !== ''
+                    ? $veredicto->motivo
+                    : (($datos['observacion'] ?? null) ?: null),
+                'processed_at' => now(),
+                'claimed_at' => null,
+            ]);
+
+            $acta->save();
+
+            $this->sincronizarResultados($acta, $acta->electoralEvent, $resultados);
+
+            return $acta->load(['resultados.candidate', 'electoralEvent']);
+        });
+    }
+
+    private function dejarEnRevision(E14Acta $acta, string $motivo): E14Acta
+    {
+        $acta->fill([
+            'estado' => E14Acta::ESTADO_REVISION_MANUAL,
+            'observacion' => $motivo,
+            'processed_at' => now(),
+            'claimed_at' => null,
+        ])->save();
+
+        return $acta->load(['resultados.candidate', 'electoralEvent']);
+    }
+
+    /**
+     * ¿Hay ya otra acta registrada para la mesa que se acaba de leer?
+     *
+     * @param  array<string, mixed>  $datos
+     */
+    private function mesaYaRegistradaEnOtraActa(E14Acta $acta, array $datos): ?E14Acta
+    {
+        if (blank($datos['zona'] ?? null) || blank($datos['puesto'] ?? null) || blank($datos['mesa'] ?? null)) {
+            return null;
+        }
+
+        return E14Acta::where('electoral_event_id', $acta->electoral_event_id)
+            ->where('tipo', $acta->tipo)
+            ->where('zona', $datos['zona'])
+            ->where('puesto', $datos['puesto'])
+            ->where('mesa', $datos['mesa'])
+            ->whereKeyNot($acta->id)
+            ->first();
+    }
+
+    /**
      * @param  array<int, array<string, mixed>>  $resultados
      */
     private function sincronizarResultados(E14Acta $acta, ElectoralEvent $evento, array $resultados): void

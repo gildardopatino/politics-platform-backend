@@ -135,6 +135,7 @@ Route::prefix('v1')->group(function () {
 
             // Lo que consume el worker (Spec 0071).
             Route::post('/actas/siguiente', [E14WorkerController::class, 'siguiente'])->middleware('permission:manage_e14');
+            Route::post('/actas/{acta}/resultado', [E14WorkerController::class, 'resultado'])->middleware('permission:manage_e14');
 
             Route::post('/actas', [E14IngestController::class, 'store'])->middleware('permission:manage_e14');
             Route::get('/actas', [E14IngestController::class, 'index'])->middleware('permission:view_e14');
