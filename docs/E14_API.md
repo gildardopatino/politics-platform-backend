@@ -138,7 +138,7 @@ Sin credencial válida la API responde **401 y no escribe nada**.
 
 | Permiso | Qué habilita |
 | --- | --- |
-| `view_e14` | `GET /actas`, `GET /actas/{id}`, `GET /consolidado`, `GET /resumen`, `GET /eventos`, `GET /cruce`, `GET /puestos-por-conciliar` |
+| `view_e14` | `GET /actas`, `GET /actas/{id}`, `GET /consolidado`, `GET /resumen`, `GET /eventos`, `GET /cruce`, `GET /rendimiento-lideres`, `GET /puestos-por-conciliar` |
 | `manage_e14` | `POST /actas`, `POST /actas/upload`, `POST /actas/procesar`, `POST /actas/siguiente`, `POST /actas/{id}/resultado`, `PUT /actas/{id}`, `PUT /eventos/{id}/candidato-propio`, `POST /puestos/fusionar` |
 
 Los tiene `admin` y `coordinator`; `viewer` solo `view_e14`. Sin el permiso, 403.
@@ -755,6 +755,189 @@ sobre todos, y sin este bloque las dos cosas se leen igual.
 Los tres primeros siguen a los filtros; los dos de «sin conciliar» son globales de
 la elección, porque un registro sin puesto no se puede atribuir a ningún
 municipio.
+
+---
+
+## Rendimiento operativo del líder (Spec 0063)
+
+### Por qué aquí no hay «votos del líder»
+
+El roadmap pedía «rendimiento por líder (líder → leads → mesa → votos)». Ese
+número **no se puede calcular**, y publicarlo de todas formas sería inventar el
+dato más importante del informe:
+
+- **Un líder no posee votantes ni leads.** Los `voters` son de la campaña —del
+  admin inicial del tenant—; los `leads` son un diccionario de cédulas para
+  autocompletar en reuniones. Ninguno cuelga de un líder.
+- **Lo que un líder sí produce son reuniones** (`meetings.planner_user_id`) y, a
+  través de ellas, asistentes que hacen check-in.
+- **El voto es secreto y las mesas se comparten.** En una misma mesa mueven gente
+  varios líderes y el acta no dice de quién es cada voto. Repartirlos por
+  presencia sería una regla de tres disfrazada de dato.
+
+Por eso el endpoint entrega **dos mitades que no se mezclan**: la actividad, que
+es cierta, y el rendimiento de sus mesas, que es un **proxy declarado**. El
+contrato no expone —ni va a exponer— ningún `votos_lider`.
+
+### `GET /rendimiento-lideres`
+
+| Parámetro | Por defecto | Qué hace |
+| --- | --- | --- |
+| `event` | la elección más reciente del tenant | contra qué escrutinio se contrasta la actividad |
+| `order` | `deficit` | `deficit` \| `actividad` — qué va arriba en el ranking |
+
+No hay `nivel`: el proxy solo tiene sentido **por mesa** (`meta.nivel_fijo`). A
+nivel de puesto la gente de un líder se diluye entre todas las mesas del colegio y
+el número deja de decir nada de él.
+
+El conjunto de líderes son los `users` del tenant con `is_team_leader = true`. Uno
+sin reuniones **no se oculta**: sale con la actividad en cero.
+
+Sin candidato propio configurado responde **422** con el mismo mensaje que el
+cruce: es la misma configuración la que falta.
+
+```json
+{
+  "data": [
+    {
+      "lider": { "id": 7, "nombre": "ANA LIDER" },
+      "reuniones": 3,
+      "asistentes": 45,
+      "checkins": 40,
+      "movilizados_identificados": 30,
+      "identificacion": 75,
+      "puestos_cubiertos": 2,
+      "mesas_cubiertas": 4,
+      "mesas_sin_acta": 1,
+      "mesas_en_deficit": 2,
+      "mesas_en_superavit": 1,
+      "rendimiento_ponderado": 62.5,
+      "deficit_ponderado": 37.5,
+      "posible_inflado": true
+    }
+  ],
+  "meta": {
+    "electoral_event_id": 3,
+    "nivel_fijo": "mesa",
+    "orden": "deficit",
+    "candidato": { "numero": 2, "nombre": "JOHANA ARANDA", "agrupacion": null },
+    "totales": {
+      "lideres": 1, "reuniones": 3, "asistentes": 45, "checkins": 40,
+      "movilizados_identificados": 30, "movilizados_por_lider": 30
+    },
+    "umbrales": { "movilizados_identificados": 20, "deficit_ponderado": 30 },
+    "cobertura": {
+      "checkins_sin_identificar": 10,
+      "lideres_sin_proxy": 0,
+      "mesas_con_gente": 4,
+      "mesas_sin_base": 0
+    },
+    "aviso_proxy": "El voto es secreto y las mesas se comparten entre líderes: …",
+    "aviso_inflado": "«Posible inflado» es una señal a revisar, no una acusación: …"
+  }
+}
+```
+
+### La mitad cierta: qué produjo el líder
+
+| Campo | Definición |
+| --- | --- |
+| `reuniones` | `meetings` con `planner_user_id` = el líder. Mide al **planificador**, no al subárbol de `reports_to` |
+| `asistentes` | filas de `meeting_attendees` de esas reuniones |
+| `checkins` | las que tienen `checked_in = true`. Son **eventos**, no personas: quien asiste a dos reuniones suyas cuenta dos veces aquí |
+| `movilizados_identificados` | **personas únicas** entre esos check-ins que resuelven a un `voter` del tenant con puesto canónico **y** mesa |
+| `identificacion` | `movilizados_identificados / checkins · 100`. `null` si no hubo check-ins |
+| `puestos_cubiertos` / `mesas_cubiertas` | puestos y mesas distintos donde vota su gente identificada |
+
+**Cómo se identifica a una persona.** Primero por `meeting_attendees.voter_id`
+(Spec 0022); si no lo tiene —asistencia anterior a esa spec—, por **cédula**
+contra `voters`. Del votante hacen falta las dos cosas:
+
+- el **puesto**: `voters.voting_place_id`, y si viene nulo —captura vieja— el
+  resolver de respaldo por nombre de la 0062, que solo busca y nunca da de alta;
+- la **mesa**: `mesa_votacion` normalizada (`005` = `5`).
+
+Si falta cualquiera de las dos, la persona **no** es identificada. Es honesto: el
+proxy se lee por mesa, y una mesa que no se conoce no se inventa.
+
+**Lo que no resuelve se reporta, no se descarta.** Ese check-in sigue contando en
+`checkins` —el líder movilizó a alguien— y engorda
+`cobertura.checkins_sin_identificar`. Lo único que no sabemos es dónde vota. Bajar
+el denominador para que el porcentaje se vea mejor sería mentir sobre la calidad
+del dato, que es justo lo que `identificacion` mide.
+
+`totales.movilizados_identificados` son **personas distintas de toda la campaña**;
+`totales.movilizados_por_lider` es la suma de la columna. El segundo puede ser
+mayor: quien asiste a reuniones de dos líderes cuenta para los dos, y ninguno de
+los dos miente.
+
+### La mitad que es un proxy: cómo rindieron sus mesas
+
+Para cada mesa donde vota su gente identificada se toma el rendimiento de la 0076
+—`votos_candidato / base · 100`, con la base de **toda** la campaña en esa mesa— y
+se promedia **ponderando por su presencia**: cuántos de sus movilizados votan ahí.
+
+```
+rendimiento_ponderado = Σ (rendimiento_mesa × gente_del_líder_en_la_mesa)
+                        ─────────────────────────────────────────────────
+                              Σ gente_del_líder_en_la_mesa
+```
+
+Ponderar y no promediar a secas es lo que hace comparable el número: una mesa donde
+puso 40 personas dice mucho más de su trabajo que una donde puso una.
+
+| Campo | Qué significa |
+| --- | --- |
+| `mesas_en_deficit` / `mesas_en_superavit` | de sus mesas **con acta**, cuántas rindieron por debajo / por encima de la base |
+| `rendimiento_ponderado` | el promedio de arriba. `null` si ninguna de sus mesas tiene acta y base |
+| `deficit_ponderado` | `max(0, 100 − rendimiento_ponderado)`: los puntos de su base que no se reflejaron en votos. La misma cifra vuelta del derecho, para ordenar por lo accionable |
+| `mesas_sin_acta` | mesas suyas todavía sin escrutinio: no entran en el proxy |
+
+**Una mesa sin acta procesada no entra.** Sin escrutinio no hay con qué comparar, y
+un 0 % diría que rindió mal cuando lo que pasa es que aún no se sabe. Por eso una
+elección sin actas muestra la actividad completa y el proxy vacío
+(`rendimiento_ponderado = null`, `cobertura.lideres_sin_proxy` con el conteo).
+
+**El número es compartido.** En esas mesas también mueven gente otros líderes, y el
+déficit de una mesa no es «lo que este líder perdió»: es lo que perdió la campaña
+donde este líder trabaja. `meta.aviso_proxy` lo dice con esas palabras y viaja
+siempre con el dato.
+
+### `posible_inflado`: una señal, no un veredicto
+
+Marca a quien **movilizó mucho** y a la vez **sus mesas rindieron poco**:
+
+```
+posible_inflado = movilizados_identificados >= umbral_movilizados
+               && deficit_ponderado        >= umbral_deficit_ponderado
+```
+
+Las dos condiciones van juntas a propósito. Un líder con dos personas en una mesa
+mala no tiene una base inflada, tiene dos personas; y uno con cien personas en
+mesas que rindieron no tiene nada que explicar.
+
+Los umbrales viven en `config/e14.php` (`e14.rendimiento_lideres`), por defecto
+**20 movilizados** y **30 puntos** de déficit ponderado —sus mesas al 70 % o menos—,
+y se pueden mover con `E14_UMBRAL_MOVILIZADOS` / `E14_UMBRAL_DEFICIT_PONDERADO`.
+Vienen en `meta.umbrales` para que la UI pueda explicar la marca en vez de
+mostrarla a secas. Cambiarlos cambia **a quién se mira primero**, no quién hizo
+trampa: la señal significa «anda a preguntar», y `meta.aviso_inflado` obliga a
+decirlo junto a la marca.
+
+### Orden del ranking
+
+`order=deficit` (por defecto) pone arriba el mayor `deficit_ponderado`, para que lo
+accionable no haya que buscarlo; quien no tiene proxy va al final y no se cuela
+entre medias. `order=actividad` ordena por movilización identificada, check-ins y
+reuniones —solo la mitad cierta—. Empates, por nombre.
+
+### Lo que no hace
+
+- **No persiste nada**: se calcula al preguntarlo, igual que el cruce.
+- **No suma el equipo**: mide las reuniones que el líder planeó, no las de quienes
+  le reportan (`reports_to`). El rollup por rama del organigrama es otra pregunta.
+- **No captura metas de votos por líder**: su trabajo es operativo y no existe tal
+  meta.
 
 ---
 
