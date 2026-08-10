@@ -642,6 +642,8 @@ siguiente llamada.
       "votos_candidato": 30,
       "rendimiento": 60,
       "diferencia": -20,
+      "deficit": 20,
+      "excedente": 0,
       "tiene_acta": true,
       "actas": 1
     }
@@ -653,7 +655,8 @@ siguiente llamada.
     "candidato": { "numero": 2, "nombre": "JOHANA ARANDA", "agrupacion": null },
     "totales": {
       "puestos": 1, "base": 50, "votos_candidato": 30,
-      "rendimiento": 60, "diferencia": -20
+      "rendimiento": 60, "diferencia": -20,
+      "deficit_total": 20, "excedente_total": 0, "puestos_con_deficit": 1
     },
     "cobertura": {
       "puestos_sin_acta": 0,
@@ -675,7 +678,30 @@ cosa. Ojo con el JSON: un porcentaje redondo llega como entero (`60`, no `60.0`)
 El **100 % no es un techo**: significa «igualaste tu base identificada»; por debajo
 hay déficit, por encima excedente.
 
-`diferencia` = votos − base, con signo.
+### Déficit y excedente: las dos mitades de la diferencia
+
+`diferencia` = votos − base, con signo, y se separa en sus dos mitades porque **no
+valen lo mismo**:
+
+| Campo | Cálculo | Qué significa |
+| --- | --- | --- |
+| `deficit` | `max(0, base − votos)` | gente de tu base que **no se reflejó en votos** ahí. Dato cierto y accionable: no fue a votar, votó por otro, o faltó movilizarla |
+| `excedente` | `max(0, votos − base)` | votos de fuera de tu base. Neutro: activaste por encima de lo que tenías identificado |
+
+Siempre `deficit − excedente = −diferencia`, y uno de los dos es cero.
+
+En `meta.totales`, `deficit_total` y `excedente_total` suman **fila por fila**, así
+que no se cancelan entre sí; `puestos_con_deficit` cuenta las filas con
+`deficit > 0`. Ese es el número de cabecera, **no** `diferencia`: la diferencia
+global se compensa sola —un puesto que rindió de sobra tapa a otro que se quedó
+corto— y puede salir positiva con muchos déficits locales dentro.
+
+Con `nivel=mesa` el cálculo es por mesa, así que el excedente de una mesa **no**
+cancela el déficit de otra del mismo puesto.
+
+Casos borde: con `base = 0` el `deficit` es `0` y el `excedente` son todos los
+votos (no se le puede reclamar nada a una base que no existe); con `base = 0` y
+`votos = 0` los tres van a cero y `rendimiento` a `null`.
 
 > **El campo `anomalia` de la 0062 ya no existe**, ni su total `anomalias`. Sacar
 > más votos que la base no es un error (ver «Base ≠ censo» arriba). Un chequeo real

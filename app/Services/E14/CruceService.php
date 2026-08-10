@@ -218,6 +218,12 @@ class CruceService
                 'votos_candidato' => $misVotos,
                 'rendimiento' => $this->rendimiento($misVotos, $cuenta),
                 'diferencia' => $misVotos - $cuenta,
+                // Las dos mitades de `diferencia`, separadas porque no valen lo
+                // mismo: el **déficit** es gente de la base que no se reflejó en
+                // votos aquí —dato cierto y accionable—, y el **excedente** son
+                // votos de fuera de la base, que es lo normal y no reclama nada.
+                'deficit' => max(0, $cuenta - $misVotos),
+                'excedente' => max(0, $misVotos - $cuenta),
                 'tiene_acta' => ($actas[$clave] ?? 0) > 0,
                 'actas' => $actas[$clave] ?? 0,
             ];
@@ -280,13 +286,20 @@ class CruceService
     {
         $base = (int) array_sum(array_column($filas, 'base'));
         $votos = (int) array_sum(array_column($filas, 'votos_candidato'));
+        $deficits = array_column($filas, 'deficit');
 
         return [
             'puestos' => count($filas),
             'base' => $base,
             'votos_candidato' => $votos,
             'rendimiento' => $this->rendimiento($votos, $base),
+            // La diferencia global **se compensa sola**: un puesto que rindió de
+            // sobra tapa a otro que se quedó corto. Por eso el número de cabecera
+            // es `deficit_total`, que suma fila por fila y no se cancela.
             'diferencia' => $votos - $base,
+            'deficit_total' => (int) array_sum($deficits),
+            'excedente_total' => (int) array_sum(array_column($filas, 'excedente')),
+            'puestos_con_deficit' => count(array_filter($deficits)),
         ];
     }
 

@@ -124,6 +124,10 @@ class E14CruceTest extends TestCase
             ->assertJsonPath('data.0.votos_candidato', 30)
             ->assertJsonPath('data.0.rendimiento', 60)
             ->assertJsonPath('data.0.diferencia', -20)
+            // La señal accionable: 20 personas de la base no se reflejaron en
+            // votos en este puesto.
+            ->assertJsonPath('data.0.deficit', 20)
+            ->assertJsonPath('data.0.excedente', 0)
             // `anomalia` ya no existe (Spec 0076): la base identificada no es el
             // censo del puesto, así que sacar más votos que ella no es un error.
             ->assertJsonMissingPath('data.0.anomalia')
@@ -133,7 +137,10 @@ class E14CruceTest extends TestCase
             ->assertJsonPath('meta.candidato.numero', 2)
             ->assertJsonPath('meta.totales.base', 50)
             ->assertJsonPath('meta.totales.votos_candidato', 30)
-            ->assertJsonPath('meta.totales.rendimiento', 60);
+            ->assertJsonPath('meta.totales.rendimiento', 60)
+            ->assertJsonPath('meta.totales.deficit_total', 20)
+            ->assertJsonPath('meta.totales.excedente_total', 0)
+            ->assertJsonPath('meta.totales.puestos_con_deficit', 1);
     }
 
     public function test_por_mesa_el_005_del_acta_casa_con_el_5_del_votante(): void
@@ -203,12 +210,128 @@ class E14CruceTest extends TestCase
 
         // La base identificada es un **subconjunto** del electorado: el candidato
         // recibe votos de mucha gente que la campaña no tiene en el sistema. Por
-        // eso `votos > base` es lo normal y no informa de nada malo.
+        // eso `votos > base` es lo normal y no informa de nada malo: es excedente,
+        // no anomalía.
         $this->getJson('/api/v1/e14/cruce')
             ->assertStatus(200)
             ->assertJsonPath('data.0.diferencia', 20)
+            ->assertJsonPath('data.0.excedente', 20)
+            ->assertJsonPath('data.0.deficit', 0)
+            ->assertJsonPath('data.0.rendimiento', 300)
             ->assertJsonMissingPath('data.0.anomalia')
-            ->assertJsonMissingPath('meta.totales.anomalias');
+            ->assertJsonMissingPath('meta.totales.anomalias')
+            // Y no cuenta como puesto a revisar.
+            ->assertJsonPath('meta.totales.puestos_con_deficit', 0)
+            ->assertJsonPath('meta.totales.deficit_total', 0)
+            ->assertJsonPath('meta.totales.excedente_total', 20);
+    }
+
+    public function test_el_deficit_no_se_compensa_con_los_excedentes(): void
+    {
+        $tenant = $this->operador();
+        $flojo = $this->puestoDelCatalogo();
+        $fuerte = $this->puestoDelCatalogo([
+            'municipio_votacion' => 'ARMERO',
+            'puesto_votacion' => 'ESCUELA LA PALMA',
+        ]);
+
+        // Un puesto en déficit (100 de base, 30 votos) y otro en excedente
+        // (10 de base, 30 votos).
+        $this->votantes($tenant, 100, ['voting_place_id' => $flojo->id]);
+        $this->votantes($tenant, 10, [
+            'voting_place_id' => $fuerte->id,
+            'municipio_votacion' => 'ARMERO',
+            'puesto_votacion' => 'ESCUELA LA PALMA',
+        ]);
+        $this->cargarActa();
+        $this->cargarActa(['mesa' => '006', 'municipio' => 'ARMERO', 'lugar' => 'ESCUELA LA PALMA']);
+        $this->evento($tenant);
+
+        $respuesta = $this->getJson('/api/v1/e14/cruce')->assertStatus(200);
+
+        // La diferencia global se compensa sola (60 − 110 = −50) y por eso no
+        // sirve de cabecera; el déficit sumado por fila sí dice dónde ir.
+        $respuesta->assertJsonPath('meta.totales.diferencia', -50)
+            ->assertJsonPath('meta.totales.deficit_total', 70)
+            ->assertJsonPath('meta.totales.excedente_total', 20)
+            ->assertJsonPath('meta.totales.puestos_con_deficit', 1);
+    }
+
+    public function test_sin_base_no_hay_deficit_y_los_votos_son_todos_excedente(): void
+    {
+        $tenant = $this->operador();
+        $this->cargarActa();
+        $this->evento($tenant);
+
+        // Nadie identificado ahí: no se le puede reclamar nada a la base, y los
+        // 30 votos son gente de fuera.
+        $this->getJson('/api/v1/e14/cruce')
+            ->assertStatus(200)
+            ->assertJsonPath('data.0.base', 0)
+            ->assertJsonPath('data.0.rendimiento', null)
+            ->assertJsonPath('data.0.deficit', 0)
+            ->assertJsonPath('data.0.excedente', 30)
+            ->assertJsonPath('meta.totales.puestos_con_deficit', 0);
+    }
+
+    public function test_sin_base_y_sin_votos_no_hay_ninguna_novedad(): void
+    {
+        $tenant = $this->operador();
+
+        // Acta que cuadra pero en la que mi candidato no saca nada, y sin base
+        // identificada en ese puesto: 50 + 19 + 4 + 4 + 4 = 81.
+        $this->cargarActa([
+            'suma_declarada' => 81,
+            'votos_urna' => 81,
+            'votantes_e11' => 81,
+            'resultados' => [
+                ['numero' => 1, 'nombre' => 'JORGE BOLIVAR TORRES', 'votos' => 50],
+                ['numero' => 3, 'nombre' => 'RENSO GARCIA', 'votos' => 19],
+            ],
+        ]);
+        $this->evento($tenant);
+
+        $this->getJson('/api/v1/e14/cruce')
+            ->assertStatus(200)
+            ->assertJsonPath('data.0.base', 0)
+            ->assertJsonPath('data.0.votos_candidato', 0)
+            ->assertJsonPath('data.0.deficit', 0)
+            ->assertJsonPath('data.0.excedente', 0)
+            ->assertJsonPath('data.0.rendimiento', null)
+            ->assertJsonPath('data.0.tiene_acta', true);
+    }
+
+    public function test_por_mesa_el_excedente_de_una_no_cancela_el_deficit_de_otra(): void
+    {
+        $tenant = $this->operador();
+        $lugar = $this->puestoDelCatalogo();
+
+        // Mismo puesto, dos mesas: la 5 rinde de sobra y la 6 se queda corta.
+        $this->votantes($tenant, 10, ['voting_place_id' => $lugar->id, 'mesa_votacion' => '5']);
+        $this->votantes($tenant, 100, ['voting_place_id' => $lugar->id, 'mesa_votacion' => '6']);
+        $this->cargarActa(['mesa' => '005']);
+        $this->cargarActa([
+            'mesa' => '006',
+            'resultados' => [['numero' => 2, 'nombre' => 'JOHANA ARANDA', 'votos' => 30]],
+            'suma_declarada' => 42,
+            'votos_urna' => 42,
+            'votantes_e11' => 42,
+        ]);
+        $this->evento($tenant);
+
+        $this->getJson('/api/v1/e14/cruce?nivel=mesa')
+            ->assertStatus(200)
+            ->assertJsonPath('data.0.mesa', 5)
+            ->assertJsonPath('data.0.excedente', 20)
+            ->assertJsonPath('data.0.deficit', 0)
+            ->assertJsonPath('data.1.mesa', 6)
+            ->assertJsonPath('data.1.deficit', 70)
+            ->assertJsonPath('data.1.excedente', 0)
+            // Por puesto sumarían 110 de base y 60 votos; por mesa el déficit de
+            // la 6 no se lo come el excedente de la 5.
+            ->assertJsonPath('meta.totales.deficit_total', 70)
+            ->assertJsonPath('meta.totales.excedente_total', 20)
+            ->assertJsonPath('meta.totales.puestos_con_deficit', 1);
     }
 
     public function test_cambiar_el_candidato_propio_recalcula_el_cruce(): void
