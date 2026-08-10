@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\V1\CorregimientoController;
 use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\E14IngestController;
 use App\Http\Controllers\Api\V1\E14UploadController;
+use App\Http\Controllers\Api\V1\E14WorkerController;
 use App\Http\Controllers\Api\V1\GeocodeController;
 use App\Http\Controllers\Api\V1\GeographicContactController;
 use App\Http\Controllers\Api\V1\GeographicStatsController;
@@ -109,6 +110,14 @@ Route::prefix('v1')->group(function () {
         Route::post('/contacto', [LandingPageController::class, 'storeContacto']);
     });
 
+    // Descarga del PDF de un acta (Spec 0071). Pública **por firma**: el worker
+    // recibe la URL ya firmada al reclamar el acta y la usa en segundos. La
+    // firma cubre el acta y su tenant, así que no se puede editar para pedir
+    // otra, y dura minutos (`e14.url_ttl_minutes`).
+    Route::get('/e14/actas/{acta}/archivo', [E14WorkerController::class, 'archivo'])
+        ->middleware('signed')
+        ->name('e14.actas.archivo');
+
     // Escrutinio E-14 (Spec 0061). Fuera del grupo `jwt.auth` porque uno de sus
     // dos clientes no tiene sesión: el lector de actas publica con un token de
     // servicio de larga vida. `e14.auth` acepta ambas credenciales y deja un
@@ -123,6 +132,9 @@ Route::prefix('v1')->group(function () {
             Route::post('/actas/upload', [E14UploadController::class, 'upload'])->middleware('permission:manage_e14');
             Route::post('/actas/procesar', [E14UploadController::class, 'procesar'])->middleware('permission:manage_e14');
             Route::get('/resumen', [E14UploadController::class, 'resumen'])->middleware('permission:view_e14');
+
+            // Lo que consume el worker (Spec 0071).
+            Route::post('/actas/siguiente', [E14WorkerController::class, 'siguiente'])->middleware('permission:manage_e14');
 
             Route::post('/actas', [E14IngestController::class, 'store'])->middleware('permission:manage_e14');
             Route::get('/actas', [E14IngestController::class, 'index'])->middleware('permission:view_e14');
