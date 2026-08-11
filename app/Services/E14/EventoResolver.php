@@ -3,6 +3,8 @@
 namespace App\Services\E14;
 
 use App\Models\ElectoralEvent;
+use App\Models\Tenant;
+use App\Scopes\TenantScope;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -18,6 +20,34 @@ use Illuminate\Validation\ValidationException;
  */
 class EventoResolver
 {
+    /**
+     * De qué cargo del tenant es cada tipo de elección (Spec 0080).
+     *
+     * Los dos campos hablan idiomas distintos por historia: `tenants.tipo_cargo`
+     * es el enum del alta de campañas (capitalizado, sin tildes) y
+     * `electoral_events.tipo` es el vocabulario del E-14 (`E14Acta::TIPOS`).
+     * Traducir por texto —minúsculas y sin tildes— acertaría en tres casos y
+     * fallaría en los dos que importan: un **diputado** se elige en la
+     * `asamblea_departamental`, y un **congresista**, en el `senado`.
+     *
+     * Lo que vale `null` no se adivina: `Otro` no es un cargo de elección
+     * popular, y la Cámara de Representantes todavía no tiene tipo de acta. Con
+     * un cargo así no hay elección donde fijar el número, y quien pregunte
+     * recibe el aviso en vez de una escritura en la elección equivocada.
+     *
+     * @var array<string, string|null>
+     */
+    public const TIPO_POR_CARGO = [
+        'alcaldia' => 'alcaldia',
+        'gobernacion' => 'gobernacion',
+        'concejo' => 'concejo',
+        'diputado' => 'asamblea_departamental',
+        'congresista' => 'senado',
+        // Cámara de Representantes: sin tipo de acta E-14 (llega con la 0067).
+        'representante' => null,
+        'otro' => null,
+    ];
+
     /**
      * @param  array<string, mixed>  $datos
      */
@@ -72,6 +102,75 @@ class EventoResolver
             'event' => $id !== null
                 ? 'La elección indicada no existe en esta campaña.'
                 : 'Todavía no hay ninguna elección cargada en esta campaña.',
+        ]);
+    }
+
+    /**
+     * El tipo de elección del cargo del tenant, o `null` si no mapea (Spec 0080).
+     *
+     * Se normaliza la caja porque el enum de `tenants` se escribió capitalizado
+     * y no hay garantía de que un dato viejo lo respete; lo que NO se hace es
+     * inferir por parecido: fuera de la tabla, no hay tipo.
+     */
+    public function tipoDelCargo(?string $tipoCargo): ?string
+    {
+        $clave = mb_strtolower(trim((string) $tipoCargo));
+
+        return self::TIPO_POR_CARGO[$clave] ?? null;
+    }
+
+    /**
+     * La elección a la que aplica el candidato del tenant (Spec 0080), sin crearla.
+     *
+     * Una campaña es un candidato a un cargo, así que su número de tarjetón vive
+     * en **una** elección: la del `tipo_cargo`. Si hay varias del mismo tipo —dos
+     * alcaldías de años distintos— gana la más reciente, que es la que se está
+     * escrutando.
+     *
+     * El filtro por `tenant_id` va explícito y sin el scope: esto también corre
+     * desde consola (la limpieza de la 0080), donde no hay tenant en el
+     * contenedor y el `TenantScope` no filtraría nada.
+     */
+    public function delCargo(Tenant $tenant): ?ElectoralEvent
+    {
+        $tipo = $this->tipoDelCargo($tenant->tipo_cargo);
+
+        if ($tipo === null) {
+            return null;
+        }
+
+        return ElectoralEvent::withoutGlobalScope(TenantScope::class)
+            ->where('tenant_id', $tenant->id)
+            ->where('tipo', $tipo)
+            ->orderByDesc('fecha')
+            ->orderByDesc('id')
+            ->first();
+    }
+
+    /**
+     * La misma elección, creándola si aún no existe (Spec 0080).
+     *
+     * El número del tarjetón se sabe semanas antes de la primera acta, así que
+     * fijar el candidato no puede exigir que la elección ya esté cargada: se da
+     * de alta al vuelo, igual que hace la ingesta.
+     */
+    public function paraElCargo(Tenant $tenant): ElectoralEvent
+    {
+        $tipo = $this->tipoDelCargo($tenant->tipo_cargo);
+
+        if ($tipo === null) {
+            throw ValidationException::withMessages([
+                'cargo' => 'La campaña no tiene un cargo de elección popular configurado '
+                    .'(«'.($tenant->tipo_cargo ?: 'sin cargo').'»), así que no hay elección '
+                    .'donde fijar el número. Configura el cargo de la campaña primero.',
+            ]);
+        }
+
+        return $this->delCargo($tenant) ?? ElectoralEvent::withoutGlobalScope(TenantScope::class)->create([
+            'tenant_id' => $tenant->id,
+            'tipo' => $tipo,
+            'nombre' => $this->nombrePorDefecto($tipo),
+            'fecha' => null,
         ]);
     }
 
