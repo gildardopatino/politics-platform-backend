@@ -268,7 +268,7 @@ sesión.
 
 ---
 
-## Configuración de campaña: mi candidato (Specs 0062 y 0080)
+## Configuración de campaña: mi candidato (Specs 0062, 0080 y 0082)
 
 En clave SaaS cada tenant es la campaña de **un** candidato a **un** cargo, y ese
 candidato es **una fila del E-14**. El consolidado no lo necesita —suma a todos—,
@@ -280,14 +280,27 @@ elecciones hubiera cargadas y el nombre se tecleaba en cada una. La 0080 lo corr
 hay **una** ficha por campaña, su identidad sale del `Tenant` y lo único que se
 configura a mano es el número del tarjetón.
 
+La 0082 la hizo **cargo-aware**. En uninominal el candidato es un número del tarjetón y
+con eso basta; en corporación es una persona **dentro de una lista**, y su identidad es
+el par `(número de lista, número de preferencia)`. Un preferente suelto no identifica a
+nadie — el 5 existe en todas las listas, y el cruce los sumaría todos.
+
+| | Uninominal (alcaldía, gobernación) | Corporación (concejo, senado, asamblea) |
+| --- | --- | --- |
+| Se configura | `numero` (tarjetón) | `lista_numero` **+** `numero` (preferencia) |
+| Catálogo | `candidatos[]` (de `e14_candidates`) | `listas[]` con sus preferentes |
+| `data.lista_numero` | siempre `null` | el número de la lista |
+| `meta.es_corporacion` | `false` | `true` |
+
 ### De dónde sale cada dato
 
 | Dato | Origen | ¿Se edita? |
 | --- | --- | --- |
 | Nombre del candidato | `tenants.nombre` | No — se administra en la configuración de la campaña |
 | Cargo | `tenants.tipo_cargo` | No — ídem |
-| **Número del tarjetón** | `electoral_events.candidato_propio_numero` | **Sí, es el único** |
-| Agrupación / partido | `electoral_events.candidato_propio_agrupacion` | Sí, opcional; se completa desde el tarjetón al elegir el número |
+| **Número** (tarjetón o preferencia) | `electoral_events.candidato_propio_numero` | **Sí** |
+| **Número de lista** (solo corporación) | `electoral_events.candidato_propio_lista_numero` | **Sí**; `null` en uninominal |
+| Agrupación / partido | `electoral_events.candidato_propio_agrupacion` | Sí, opcional; se completa desde el tarjetón (uninominal) o desde el **nombre de la lista** elegida (corporación) |
 
 El tenant **no tiene** campo de partido, así que la agrupación se queda en la elección
 y es editable, con lo que traiga el tarjetón como valor por defecto.
@@ -324,6 +337,34 @@ elección equivocada es peor que no configurarlo.
 > a la 0080; el mapeo la contempla para que el día que la columna lo acepte no haya que
 > volver aquí.
 
+### Corporación: lista + preferente (Spec 0082)
+
+Cuando el `tipo_cargo` del tenant mapea a `concejo`, `senado` o
+`asamblea_departamental`, la ficha pide **dos** números en vez de uno.
+
+**El catálogo se deriva, no se guarda.** En uninominal es una tabla —
+`e14_candidates`, que la ingesta llena sola con la primera acta que menciona a
+cada candidato. En corporación no hay equivalente y no debería haberlo: el E-14
+de corporación **no trae nombres** de los preferentes, solo números (0067), así
+que no queda nada que catalogar que no esté ya en el resultado. Se arma con una
+consulta sobre `e14_lista_resultados` (las listas) + `e14_lista_preferentes`
+(sus números). Una tabla aparte sería una segunda verdad sobre el mismo papel, y
+la primera vez que alguien corrigiera un acta a mano las dos empezarían a
+discrepar.
+
+**Solo entran las actas `procesada`**, igual que en el consolidado. Una acta
+inconsistente pudo leer mal el número de la lista, y ofrecer un «517» que en
+realidad era «5170» dejaría fijar el candidato en una lista que no existe —
+exactamente el error que la regla de los dos momentos quiere evitar.
+
+> Es una asimetría consciente con el uninominal, cuyo catálogo se llena en la
+> ingesta sin mirar el estado del acta. Aquí se puede ser más estricto porque el
+> dato ya está en el resultado, y conviene serlo porque el número de lista es más
+> largo —hasta cinco cifras— y por tanto más fácil de transcribir mal.
+
+Una lista **sin voto preferente** aparece en el catálogo con `preferentes: []`:
+existe en el tarjetón y no tiene números.
+
 ### `GET /candidato` — la ficha
 
 ```json
@@ -342,13 +383,52 @@ elección equivocada es peor que no configurarlo.
       "fecha": "2027-10-31",
       "tiene_actas": true
     },
+    "lista_numero": null,
     "candidatos": [
       { "numero": 1, "nombre": "JORGE BOLIVAR TORRES", "agrupacion": null, "cargo": "alcaldia" }
-    ]
+    ],
+    "listas": []
   },
   "meta": {
     "cargo_mapeado": true,
     "tipo_eleccion": "alcaldia",
+    "es_corporacion": false,
+    "aviso": null
+  }
+}
+```
+
+La misma ficha para un concejo, con el par y su catálogo:
+
+```json
+{
+  "data": {
+    "nombre": "ANA RUIZ",
+    "cargo": "Concejo",
+    "cargo_label": "Concejo",
+    "numero": 5,
+    "lista_numero": 11,
+    "agrupacion": "PARTIDO CENTRO DEMOCRÁTICO",
+    "configurado": true,
+    "eleccion": { "id": 9, "nombre": "Concejo", "tipo": "concejo", "fecha": null, "tiene_actas": true },
+    "candidatos": [],
+    "listas": [
+      {
+        "lista_numero": 1,
+        "lista_nombre": "PARTIDO LIBERAL COLOMBIANO",
+        "preferentes": [{ "numero": 3 }, { "numero": 7 }]
+      },
+      {
+        "lista_numero": 11,
+        "lista_nombre": "PARTIDO CENTRO DEMOCRÁTICO",
+        "preferentes": [{ "numero": 1 }, { "numero": 5 }, { "numero": 9 }]
+      }
+    ]
+  },
+  "meta": {
+    "cargo_mapeado": true,
+    "tipo_eleccion": "concejo",
+    "es_corporacion": true,
     "aviso": null
   }
 }
@@ -357,12 +437,16 @@ elección equivocada es peor que no configurarlo.
 | Campo | Qué es |
 | --- | --- |
 | `nombre`, `cargo`, `cargo_label` | Identidad del tenant, **de solo lectura** |
-| `numero`, `agrupacion` | Lo configurado; `null` si aún no lo está |
+| `numero` | El del tarjetón (uninominal) o el de **preferencia** (corporación) |
+| `lista_numero` | Solo corporación: el número de la lista. `null` en uninominal |
+| `agrupacion` | Lo configurado; `null` si aún no lo está |
 | `configurado` | Atajo de `numero !== null` — es lo que decide si el cruce se puede calcular |
 | `eleccion` | La del cargo; **`null`** si el cargo no mapea o si aún no existe (se creará al fijar el número) |
 | `eleccion.tiene_actas` | Le dice al frontend si el número se escribe a mano o se elige de una lista: la misma regla que valida el servidor |
-| `candidatos` | El tarjetón de esa elección, para el selector; `[]` si no hay elección todavía |
+| `candidatos` | Uninominal: el tarjetón de esa elección. `[]` en corporación |
+| `listas` | Corporación: las listas del tarjetón con sus números de preferencia. `[]` en uninominal |
 | `meta.cargo_mapeado` | `false` cuando el `tipo_cargo` no tiene elección; la pantalla debe mandar a configurar el cargo, no a fijar un número |
+| `meta.es_corporacion` | Qué campos pide la ficha: un número suelto, o el par lista + preferente |
 | `meta.aviso` | El texto de ese caso, en español; `null` cuando todo está en orden |
 
 El tarjetón viaja **con** la ficha y no en un endpoint aparte, por lo mismo que en la
@@ -371,14 +455,27 @@ viajes solo abriría la ventana para mostrar un selector vacío mientras llega e
 
 ### `PUT /candidato` — fijar o quitar el número
 
+Uninominal:
+
 ```json
 { "numero": 4, "agrupacion": "MOVIMIENTO X" }
 ```
 
+Corporación — el par, y la lista es **obligatoria** al fijar:
+
+```json
+{ "lista_numero": 11, "numero": 5 }
+```
+
 | Campo | Regla |
 | --- | --- |
-| `numero` | **obligatorio en la petición**, admite `null` para deshacer; 1–999 |
-| `agrupacion` | opcional; si falta se toma del tarjetón |
+| `numero` | **obligatorio en la petición**, admite `null` para deshacer; 1–999. Tarjetón en uninominal, **preferencia** en corporación |
+| `lista_numero` | 1–99999. **Obligatorio en corporación** cuando se fija; en uninominal se **ignora** y se guarda `null` |
+| `agrupacion` | opcional; si falta se toma del tarjetón (uninominal) o del nombre de la lista elegida (corporación) |
+
+**Por qué la lista es obligatoria.** Un preferente suelto no identifica a nadie: el 5
+existe en todas las listas del tarjetón, y el cruce (0083) los sumaría todos. La
+identidad de un candidato de corporación es el **par**.
 
 **El `nombre` no viaja.** Se escribe siempre desde `tenants.nombre`, y un `nombre` que
 mande el cliente se ignora: volver a pedir la identidad aquí es lo que permitía que la
@@ -387,13 +484,23 @@ ficha del escrutinio dijera una cosa y la configuración de la campaña, otra.
 **Find-or-create.** Si todavía no hay elección del cargo, se crea al fijar el número: el
 número del tarjetón se sabe semanas antes de la primera acta, igual que en la ingesta.
 
-**Los dos momentos** (regla de la 0062, intacta). Antes de la primera acta el número se
-acepta a ciegas. En cuanto existe el catálogo `e14_candidates`, un número que no está en
-él responde 422 — apuntaría el cruce a una fila que ninguna acta va a traer.
+**Los dos momentos** (regla de la 0062). Antes de la primera acta se acepta a ciegas.
+En cuanto existe catálogo:
 
-`numero: null` borra la ficha completa (nombre y agrupación incluidos) y deja el cruce
-sin calcular: un nombre suelto de un candidato que ya no se cruza solo confunde a quien
-lo lea después.
+- **Uninominal:** un `numero` que no está en `e14_candidates` responde 422.
+- **Corporación:** el **par** tiene que existir. La lista se comprueba primero —si no
+  está, el 422 va en `lista_numero`—; y solo si la lista existe se comprueba el
+  preferente dentro de ella, con el 422 en `numero`. El orden importa: decir «ese
+  preferente no está» cuando la lista es la equivocada manda a buscar en el sitio
+  equivocado.
+
+Un acta que **no cuadra** no abre el catálogo de corporación (ver arriba), así que
+mientras todas estén inconsistentes se sigue aceptando a ciegas.
+
+`numero: null` borra la ficha completa —nombre, agrupación y **lista** incluidos— y deja
+el cruce sin calcular: un nombre suelto de un candidato que ya no se cruza solo confunde
+a quien lo lea después. Deshacer no valida nada: es la salida de una configuración mal
+puesta y tiene que funcionar aunque lo guardado ya no exista.
 
 Cambiar el número **no recalcula nada guardado**: el cruce se calcula al preguntarlo,
 así que la siguiente llamada a `/cruce` ya sale con el candidato nuevo.
@@ -401,7 +508,8 @@ así que la siguiente llamada a `/cruce` ya sale con el candidato nuevo.
 | Respuesta | Cuándo |
 | --- | --- |
 | `200` | Fijado o borrado; devuelve la ficha completa y un `message` |
-| `422` en `numero` | Hay catálogo y el número no está en él |
+| `422` en `numero` | Hay catálogo y el número (o el preferente, dentro de su lista) no está en él |
+| `422` en `lista_numero` | Corporación: falta la lista al fijar, o no está en el catálogo |
 | `422` en `cargo` | El `tipo_cargo` de la campaña no mapea a ninguna elección |
 | `403` | Falta `manage_e14`, o la sesión no pertenece a ninguna campaña (super admin) |
 
@@ -1529,11 +1637,13 @@ sin su lista: así el único `(lista, numero)` es natural y el borrado en cascad
 sale gratis. `tenant_id` y `e14_acta_id` van denormalizados para consolidar sin
 encadenar joins y para que `TenantScope` filtre directo.
 
-> **Pendiente para 0083 (cruce de corporación):** `GET /cruce` sigue leyendo
-> `e14_resultados.numero = candidato_propio_numero`, que es la forma uninominal.
-> Para corporación el candidato es `(lista, preferente)` —eso es 0082— y el cruce
-> tiene que contar esa fila; hasta entonces, un tenant de concejo que fije un
-> número suelto no obtendrá un cruce correcto. Fuera del alcance de 0067.
+> **Pendiente para 0083 (cruce de corporación):** el candidato de corporación ya se
+> configura como `(lista, preferente)` —eso lo resolvió la 0082—, pero `GET /cruce`
+> sigue leyendo `e14_resultados.numero = candidato_propio_numero`, que es la forma
+> uninominal. Le falta contar la fila `(candidato_propio_lista_numero,
+> candidato_propio_numero)` sobre `e14_lista_preferentes`; hasta entonces, un tenant de
+> concejo con su candidato bien configurado **no obtendrá un cruce correcto**. Fuera del
+> alcance de 0067 y 0082.
 
 
 ---
@@ -1542,16 +1652,25 @@ encadenar joins y para que `TenantScope` filtre directo.
 
 ### `electoral_events`
 `id`, `tenant_id`, `nombre`, `fecha`, `tipo`, `candidato_propio_numero`,
-`candidato_propio_nombre`, `candidato_propio_agrupacion`, timestamps.
+`candidato_propio_lista_numero`, `candidato_propio_nombre`,
+`candidato_propio_agrupacion`, timestamps.
 Único: `(tenant_id, tipo, nombre)`.
 
-Las tres columnas de candidato propio son de la 0062 y son nullable: una elección
-recién creada por la ingesta todavía no sabe de quién es la campaña.
+Las columnas de candidato propio son de la 0062 y son nullable: una elección recién
+creada por la ingesta todavía no sabe de quién es la campaña.
 
 Desde la 0080 **solo la elección del cargo del tenant las usa**: el candidato es uno por
 campaña y su nombre se deriva de `tenants.nombre`. Las columnas no se movieron —el
 cruce, el déficit y el rendimiento las leen aquí— y `e14:candidato-unico` deja en NULL
 las de cualquier otra elección.
+
+`candidato_propio_lista_numero` la añadió la 0082 para corporación. Es **nullable y sin
+defecto** a propósito: `null` significa literalmente «este candidato no está dentro de
+ninguna lista», que es lo que pasa en uninominal, y de eso depende que el cruce siga
+leyendo `candidato_propio_numero` como siempre. El preferente se guarda en esa misma
+columna en vez de añadir una segunda de número: es el mismo concepto —cuál de las filas
+del acta es la mía— contado al nivel que corresponda, y duplicarlo obligaría a preguntar
+cuál de las dos vale en cada lectura.
 
 ### `e14_candidates`
 `id`, `tenant_id`, `electoral_event_id`, `numero`, `nombre`, `agrupacion`,
