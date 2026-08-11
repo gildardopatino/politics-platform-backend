@@ -24,5 +24,11 @@ class DatabaseSeeder extends Seeder
             TipoVotanteSeeder::class,
             DemoDataSeeder::class, // Demo data enabled
         ]);
+
+        // Un candidato por campaña, el de su cargo (Spec 0080). Sobre datos
+        // sembrados no hay nada que limpiar —la corrida es un no-op—; está aquí
+        // para que una base traída de un entorno con la pantalla vieja quede
+        // consistente sin que nadie tenga que acordarse del comando.
+        $this->call(CandidatoUnicoSeeder::class);
     }
 }
