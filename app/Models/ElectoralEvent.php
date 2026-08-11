@@ -28,6 +28,7 @@ class ElectoralEvent extends Model implements Auditable
         'fecha',
         'tipo',
         'candidato_propio_numero',
+        'candidato_propio_lista_numero',
         'candidato_propio_nombre',
         'candidato_propio_agrupacion',
     ];
@@ -35,6 +36,7 @@ class ElectoralEvent extends Model implements Auditable
     protected $casts = [
         'fecha' => 'date',
         'candidato_propio_numero' => 'integer',
+        'candidato_propio_lista_numero' => 'integer',
     ];
 
     public function tenant(): BelongsTo
