@@ -243,6 +243,62 @@ class E14CruceCorporacionTest extends TestCase
             ->assertJsonPath('data.0.tiene_acta', false);
     }
 
+    // ------------------------------------------------- la puerta de candidato
+
+    public function test_sin_lista_el_candidato_no_esta_configurado(): void
+    {
+        // Un preferente sin lista no identifica a nadie: el 5 existe en todas
+        // las agrupaciones del tarjetón. Es media configuración, y media
+        // configuración no puede cruzar.
+        $tenant = $this->operador();
+        $this->puestoDelCatalogo();
+        $this->cargarActa();
+        $this->evento($tenant, lista: null, preferente: 5);
+
+        $this->getJson('/api/v1/e14/cruce')
+            ->assertStatus(422)
+            ->assertJsonPath('errors.event.0', fn (string $mensaje) => str_contains($mensaje, 'candidato propio'));
+
+        $this->getJson('/api/v1/e14/rendimiento-lideres')->assertStatus(422);
+    }
+
+    public function test_sin_preferente_tampoco(): void
+    {
+        $tenant = $this->operador();
+        $this->puestoDelCatalogo();
+        $this->cargarActa();
+        $this->evento($tenant, lista: 11, preferente: null);
+
+        $this->getJson('/api/v1/e14/cruce')->assertStatus(422);
+        $this->getJson('/api/v1/e14/rendimiento-lideres')->assertStatus(422);
+    }
+
+    // ------------------------------------------------------- cómo se rotula
+
+    public function test_la_meta_dice_lista_preferente_y_partido(): void
+    {
+        $tenant = $this->operador();
+        $this->puestoDelCatalogo();
+        $this->cargarActa();
+        $this->evento($tenant);
+
+        // Sin `es_corporacion` el panel no sabría si «5» es el número del
+        // tarjetón o el de preferencia dentro de una lista.
+        $this->getJson('/api/v1/e14/cruce')
+            ->assertStatus(200)
+            ->assertJsonPath('meta.candidato.es_corporacion', true)
+            ->assertJsonPath('meta.candidato.lista_numero', 11)
+            ->assertJsonPath('meta.candidato.numero', 5)
+            ->assertJsonPath('meta.candidato.nombre', 'ANA RUIZ')
+            ->assertJsonPath('meta.candidato.agrupacion', 'PARTIDO CENTRO DEMOCRÁTICO');
+
+        $this->getJson('/api/v1/e14/rendimiento-lideres')
+            ->assertStatus(200)
+            ->assertJsonPath('meta.candidato.es_corporacion', true)
+            ->assertJsonPath('meta.candidato.lista_numero', 11)
+            ->assertJsonPath('meta.candidato.numero', 5);
+    }
+
     // ------------------------------------------- el rendimiento hereda (RF-4)
 
     public function test_el_rendimiento_de_lideres_usa_los_votos_de_lista_y_preferente(): void

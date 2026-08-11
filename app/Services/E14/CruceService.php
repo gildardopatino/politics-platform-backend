@@ -94,11 +94,10 @@ class CruceService
                 'electoral_event_id' => $evento->id,
                 'nivel' => $nivel,
                 'incluir' => $incluir,
-                'candidato' => [
-                    'numero' => $evento->candidato_propio_numero,
-                    'nombre' => $evento->candidato_propio_nombre,
-                    'agrupacion' => $evento->candidato_propio_agrupacion,
-                ],
+                // Con `lista_numero` y `es_corporacion` (Spec 0083): el panel
+                // rotula «lista 11 · preferente 5 · partido» donde antes ponía
+                // un número suelto que no identifica a nadie.
+                'candidato' => $evento->resumenDelCandidato(),
                 'totales' => $this->totales($filas),
                 'cobertura' => $this->cobertura($evento, $filas, $base),
             ],

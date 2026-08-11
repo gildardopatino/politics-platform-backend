@@ -54,14 +54,47 @@ class ElectoralEvent extends Model implements Auditable
         return $this->hasMany(E14Acta::class);
     }
 
+    /** ¿Esta elección es a una corporación —concejo, asamblea, senado—? */
+    public function esDeCorporacion(): bool
+    {
+        return E14Acta::esCorporacion($this->tipo);
+    }
+
     /**
-     * ¿Ya se sabe de quién son los votos que hay que cruzar? (Spec 0062)
+     * ¿Ya se sabe de quién son los votos que hay que cruzar? (Specs 0062 y 0083)
      *
-     * Es el número del tarjetón el que manda: sin él no hay fila del E-14 que
-     * mirar, aunque estén el nombre y el partido.
+     * Manda el número, no el nombre ni el partido: sin él no hay fila del E-14
+     * que mirar. En corporación hacen falta **los dos** números, porque ahí el
+     * candidato es una persona dentro de una lista y el de preferencia se
+     * repite en todas las agrupaciones del tarjetón: el 5 solo identifica a
+     * alguien acompañado de su lista. Media configuración no abre la puerta.
      */
     public function tieneCandidatoPropio(): bool
     {
-        return $this->candidato_propio_numero !== null;
+        if ($this->candidato_propio_numero === null) {
+            return false;
+        }
+
+        return ! $this->esDeCorporacion() || $this->candidato_propio_lista_numero !== null;
+    }
+
+    /**
+     * Quién es mi candidato, para la `meta` del cruce y del rendimiento.
+     *
+     * Vive en el modelo y no en cada servicio porque los dos paneles rotulan lo
+     * mismo, y `es_corporacion` es justo lo que le dice al frontend si «5» es un
+     * número del tarjetón o el de preferencia dentro de una lista.
+     *
+     * @return array<string, mixed>
+     */
+    public function resumenDelCandidato(): array
+    {
+        return [
+            'numero' => $this->candidato_propio_numero,
+            'lista_numero' => $this->candidato_propio_lista_numero,
+            'nombre' => $this->candidato_propio_nombre,
+            'agrupacion' => $this->candidato_propio_agrupacion,
+            'es_corporacion' => $this->esDeCorporacion(),
+        ];
     }
 }

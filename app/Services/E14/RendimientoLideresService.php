@@ -157,11 +157,9 @@ class RendimientoLideresService
                 // No es un filtro: el proxy solo tiene sentido por mesa.
                 'nivel_fijo' => CruceService::NIVEL_MESA,
                 'orden' => $orden,
-                'candidato' => [
-                    'numero' => $evento->candidato_propio_numero,
-                    'nombre' => $evento->candidato_propio_nombre,
-                    'agrupacion' => $evento->candidato_propio_agrupacion,
-                ],
+                // La misma forma que el cruce, con lista + `es_corporacion`
+                // (Spec 0083): los dos paneles rotulan al mismo candidato.
+                'candidato' => $evento->resumenDelCandidato(),
                 'totales' => [
                     'lideres' => count($filas),
                     'reuniones' => (int) array_sum(array_column($filas, 'reuniones')),
