@@ -3,6 +3,8 @@
 namespace App\Services\E14;
 
 use App\Models\E14Acta;
+use App\Models\E14ListaPreferente;
+use App\Models\E14ListaResultado;
 use App\Models\E14Resultado;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -32,12 +34,18 @@ class ConsolidadoService
             ->selectRaw('COALESCE(SUM(votos_no_marcados), 0) as no_marcados')
             ->first();
 
-        $porCandidato = $this->votosPorCandidato($ids);
-        $totalCandidatos = array_sum(array_column($porCandidato, 'votos'));
-
         $votosBlanco = (int) ($controles->blanco ?? 0);
         $votosNulos = (int) ($controles->nulos ?? 0);
         $votosNoMarcados = (int) ($controles->no_marcados ?? 0);
+
+        if (E14Acta::esCorporacion($tipo)) {
+            return $this->deCorporacion(
+                $eventoId, $tipo, $ids, $votosBlanco, $votosNulos, $votosNoMarcados
+            );
+        }
+
+        $porCandidato = $this->votosPorCandidato($ids);
+        $totalCandidatos = array_sum(array_column($porCandidato, 'votos'));
 
         return [
             'data' => $porCandidato,
@@ -57,6 +65,113 @@ class ConsolidadoService
                 'por_lugar' => $this->desglose($ids, 'lugar'),
             ],
         ];
+    }
+
+    /**
+     * El consolidado de una corporación, en dos niveles (Spec 0067 · RF-B4).
+     *
+     * `data` va por **lista** —la cifra con la que se reparten curules— y
+     * `preferentes` por **(lista, número)**, que es quién se las lleva dentro de
+     * la lista. Son dos cortes distintos del mismo escrutinio y los dos hacen
+     * falta, así que viajan juntos en vez de obligar a dos llamadas.
+     *
+     * @param  array<int, int>  $ids
+     * @return array<string, mixed>
+     */
+    private function deCorporacion(
+        ?int $eventoId,
+        ?string $tipo,
+        array $ids,
+        int $votosBlanco,
+        int $votosNulos,
+        int $votosNoMarcados,
+    ): array {
+        $porLista = $this->votosPorLista($ids);
+        $totalListas = array_sum(array_column($porLista, 'votos'));
+
+        return [
+            'data' => $porLista,
+            'preferentes' => $this->votosPorPreferente($ids),
+            'meta' => [
+                'actas' => $this->conteoPorEstado($eventoId, $tipo),
+                'votos_blanco' => $votosBlanco,
+                'votos_nulos' => $votosNulos,
+                'votos_no_marcados' => $votosNoMarcados,
+                'total_listas' => $totalListas,
+                'total_votos' => $totalListas + $votosBlanco + $votosNulos + $votosNoMarcados,
+            ],
+        ];
+    }
+
+    /**
+     * Lo que sacó cada agrupación, sumando lo que **declara** cada acta.
+     *
+     * Se suma `total_agrupacion` y no las casillas recalculadas por la misma
+     * razón que en el cuadre: es la cifra que alguien tallaría del papel. Y solo
+     * entran actas que cuadran, así que una lista mal sumada ya se quedó fuera
+     * con su acta entera.
+     *
+     * @param  array<int, int>  $actaIds
+     * @return array<int, array<string, mixed>>
+     */
+    private function votosPorLista(array $actaIds): array
+    {
+        if ($actaIds === []) {
+            return [];
+        }
+
+        return E14ListaResultado::query()
+            ->whereIn('e14_acta_id', $actaIds)
+            ->selectRaw('lista_numero')
+            // Con MIN se elige un nombre estable cuando dos actas lo
+            // transcribieron distinto; el que manda es el número.
+            ->selectRaw('MIN(lista_nombre) as lista_nombre')
+            ->selectRaw('SUM(total_agrupacion) as votos')
+            ->groupBy('lista_numero')
+            ->orderBy('lista_numero')
+            ->get()
+            ->map(fn ($fila) => [
+                'lista_numero' => (int) $fila->lista_numero,
+                'lista_nombre' => $fila->lista_nombre,
+                'votos' => (int) $fila->votos,
+            ])
+            ->all();
+    }
+
+    /**
+     * Lo que sacó cada candidato por voto preferente, dentro de su lista.
+     *
+     * La clave es `(lista, número)` y no el número solo: el 1 de una lista y el
+     * 1 de otra son dos personas, y fundirlos le regalaría los votos a una.
+     *
+     * @param  array<int, int>  $actaIds
+     * @return array<int, array<string, mixed>>
+     */
+    private function votosPorPreferente(array $actaIds): array
+    {
+        if ($actaIds === []) {
+            return [];
+        }
+
+        return E14ListaPreferente::query()
+            ->join('e14_lista_resultados', 'e14_lista_resultados.id', '=', 'e14_lista_preferentes.e14_lista_resultado_id')
+            ->whereIn('e14_lista_preferentes.e14_acta_id', $actaIds)
+            ->selectRaw('e14_lista_resultados.lista_numero as lista_numero')
+            ->selectRaw('MIN(e14_lista_resultados.lista_nombre) as lista_nombre')
+            ->selectRaw('e14_lista_preferentes.numero as numero')
+            ->selectRaw('SUM(e14_lista_preferentes.votos) as votos')
+            ->groupBy('e14_lista_resultados.lista_numero', 'e14_lista_preferentes.numero')
+            ->orderBy('e14_lista_resultados.lista_numero')
+            ->orderBy('e14_lista_preferentes.numero')
+            ->get()
+            ->map(fn ($fila) => [
+                'lista_numero' => (int) $fila->lista_numero,
+                'lista_nombre' => $fila->lista_nombre,
+                // Sin nombre del candidato: el acta de corporación no lo trae.
+                'numero' => (int) $fila->numero,
+                'votos' => (int) $fila->votos,
+            ])
+            ->all();
     }
 
     private function actas(?int $eventoId, ?string $tipo): Builder
