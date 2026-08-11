@@ -9,15 +9,17 @@ use App\Support\Permissions;
 use Tests\TestCase;
 
 /**
- * El candidato propio de la campaña (Spec 0062 · Parte 0).
+ * Las elecciones del tenant y su candidato, en lectura (Specs 0062 y 0080).
  *
- * Sin él el escrutinio se consolida pero no se cruza: «registrados vs votos»
- * necesita saber **de quién** son los votos, y eso es una fila del E-14
- * identificada por su número de tarjetón.
+ * `GET /eventos` es de donde el cruce y el consolidado sacan la lista con la que
+ * elegir de qué elección se consulta, y de paso muestra el candidato ya fijado y
+ * el tarjetón de cada una.
  *
- * La regla que se prueba aquí es la de los dos momentos: antes de la primera acta
- * el número se escribe a ciegas (se sabe semanas antes), y en cuanto hay catálogo
- * tiene que existir en él.
+ * **Configurar** el candidato ya no se hace aquí: la 0080 retiró el
+ * `PUT /eventos/{id}/candidato-propio` —era la única forma de ponerlo en una
+ * elección que no es la del cargo de la campaña— y lo movió a
+ * `PUT /e14/candidato`, uno por tenant. Esa cobertura vive en
+ * {@see E14CandidatoDelTenantTest}.
  */
 class E14CandidatoPropioTest extends TestCase
 {
@@ -25,7 +27,7 @@ class E14CandidatoPropioTest extends TestCase
         array $permisos = [Permissions::VIEW_E14, Permissions::MANAGE_E14],
         ?Tenant $tenant = null
     ): Tenant {
-        $tenant ??= Tenant::factory()->create();
+        $tenant ??= Tenant::factory()->create(['tipo_cargo' => 'Alcaldia']);
         [$user, $token] = $this->createTenantWithUser($permisos, $tenant);
 
         $this->actingAsTenantUser($user, $token);
@@ -94,102 +96,19 @@ class E14CandidatoPropioTest extends TestCase
             ->assertJsonCount(3, 'data.0.candidatos');
     }
 
-    // ---------------------------------------------------------- escritura
-
-    public function test_se_puede_fijar_el_candidato_antes_de_cargar_actas(): void
-    {
-        $tenant = $this->operador();
-        $evento = $this->evento($tenant);
-
-        // El número del tarjetón se sabe semanas antes de que haya un acta.
-        $this->putJson("/api/v1/e14/eventos/{$evento->id}/candidato-propio", [
-            'numero' => 7,
-            'nombre' => 'MIGUEL ALCALDE',
-            'agrupacion' => 'MOVIMIENTO INDEPENDIENTE',
-        ])->assertStatus(200)
-            ->assertJsonPath('data.candidato_propio.numero', 7)
-            ->assertJsonPath('data.candidato_propio.nombre', 'MIGUEL ALCALDE')
-            ->assertJsonPath('data.candidato_propio.agrupacion', 'MOVIMIENTO INDEPENDIENTE');
-
-        $this->assertDatabaseHas('electoral_events', [
-            'id' => $evento->id,
-            'candidato_propio_numero' => 7,
-            'candidato_propio_nombre' => 'MIGUEL ALCALDE',
-        ]);
-    }
-
-    public function test_con_actas_cargadas_el_numero_debe_estar_en_el_tarjeton(): void
+    public function test_el_candidato_fijado_se_ve_en_el_listado(): void
     {
         $this->operador();
         $this->cargarActa();
 
-        $evento = ElectoralEvent::first();
+        $this->putJson('/api/v1/e14/candidato', ['numero' => 2])->assertStatus(200);
 
-        $this->putJson("/api/v1/e14/eventos/{$evento->id}/candidato-propio", ['numero' => 9])
-            ->assertStatus(422)
-            ->assertJsonValidationErrors('numero');
-
-        $this->assertDatabaseHas('electoral_events', [
-            'id' => $evento->id,
-            'candidato_propio_numero' => null,
-        ]);
-    }
-
-    public function test_elegirlo_del_catalogo_completa_nombre_y_agrupacion(): void
-    {
-        $this->operador();
-        $this->cargarActa();
-
-        $evento = ElectoralEvent::first();
-
-        // La pantalla manda solo el número: lo que el acta dice del candidato es
-        // más fiable que lo que alguien teclee.
-        $this->putJson("/api/v1/e14/eventos/{$evento->id}/candidato-propio", ['numero' => 2])
+        $this->getJson('/api/v1/e14/eventos')
             ->assertStatus(200)
-            ->assertJsonPath('data.candidato_propio.numero', 2)
-            ->assertJsonPath('data.candidato_propio.nombre', 'JOHANA ARANDA');
-    }
-
-    public function test_se_puede_quitar_el_candidato_propio(): void
-    {
-        $tenant = $this->operador();
-        $evento = $this->evento($tenant);
-
-        $this->putJson("/api/v1/e14/eventos/{$evento->id}/candidato-propio", [
-            'numero' => 7,
-            'nombre' => 'MIGUEL ALCALDE',
-        ])->assertStatus(200);
-
-        $this->putJson("/api/v1/e14/eventos/{$evento->id}/candidato-propio", ['numero' => null])
-            ->assertStatus(200)
-            ->assertJsonPath('data.candidato_propio.numero', null)
-            // Borrar el número borra la ficha entera: un nombre suelto de un
-            // candidato que ya no se cruza solo confunde.
-            ->assertJsonPath('data.candidato_propio.nombre', null);
-    }
-
-    public function test_el_numero_es_obligatorio_en_la_peticion(): void
-    {
-        $tenant = $this->operador();
-        $evento = $this->evento($tenant);
-
-        // Sin `numero` no se sabe si se quiere fijar o borrar: 422 antes que
-        // adivinar.
-        $this->putJson("/api/v1/e14/eventos/{$evento->id}/candidato-propio", ['nombre' => 'X'])
-            ->assertStatus(422)
-            ->assertJsonValidationErrors('numero');
+            ->assertJsonPath('data.0.candidato_propio.numero', 2);
     }
 
     // ---------------------------------------------- permisos y aislamiento
-
-    public function test_configurarlo_exige_manage_e14(): void
-    {
-        $tenant = $this->operador([Permissions::VIEW_E14]);
-        $evento = $this->evento($tenant);
-
-        $this->putJson("/api/v1/e14/eventos/{$evento->id}/candidato-propio", ['numero' => 7])
-            ->assertStatus(403);
-    }
 
     public function test_verlo_exige_view_e14(): void
     {
@@ -198,19 +117,17 @@ class E14CandidatoPropioTest extends TestCase
         $this->getJson('/api/v1/e14/eventos')->assertStatus(403);
     }
 
-    public function test_no_se_ve_ni_se_configura_la_eleccion_de_otra_campana(): void
+    public function test_no_se_ve_la_eleccion_de_otra_campana(): void
     {
-        $ajeno = Tenant::factory()->create();
-        $eventoAjeno = $this->evento($ajeno, 'Alcaldía ajena');
+        $ajeno = Tenant::factory()->create(['tipo_cargo' => 'Alcaldia']);
+        $this->evento($ajeno, 'Alcaldía ajena');
 
         $propio = $this->operador();
         $this->evento($propio);
 
         $this->getJson('/api/v1/e14/eventos')
             ->assertStatus(200)
-            ->assertJsonCount(1, 'data');
-
-        $this->putJson("/api/v1/e14/eventos/{$eventoAjeno->id}/candidato-propio", ['numero' => 7])
-            ->assertStatus(404);
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.nombre', 'Alcaldía');
     }
 }

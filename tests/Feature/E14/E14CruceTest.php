@@ -36,7 +36,9 @@ class E14CruceTest extends TestCase
         array $permisos = [Permissions::VIEW_E14, Permissions::MANAGE_E14],
         ?Tenant $tenant = null
     ): Tenant {
-        $tenant ??= Tenant::factory()->create();
+        // El cargo de la campaña es el que decide en qué elección vive su
+        // candidato (Spec 0080), y aquí la elección es de alcaldía.
+        $tenant ??= Tenant::factory()->create(['tipo_cargo' => 'Alcaldia']);
         [$user, $token] = $this->createTenantWithUser($permisos, $tenant);
 
         $this->actingAsTenantUser($user, $token);
@@ -340,11 +342,11 @@ class E14CruceTest extends TestCase
         $lugar = $this->puestoDelCatalogo();
         $this->votantes($tenant, 100, ['voting_place_id' => $lugar->id]);
         $this->cargarActa();
-        $evento = $this->evento($tenant);
+        $this->evento($tenant);
 
         $this->getJson('/api/v1/e14/cruce')->assertJsonPath('data.0.votos_candidato', 30);
 
-        $this->putJson("/api/v1/e14/eventos/{$evento->id}/candidato-propio", ['numero' => 1])
+        $this->putJson('/api/v1/e14/candidato', ['numero' => 1])
             ->assertStatus(200);
 
         // Nada guardado que recalcular: el cruce se calcula al preguntarlo.

@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\V1\CommitmentController;
 use App\Http\Controllers\Api\V1\CommuneController;
 use App\Http\Controllers\Api\V1\CorregimientoController;
 use App\Http\Controllers\Api\V1\DashboardController;
+use App\Http\Controllers\Api\V1\E14CandidatoController;
 use App\Http\Controllers\Api\V1\E14CruceController;
 use App\Http\Controllers\Api\V1\E14EventoController;
 use App\Http\Controllers\Api\V1\E14IngestController;
@@ -166,9 +167,18 @@ Route::prefix('v1')->group(function () {
             Route::post('/puestos/fusionar', [E14PuestoController::class, 'fusionar'])
                 ->middleware('permission:manage_e14');
 
+            // «Mi candidato» (Spec 0080): uno por campaña, no uno por elección.
+            // Va antes de `/actas/{acta}` por la misma razón que `upload`: para
+            // que ningún segmento se lea como un id. Sustituye al
+            // `PUT /eventos/{id}/candidato-propio` de la 0062, retirado porque
+            // era la única forma de fijar candidato en una elección que no es la
+            // del cargo de la campaña.
+            Route::get('/candidato', [E14CandidatoController::class, 'show'])->middleware('permission:view_e14');
+            Route::put('/candidato', [E14CandidatoController::class, 'update'])->middleware('permission:manage_e14');
+
+            // El listado de elecciones se queda: el cruce y el consolidado lo
+            // usan para elegir de cuál se consulta.
             Route::get('/eventos', [E14EventoController::class, 'index'])->middleware('permission:view_e14');
-            Route::put('/eventos/{evento}/candidato-propio', [E14EventoController::class, 'updateCandidatoPropio'])
-                ->middleware('permission:manage_e14');
 
             Route::post('/actas', [E14IngestController::class, 'store'])->middleware('permission:manage_e14');
             Route::get('/actas', [E14IngestController::class, 'index'])->middleware('permission:view_e14');
