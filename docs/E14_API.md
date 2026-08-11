@@ -440,7 +440,7 @@ La misma ficha para un concejo, con el par y su catálogo:
 | `numero` | El del tarjetón (uninominal) o el de **preferencia** (corporación) |
 | `lista_numero` | Solo corporación: el número de la lista. `null` en uninominal |
 | `agrupacion` | Lo configurado; `null` si aún no lo está |
-| `configurado` | Atajo de `numero !== null` — es lo que decide si el cruce se puede calcular |
+| `configurado` | Si el cruce se puede calcular: `numero !== null` en uninominal, y **también** `lista_numero !== null` en corporación (0083) |
 | `eleccion` | La del cargo; **`null`** si el cargo no mapea o si aún no existe (se creará al fijar el número) |
 | `eleccion.tiene_actas` | Le dice al frontend si el número se escribe a mano o se elige de una lista: la misma regla que valida el servidor |
 | `candidatos` | Uninominal: el tarjetón de esa elección. `[]` en corporación |
@@ -1008,7 +1008,11 @@ siguiente llamada.
     "electoral_event_id": 3,
     "nivel": "puesto",
     "incluir": "voters",
-    "candidato": { "numero": 2, "nombre": "JOHANA ARANDA", "agrupacion": null },
+    "candidato": {
+      "numero": 2, "lista_numero": null,
+      "nombre": "JOHANA ARANDA", "agrupacion": null,
+      "es_corporacion": false
+    },
     "totales": {
       "puestos": 1, "base": 50, "votos_candidato": 30,
       "rendimiento": 60, "diferencia": -20,
@@ -1068,9 +1072,17 @@ votos (no se le puede reclamar nada a una base que no existe); con `base = 0` y
 puesto donde mi candidato sacó cero votos **tiene** acta, y confundirlo con uno sin
 escrutar sería leer un cero real como un dato que falta.
 
+`meta.candidato` rotula al candidato en la forma que le toca al cargo: en
+uninominal, `numero` (+ nombre y agrupación) con `lista_numero: null`; en
+corporación, `lista_numero` **y** `numero` (preferencia). El flag
+`es_corporacion` es el que le dice al panel cuál de las dos está mirando —sin él,
+un «5» no se sabe si es del tarjetón o de preferencia dentro de una lista—. La
+misma forma la publica `/rendimiento-lideres`.
+
 Sin candidato propio configurado responde **422** pidiendo configurarlo, no un
 cruce en ceros: un tablero lleno de ceros se lee como «perdí», no como «falta un
-dato».
+dato». En corporación hacen falta **las dos** mitades: un preferente sin lista es
+media configuración y también responde 422.
 
 ### Cómo se cuenta cada lado
 
@@ -1089,8 +1101,24 @@ nombre.
 > un nulo, porque el respaldo por nombre solo rescata los nulos. Ver
 > `docs/VOTER_SYNC_SYSTEM.md` y el comando `voters:reapuntar-voting-place`.
 
-**Votos** — `e14_resultados` con `numero = candidato_propio_numero`, solo de actas
-`procesada`, agrupados por el `voting_place_id` del acta.
+**Votos** — depende del cargo, porque «mi candidato» tiene dos formas (Spec 0083).
+Solo actas `procesada` y con puesto canónico, agrupadas por el `voting_place_id`
+del acta en los dos casos:
+
+| Cargo | De dónde salen los votos |
+| --- | --- |
+| Uninominal | `e14_resultados` con `numero = candidato_propio_numero` |
+| Corporación | `e14_lista_preferentes` unido a `e14_lista_resultados` con `lista_numero = candidato_propio_lista_numero` **y** `numero = candidato_propio_numero` |
+
+**Las dos condiciones, no una.** El número de preferencia se repite en todas las
+listas del tarjetón: el 5 del partido A y el 5 del partido B son dos personas, y
+filtrar solo por `numero` le atribuiría a tu candidato los votos de sus rivales.
+Los `votos_solo_lista` **tampoco** entran: son de la agrupación, no de ningún
+candidato.
+
+Lo que sale de la ramificación es la misma tabla con la misma llave, así que el
+déficit, la cobertura y el rendimiento de líderes no se enteran de la diferencia:
+cuentan igual en los dos casos.
 
 Ambos lados normalizan la mesa a entero, así que el `005` del acta casa con el `5`
 del votante.
@@ -1176,7 +1204,11 @@ cruce: es la misma configuración la que falta.
     "electoral_event_id": 3,
     "nivel_fijo": "mesa",
     "orden": "deficit",
-    "candidato": { "numero": 2, "nombre": "JOHANA ARANDA", "agrupacion": null },
+    "candidato": {
+      "numero": 2, "lista_numero": null,
+      "nombre": "JOHANA ARANDA", "agrupacion": null,
+      "es_corporacion": false
+    },
     "totales": {
       "lideres": 1, "reuniones": 3, "asistentes": 45, "checkins": 40,
       "movilizados_identificados": 30, "movilizados_por_lider": 30
@@ -1637,13 +1669,11 @@ sin su lista: así el único `(lista, numero)` es natural y el borrado en cascad
 sale gratis. `tenant_id` y `e14_acta_id` van denormalizados para consolidar sin
 encadenar joins y para que `TenantScope` filtre directo.
 
-> **Pendiente para 0083 (cruce de corporación):** el candidato de corporación ya se
-> configura como `(lista, preferente)` —eso lo resolvió la 0082—, pero `GET /cruce`
-> sigue leyendo `e14_resultados.numero = candidato_propio_numero`, que es la forma
-> uninominal. Le falta contar la fila `(candidato_propio_lista_numero,
-> candidato_propio_numero)` sobre `e14_lista_preferentes`; hasta entonces, un tenant de
-> concejo con su candidato bien configurado **no obtendrá un cruce correcto**. Fuera del
-> alcance de 0067 y 0082.
+> **Resuelto en 0083:** `GET /cruce` y `GET /rendimiento-lideres` cuentan la fila
+> `(candidato_propio_lista_numero, candidato_propio_numero)` sobre
+> `e14_lista_preferentes`. Hasta entonces leían `e14_resultados.numero`, que es la forma
+> uninominal, y un tenant de concejo con su candidato bien configurado veía el panel en
+> ceros. Ver «Cómo se cuenta cada lado».
 
 
 ---

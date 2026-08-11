@@ -137,6 +137,10 @@ class E14CruceTest extends TestCase
             // Por puesto no hay columna de mesa: sería una columna siempre vacía.
             ->assertJsonMissingPath('data.0.mesa')
             ->assertJsonPath('meta.candidato.numero', 2)
+            // El rótulo de la 0083: aquí el 2 es del tarjetón, no de preferencia
+            // dentro de una lista, y el panel lo sabe por esto.
+            ->assertJsonPath('meta.candidato.es_corporacion', false)
+            ->assertJsonPath('meta.candidato.lista_numero', null)
             ->assertJsonPath('meta.totales.base', 50)
             ->assertJsonPath('meta.totales.votos_candidato', 30)
             ->assertJsonPath('meta.totales.rendimiento', 60)
