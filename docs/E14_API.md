@@ -176,11 +176,21 @@ Detalles que importan:
 
 `alcaldia`, `gobernacion`, `concejo`, `senado`, `asamblea_departamental`.
 
-Los dos primeros son **uninominales**: una página, es lo que el lector sabe leer
-hoy. Los otros tres son **corporaciones con voto preferente**, multipágina por
-lista, y necesitan el parser de la spec 0067. Hasta entonces se pueden cargar y
-encolar sin problema; el worker pide solo los tipos que sabe leer (`tipos` en
-`/siguiente`) y los demás se quedan en la cola sin estorbar.
+Los dos primeros son **uninominales**: una página, un candidato por renglón. Los
+otros tres son **corporaciones con voto preferente** (spec 0067): N páginas,
+agrupaciones políticas y, dentro de cada una, votos por la lista y por cada
+candidato. Se leen, se cuadran y se consolidan **distinto** — ver
+[Corporación](#corporación-concejo-senado-asamblea-spec-0067).
+
+La diferencia atraviesa toda la API, así que conviene tenerla presente:
+
+| | Uninominal | Corporación |
+| --- | --- | --- |
+| Qué trae el acta | `resultados[]` (candidato, votos) | `listas[]` (agrupación → preferentes) |
+| `suma_declarada` | **obligatoria** | **no existe** en el papel; no se exige ni se guarda |
+| Cuadre global | casillas = declarada = urna | Σ totales de agrupación + controles = **urna** |
+| Cuadre por fila | — | `solo_lista + Σ preferentes = total_agrupacion` |
+| Consolidado | por candidato | por lista **y** por (lista, preferente) |
 
 En PostgreSQL ambos campos llevan CHECK; en SQLite —donde corren las pruebas— el
 motor lo ignora, así que quien atrapa el valor inválido es la validación de
@@ -301,7 +311,7 @@ dos que importan, así que la tabla es explícita y vive en un solo sitio,
 | `Concejo` | `concejo` | |
 | `Diputado` | `asamblea_departamental` | Un diputado se elige en la asamblea: el cargo y el tipo de acta se llaman distinto |
 | `Congresista` | `senado` | El E-14 solo tiene `senado` para el Congreso, y la Cámara va aparte en el enum (`Representante`) |
-| `Representante` | — | Cámara de Representantes: **sin tipo de acta E-14 todavía** (llega con la 0067) |
+| `Representante` | — | Cámara de Representantes: **sin tipo de acta E-14**. La 0067 activó concejo, senado y asamblea, pero no añadió Cámara: haría falta un tipo nuevo |
 | `Otro` | — | No es un cargo de elección popular |
 
 Lo que no está en la tabla **no se adivina**. Con un cargo sin elección, `GET` responde
@@ -783,6 +793,10 @@ son `POST /actas/{id}/reprocesar` y `DELETE /actas/{id}`, descritas en
 
 Votos por candidato **solo de las actas `procesada`**. Filtros:
 `electoral_event_id`, `tipo`.
+
+> Con `tipo` de corporación (`concejo`, `senado`, `asamblea_departamental`) la
+> respuesta es **de dos niveles** —por lista y por (lista, preferente)— y no la
+> de abajo. Ver [Corporación](#corporación-concejo-senado-asamblea-spec-0067).
 
 ```json
 {
@@ -1286,6 +1300,244 @@ registro de `e14_puesto_alias`, que sí está auditado.
 
 ---
 
+---
+
+## Corporación: concejo, senado, asamblea (Spec 0067)
+
+Un acta de corporación no tiene candidatos: tiene **agrupaciones políticas**, y
+dentro de cada una los votos por la lista y por cada candidato con voto
+preferente. Son **dos niveles** y los dos hacen falta — el total de la agrupación
+es la cifra con la que se reparten curules por cifra repartidora, y el del
+preferente dice quién se las lleva dentro de la lista.
+
+El lector (0067-A) transcribe las N páginas del PDF y las arma en un acta antes
+de publicar; lo que llega aquí ya viene ensamblado.
+
+### Lo que el papel enseñó
+
+Tres cosas que la spec daba por supuestas y el acta real desmintió (transcrita
+entera en 0067-A, `actas/concejo/zona_1_mesa001.pdf`, 13 páginas / 17 listas):
+
+1. **No existe la casilla «SUMA TOTAL DE VOTOS DEL ACTA E-14».** El uninominal la
+   tiene; la corporación, no. Por eso `suma_declarada` **no se exige ni se
+   guarda** para estos tipos: se reporta en cero. Exigirla habría obligado al
+   lector a inventarse una cifra, y compararla contra cero habría mandado a
+   revisión todas las actas de concejo.
+2. **Una hoja puede traer más de una lista** (cinco de las trece traen dos).
+3. **Hay listas «SIN VOTO PREFERENTE»**: un único renglón, «VOTOS POR LA
+   AGRUPACIÓN POLÍTICA», sin candidatos. Se guardan con ese voto en
+   `votos_solo_lista` y `preferentes: []`, y `con_voto_preferente: false`.
+
+Además, los números de preferencia **no son correlativos**: el acta salta los
+renglones que la lista no llenó, así que una lista puede ir 1, 3, 5, 12, 19.
+
+### El resultado anidado
+
+Es la forma que aceptan **las dos** puertas de entrada: `POST /actas` (ingesta
+directa) y `POST /actas/{id}/resultado` (worker).
+
+```json
+{
+  "tipo": "concejo",
+  "estado": "procesada",
+  "zona": "01", "puesto": "01", "mesa": "001",
+  "lugar": "UNIVERSIDAD COOPERATIVA NUEVA SEDE",
+  "listas": [
+    {
+      "lista_numero": 29,
+      "lista_nombre": "NUEVA FUERZA DEMOCRÁTICA",
+      "con_voto_preferente": true,
+      "votos_solo_lista": 0,
+      "total_agrupacion": 3,
+      "preferentes": [
+        { "numero": 6, "votos": 1 },
+        { "numero": 10, "votos": 1 },
+        { "numero": 18, "votos": 1 }
+      ]
+    },
+    {
+      "lista_numero": 37,
+      "lista_nombre": "MOVIMIENTO POLITICO FUERZA CIUDADANA",
+      "con_voto_preferente": false,
+      "votos_solo_lista": 1,
+      "total_agrupacion": 1,
+      "preferentes": []
+    }
+  ],
+  "votos_blanco": 8,
+  "votos_nulos": 3,
+  "votos_no_marcados": 12,
+  "votos_urna": 111,
+  "votantes_e11": 111
+}
+```
+
+| Campo | Regla |
+| --- | --- |
+| `listas` | **obligatorio** en un acta de corporación legible; `min:1` |
+| `listas.*.lista_numero` | 1..99999, **distinto** dentro del acta. Cinco cifras porque las hay: 5170, 6497, 2642 |
+| `listas.*.lista_nombre` | opcional |
+| `listas.*.votos_solo_lista` | el renglón «0»; en una lista sin voto preferente, **su único voto** |
+| `listas.*.total_agrupacion` | lo que declara «TOTAL AGRUPACIÓN POLÍTICA». Se guarda tal cual, sin recalcularlo |
+| `listas.*.con_voto_preferente` | `false` para la maqueta de un solo renglón; por defecto `true` |
+| `listas.*.preferentes.*.numero` | 1..999, distinto **dentro de su lista** — no entre listas |
+| `listas.*.preferentes.*.votos` | entero ≥ 0 |
+| `suma_declarada` | **no se exige**; si llega se acepta, pero el cuadre no la usa |
+| `resultados` | **no se exige** en corporación (es la forma uninominal) |
+
+> **El mismo número de preferencia en dos listas son dos personas.** Es el caso
+> normal, no un error: la identidad es `(lista, número)`. Por eso la unicidad se
+> valida *dentro* de cada lista, y no con un `distinct` global que rechazaría
+> actas legítimas.
+
+### El cuadre, en dos niveles
+
+```
+por lista:  votos_solo_lista + Σ preferentes = total_agrupacion
+global:     Σ total_agrupacion + blanco + nulos + no_marcados = votos_urna
+```
+
+El **self-check por lista** es lo que hace útil el error. Un acta de diecisiete
+agrupaciones que no cuadra por un voto no le dice nada a quien la revise, así que
+el motivo **nombra la lista**:
+
+```
+la lista 1 · PARTIDO LIBERAL COLOMBIANO declara 8 pero sus casillas suman 9
+(solo lista 2 + preferentes 7)
+```
+
+Ya se ganó el sueldo: en la primera acta real que leyó el lector, la visión puso
+un voto en un renglón vacío del liberal y el acta paró en `inconsistente`
+nombrándolo, en vez de publicar una cifra inventada.
+
+El **global** cuenta lo que cada agrupación *declara*, no lo recalculado desde
+sus casillas: es la cifra que alguien tallaría del papel, y recalcularla taparía
+justo el error que el self-check acaba de señalar. Y se contrasta **contra la
+urna**, no contra una suma declarada que no existe.
+
+La **nivelación** (`votantes_e11 − votos_urna`) es una novedad, no un error, igual
+que en uninominal. El guardia de **acta sin datos** (spec 0077) aplica al nivel
+que toca: sin listas y con la urna en cero, `revision_manual` — `0 = 0` lo
+cumpliría en silencio. Pero listas en cero **con** urna es `inconsistente`, no
+vacía: son dos cosas distintas.
+
+El servidor rehace esta cuenta con los números crudos aunque el lector ya la haya
+hecho, igual que en uninominal: el `estado` decide qué votos entran al
+consolidado y no puede depender de que el cliente lo calcule bien.
+
+### El detalle del acta
+
+`GET /actas/{id}` devuelve `listas[]` anidadas, con `suma_calculada` por lista
+para que el panel pueda resaltar la que no cuadra sin rehacer la cuenta:
+
+```json
+{
+  "data": {
+    "tipo": "concejo",
+    "estado": "inconsistente",
+    "observacion": "la lista 1 · PARTIDO LIBERAL COLOMBIANO declara 8 pero sus casillas suman 9 (solo lista 2 + preferentes 7)",
+    "resultados": [],
+    "listas": [
+      {
+        "lista_numero": 1,
+        "lista_nombre": "PARTIDO LIBERAL COLOMBIANO",
+        "votos_solo_lista": 2,
+        "total_agrupacion": 8,
+        "con_voto_preferente": true,
+        "suma_calculada": 9,
+        "preferentes": [{ "numero": 3, "votos": 1 }]
+      }
+    ]
+  }
+}
+```
+
+En un acta uninominal `listas` viene vacía, y `resultados` en una de corporación:
+el `tipo` dice cuál mirar.
+
+### `GET /consolidado?tipo=concejo`
+
+Dos cortes del mismo escrutinio, juntos en la misma respuesta porque los dos
+hacen falta:
+
+```json
+{
+  "data": [
+    { "lista_numero": 1,  "lista_nombre": "PARTIDO LIBERAL COLOMBIANO", "votos": 10 },
+    { "lista_numero": 11, "lista_nombre": "PARTIDO CENTRO DEMOCRÁTICO", "votos": 20 },
+    { "lista_numero": 24, "lista_nombre": "PARTIDO DEMÓCRATA COLOMBIANO", "votos": 0 }
+  ],
+  "preferentes": [
+    { "lista_numero": 1,  "lista_nombre": "PARTIDO LIBERAL COLOMBIANO", "numero": 1, "votos": 8 },
+    { "lista_numero": 11, "lista_nombre": "PARTIDO CENTRO DEMOCRÁTICO", "numero": 1, "votos": 10 },
+    { "lista_numero": 11, "lista_nombre": "PARTIDO CENTRO DEMOCRÁTICO", "numero": 5, "votos": 6 }
+  ],
+  "meta": {
+    "actas": { "procesada": 2, "inconsistente": 0, "revision_manual": 0 },
+    "votos_blanco": 6, "votos_nulos": 2, "votos_no_marcados": 2,
+    "total_listas": 30,
+    "total_votos": 40
+  }
+}
+```
+
+- `data` va **por lista**; `preferentes`, por **(lista, número)**.
+- Los preferentes **no traen nombre**: el acta no lo imprime. Una columna vacía
+  invitaría a rellenarla a mano con lo que alguien recuerde.
+- Una lista sin votos **sigue apareciendo**: omitirla convertiría «cero votos» en
+  «no se presentó», que no es lo mismo para quien lo lee.
+- Solo entran actas `procesada`, igual que en uninominal.
+- `meta.total_listas` sustituye a `total_candidatos`; el resto de `meta` es igual.
+
+El consolidado uninominal **no cambia**: sigue devolviendo `data` por candidato,
+`meta.total_candidatos` y su `desglose`, y sin bloque `preferentes`.
+
+### Esquema
+
+```
+e14_lista_resultados
+  id, tenant_id, e14_acta_id → e14_actas (cascade),
+  lista_numero (unsignedInteger), lista_nombre (nullable),
+  votos_solo_lista, total_agrupacion, con_voto_preferente (bool), timestamps
+  Único: (e14_acta_id, lista_numero)
+
+e14_lista_preferentes
+  id, tenant_id, e14_acta_id → e14_actas (cascade),
+  e14_lista_resultado_id → e14_lista_resultados (cascade),
+  numero (unsignedSmallInteger), votos, timestamps
+  Único: (e14_lista_resultado_id, numero)
+```
+
+**`e14_resultados` no se tocó.** La spec ofrecía meter los preferentes ahí con un
+`lista_numero` nullable, y se descartó por dos razones de corrección:
+
+1. Esa tabla tiene un único `(e14_acta_id, numero)` que protege al uninominal de
+   contar dos veces al mismo candidato. En corporación ese par **no** es único
+   —el preferente 1 existe en todas las listas—, así que habría habido que
+   ampliar el índice con una columna **nula**; y un índice único con NULL deja de
+   proteger las filas uninominales en PostgreSQL, donde dos NULL se consideran
+   distintos. Habríamos cambiado un problema de corporación por un agujero en el
+   uninominal.
+2. `e14_resultados.e14_candidate_id` apunta al tarjetón (`e14_candidates`), único
+   por `(evento, cargo, numero)`. En corporación el 5 de una lista y el 5 de otra
+   son dos personas: ese catálogo las fundiría en una. Y como el acta no trae
+   nombres, no hay nada que catalogar — el catálogo de corporación, si se quiere,
+   es cosa de la 0082.
+
+Los preferentes cuelgan de la lista y no del acta porque un preferente no existe
+sin su lista: así el único `(lista, numero)` es natural y el borrado en cascada
+sale gratis. `tenant_id` y `e14_acta_id` van denormalizados para consolidar sin
+encadenar joins y para que `TenantScope` filtre directo.
+
+> **Pendiente para 0083 (cruce de corporación):** `GET /cruce` sigue leyendo
+> `e14_resultados.numero = candidato_propio_numero`, que es la forma uninominal.
+> Para corporación el candidato es `(lista, preferente)` —eso es 0082— y el cruce
+> tiene que contar esa fila; hasta entonces, un tenant de concejo que fije un
+> número suelto no obtendrá un cruce correcto. Fuera del alcance de 0067.
+
+
+---
+
 ## Esquema
 
 ### `electoral_events`
@@ -1338,6 +1590,28 @@ cero la escondería.
 `id`, `tenant_id`, `e14_acta_id`, `e14_candidate_id`, `numero`, `nombre`,
 `votos`, timestamps.
 Único: `(e14_acta_id, numero)`.
+
+Es la forma **uninominal**: un candidato por renglón. La 0067 no la tocó — los
+votos de corporación viven en sus dos tablas propias, y el porqué está en
+[Corporación · Esquema](#esquema-1).
+
+### `e14_lista_resultados` (Spec 0067)
+`id`, `tenant_id`, `e14_acta_id`, `lista_numero`, `lista_nombre`,
+`votos_solo_lista`, `total_agrupacion`, `con_voto_preferente`, timestamps.
+Único: `(e14_acta_id, lista_numero)`.
+
+Una agrupación política en una mesa: el primer nivel del resultado de
+corporación. `lista_numero` es `unsignedInteger` y no un smallint porque las hay
+de cinco cifras (5170, 6497, 2642 en la muestra real).
+
+### `e14_lista_preferentes` (Spec 0067)
+`id`, `tenant_id`, `e14_acta_id`, `e14_lista_resultado_id`, `numero`, `votos`,
+timestamps.
+Único: `(e14_lista_resultado_id, numero)`.
+
+El segundo nivel: los votos por candidato dentro de su lista. **Sin columna de
+nombre** — el E-14 de corporación solo imprime el número de preferencia, y la
+identidad que necesitan el consolidado y el cruce es `(lista, número)`.
 
 ### `e14_puesto_alias`
 `id`, `tenant_id`, `clave`, `voting_place_id`, `municipio`, `puesto`, timestamps.
