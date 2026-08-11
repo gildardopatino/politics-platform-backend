@@ -9,6 +9,12 @@ use App\Models\E14Acta;
  */
 class Cuadre
 {
+    /**
+     * @param  array<int, string>  $listasDescuadradas  Corporación (Spec 0067):
+     *                                                  qué agrupaciones fallaron su self-check. Va aparte del motivo
+     *                                                  para que el panel pueda resaltar esas hojas sin tener que leer
+     *                                                  una cadena. En uninominal siempre está vacío.
+     */
     public function __construct(
         public readonly bool $cuadra,
         public readonly string $estado,
@@ -17,6 +23,7 @@ class Cuadre
         public readonly int $sumaDeclarada,
         public readonly int $votosUrna,
         public readonly int $difNivelacion,
+        public readonly array $listasDescuadradas = [],
     ) {}
 
     public function esProcesada(): bool
