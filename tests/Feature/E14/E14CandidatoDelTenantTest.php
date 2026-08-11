@@ -166,17 +166,22 @@ class E14CandidatoDelTenantTest extends TestCase
 
     public function test_si_todavia_no_hay_eleccion_del_cargo_se_crea_al_fijar(): void
     {
-        $tenant = $this->operador(cargo: 'Diputado');
+        // El cargo era `Diputado` hasta la 0082, que lo dejó pidiendo también la
+        // lista —una asamblea es corporación—. Este archivo cubre el uninominal,
+        // así que se prueba con uno; el find-or-create de corporación va en
+        // `E14CandidatoCorporacionTest`, y que `Diputado` mapee a la asamblea lo
+        // fija `EventoDelCargoTest`.
+        $tenant = $this->operador(cargo: 'Gobernacion');
 
         $this->putJson(self::RUTA, ['numero' => 4])
             ->assertStatus(200)
             ->assertJsonPath('data.numero', 4)
-            ->assertJsonPath('data.eleccion.tipo', 'asamblea_departamental')
-            ->assertJsonPath('data.eleccion.nombre', 'Asamblea Departamental');
+            ->assertJsonPath('data.eleccion.tipo', 'gobernacion')
+            ->assertJsonPath('data.eleccion.nombre', 'Gobernación');
 
         $this->assertDatabaseHas('electoral_events', [
             'tenant_id' => $tenant->id,
-            'tipo' => 'asamblea_departamental',
+            'tipo' => 'gobernacion',
             'candidato_propio_numero' => 4,
         ]);
     }

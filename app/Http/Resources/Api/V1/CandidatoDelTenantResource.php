@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\Api\V1;
 
+use App\Models\E14Acta;
 use App\Models\ElectoralEvent;
 use App\Models\Tenant;
 use Illuminate\Http\Request;
@@ -38,12 +39,24 @@ class CandidatoDelTenantResource extends JsonResource
         'otro' => 'Otro',
     ];
 
+    /**
+     * @param  array<int, array<string, mixed>>  $listas  El tarjetón de una
+     *                                                    corporación (Spec 0082): sus listas con los números de
+     *                                                    preferencia que las actas ya leyeron. Vacío en uninominal,
+     *                                                    donde el catálogo es `candidatos`.
+     */
     public function __construct(
         Tenant $tenant,
         private readonly ?ElectoralEvent $evento,
         private readonly ?string $tipoEleccion,
+        private readonly array $listas = [],
     ) {
         parent::__construct($tenant);
+    }
+
+    private function esCorporacion(): bool
+    {
+        return E14Acta::esCorporacion($this->tipoEleccion);
     }
 
     /**
@@ -57,8 +70,10 @@ class CandidatoDelTenantResource extends JsonResource
             'cargo' => $this->tipo_cargo,
             'cargo_label' => $this->etiquetaDelCargo(),
 
-            // Lo único configurable.
+            // Lo configurable. En uninominal, el número del tarjetón; en
+            // corporación, el par lista + preferente (Spec 0082).
             'numero' => $this->evento?->candidato_propio_numero,
+            'lista_numero' => $this->evento?->candidato_propio_lista_numero,
             'agrupacion' => $this->evento?->candidato_propio_agrupacion,
             'configurado' => $this->evento?->tieneCandidatoPropio() ?? false,
 
@@ -72,16 +87,23 @@ class CandidatoDelTenantResource extends JsonResource
                 'tiene_actas' => $this->evento->actas()->exists(),
             ],
 
-            'candidatos' => $this->evento === null ? [] : $this->evento->candidates
-                ->sortBy('numero')
-                ->values()
-                ->map(fn ($candidato) => [
-                    'numero' => $candidato->numero,
-                    'nombre' => $candidato->nombre,
-                    'agrupacion' => $candidato->agrupacion,
-                    'cargo' => $candidato->cargo,
-                ])
-                ->all(),
+            // El tarjetón, en la forma que le toca al cargo. Cada familia deja
+            // la otra vacía: el `meta.es_corporacion` dice cuál mirar, igual que
+            // hacen `resultados`/`listas` en el acta (Spec 0067).
+            'candidatos' => $this->esCorporacion() || $this->evento === null
+                ? []
+                : $this->evento->candidates
+                    ->sortBy('numero')
+                    ->values()
+                    ->map(fn ($candidato) => [
+                        'numero' => $candidato->numero,
+                        'nombre' => $candidato->nombre,
+                        'agrupacion' => $candidato->agrupacion,
+                        'cargo' => $candidato->cargo,
+                    ])
+                    ->all(),
+
+            'listas' => $this->listas,
         ];
     }
 
@@ -94,6 +116,10 @@ class CandidatoDelTenantResource extends JsonResource
             'meta' => [
                 'cargo_mapeado' => $this->tipoEleccion !== null,
                 'tipo_eleccion' => $this->tipoEleccion,
+                // Qué campos pide la ficha (Spec 0082): un número suelto, o el
+                // par lista + preferente. Va explícito para que el frontend no
+                // tenga que repetir la lista de tipos de corporación.
+                'es_corporacion' => $this->esCorporacion(),
                 'aviso' => $this->aviso(),
             ],
         ];
