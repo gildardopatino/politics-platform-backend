@@ -5,6 +5,7 @@ namespace App\Http\Requests\Api\V1\E14;
 use App\Models\E14Acta;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 /**
  * Lo que el lector envía por cada acta (Spec 0061 · Parte A).
@@ -19,6 +20,8 @@ use Illuminate\Validation\Rule;
  */
 class StoreE14ActaRequest extends FormRequest
 {
+    use ValidaListasDeCorporacion;
+
     public function authorize(): bool
     {
         // El permiso lo aplica `permission:manage_e14` en la ruta.
@@ -32,6 +35,13 @@ class StoreE14ActaRequest extends FormRequest
     {
         $ilegible = $this->input('estado') === E14Acta::ESTADO_REVISION_MANUAL;
         $cifra = $ilegible ? 'nullable' : 'required';
+
+        // Corporación (Spec 0067): el acta trae agrupaciones, no candidatos, y
+        // el formulario **no tiene** la casilla «SUMA TOTAL DEL ACTA E-14». Por
+        // eso ni se exige `resultados` ni `suma_declarada` para estos tipos:
+        // pedirlas obligaría al lector a inventarse dos cifras que el papel no
+        // trae.
+        $corporacion = E14Acta::esCorporacion($this->input('tipo'));
 
         return [
             'tipo' => ['required', Rule::in(E14Acta::TIPOS)],
@@ -56,7 +66,9 @@ class StoreE14ActaRequest extends FormRequest
             'estado' => ['nullable', Rule::in(E14Acta::ESTADOS_LEIDA)],
             'fuente' => ['nullable', Rule::in([E14Acta::FUENTE_VISION, E14Acta::FUENTE_MANUAL])],
 
-            'suma_declarada' => $cifra.'|integer|min:0',
+            // En corporación esa casilla no existe en el papel: se acepta si
+            // llega, pero exigirla obligaría a inventarla.
+            'suma_declarada' => ($corporacion ? 'nullable' : $cifra).'|integer|min:0',
             'votos_urna' => $cifra.'|integer|min:0',
             'votantes_e11' => 'nullable|integer|min:0',
             'votos_blanco' => 'nullable|integer|min:0',
@@ -77,11 +89,20 @@ class StoreE14ActaRequest extends FormRequest
             'recuento_solicitado_por' => 'sometimes|nullable|string|max:255',
             'recuento_representacion' => 'sometimes|nullable|string|max:255',
 
-            'resultados' => $ilegible ? 'nullable|array' : 'required|array|min:1',
+            // Uninominal: un candidato por renglón (Spec 0061).
+            'resultados' => $ilegible || $corporacion ? 'nullable|array' : 'required|array|min:1',
             'resultados.*.numero' => 'required|integer|min:0|max:999|distinct',
             'resultados.*.nombre' => 'nullable|string|max:255',
             'resultados.*.votos' => 'required|integer|min:0',
+
+            // Corporación: agrupaciones con voto preferente (Spec 0067).
+            ...$this->reglasDeListas($ilegible, $corporacion),
         ];
+    }
+
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after($this->validarPreferentesPorLista(...));
     }
 
     /**
@@ -96,6 +117,7 @@ class StoreE14ActaRequest extends FormRequest
             'archivo_hash.regex' => 'El hash del archivo debe ser un SHA-256 en hexadecimal.',
             'resultados.required' => 'Un acta legible tiene que traer los votos por candidato.',
             'resultados.*.numero.distinct' => 'Un candidato no puede aparecer dos veces en la misma acta.',
+            ...$this->mensajesDeListas(),
             'resultados.*.votos.required' => 'Cada candidato del acta necesita su número de votos.',
         ];
     }

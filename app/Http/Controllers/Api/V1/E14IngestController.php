@@ -91,7 +91,9 @@ class E14IngestController extends Controller
      */
     public function show(E14Acta $acta): JsonResponse
     {
-        $acta->load(['resultados.candidate', 'electoralEvent']);
+        // Las dos formas del resultado: candidatos si es uninominal, listas con
+        // sus preferentes si es de corporación (Spec 0067).
+        $acta->load(['resultados.candidate', 'listas.preferentes', 'electoralEvent']);
 
         return response()->json([
             'data' => new E14ActaResource($acta),

@@ -89,6 +89,30 @@ class E14ActaResource extends JsonResource
                 ->all()
             ),
 
+            // Corporación (Spec 0067): el resultado es de dos niveles y viaja
+            // anidado. En un acta uninominal esta clave viene vacía, igual que
+            // `resultados` en una de corporación: el `tipo` dice cuál mirar.
+            'listas' => $this->whenLoaded('listas', fn () => $this->listas
+                ->map(fn ($lista) => [
+                    'lista_numero' => $lista->lista_numero,
+                    'lista_nombre' => $lista->lista_nombre,
+                    'votos_solo_lista' => $lista->votos_solo_lista,
+                    'total_agrupacion' => $lista->total_agrupacion,
+                    'con_voto_preferente' => $lista->con_voto_preferente,
+                    // Lo que suman de verdad sus casillas: es lo que deja al
+                    // panel señalar la lista que no cuadra sin rehacer la cuenta.
+                    'suma_calculada' => $lista->sumaCalculada(),
+                    'preferentes' => $lista->preferentes
+                        ->map(fn ($preferente) => [
+                            // Sin nombre: el acta de corporación no lo trae.
+                            'numero' => $preferente->numero,
+                            'votos' => $preferente->votos,
+                        ])
+                        ->all(),
+                ])
+                ->all()
+            ),
+
             'intentos' => $this->intentos,
             'claimed_at' => $this->claimed_at?->toIso8601String(),
             'processed_at' => $this->processed_at?->toIso8601String(),

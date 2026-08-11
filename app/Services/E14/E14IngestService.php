@@ -4,6 +4,8 @@ namespace App\Services\E14;
 
 use App\Models\E14Acta;
 use App\Models\E14Candidate;
+use App\Models\E14ListaPreferente;
+use App\Models\E14ListaResultado;
 use App\Models\E14Resultado;
 use App\Models\ElectoralEvent;
 use Illuminate\Support\Facades\DB;
@@ -32,6 +34,13 @@ class E14IngestService
      */
     private const UBICACION = ['departamento_code', 'departamento', 'municipio_code', 'municipio', 'lugar'];
 
+    /**
+     * Lo que se carga al devolver un acta. Las dos formas del resultado van
+     * juntas: en un acta uninominal `listas` viene vacía y en una de corporación
+     * `resultados`, así que quien lea la respuesta no tiene que preguntar.
+     */
+    private const RELACIONES = ['resultados.candidate', 'listas.preferentes', 'electoralEvent'];
+
     public function __construct(
         private readonly CuadreService $cuadre,
         private readonly EventoResolver $eventos,
@@ -46,18 +55,11 @@ class E14IngestService
         return DB::transaction(function () use ($datos, $tenantId) {
             $evento = $this->eventos->resolver($datos, $tenantId);
             $resultados = $datos['resultados'] ?? [];
+            $listas = $datos['listas'] ?? [];
 
             $ilegible = ($datos['estado'] ?? null) === E14Acta::ESTADO_REVISION_MANUAL;
 
-            $veredicto = $this->cuadre->evaluar(
-                sumaCandidatos: (int) array_sum(array_column($resultados, 'votos')),
-                votosBlanco: (int) ($datos['votos_blanco'] ?? 0),
-                votosNulos: (int) ($datos['votos_nulos'] ?? 0),
-                votosNoMarcados: (int) ($datos['votos_no_marcados'] ?? 0),
-                sumaDeclarada: (int) ($datos['suma_declarada'] ?? 0),
-                votosUrna: (int) ($datos['votos_urna'] ?? 0),
-                votantesE11: (int) ($datos['votantes_e11'] ?? 0),
-            );
+            $veredicto = $this->evaluar($datos['tipo'], $datos, $resultados, $listas);
 
             $clave = [
                 'tenant_id' => $tenantId,
@@ -98,8 +100,9 @@ class E14IngestService
             $acta->save();
 
             $this->sincronizarResultados($acta, $evento, $resultados);
+            $this->sincronizarListas($acta, $listas);
 
-            return $acta->load(['resultados.candidate', 'electoralEvent']);
+            return $acta->load(self::RELACIONES);
         });
     }
 
@@ -114,6 +117,11 @@ class E14IngestService
             if (array_key_exists('resultados', $datos)) {
                 $this->sincronizarResultados($acta, $acta->electoralEvent, $datos['resultados']);
                 $acta->load('resultados');
+            }
+
+            if (array_key_exists('listas', $datos)) {
+                $this->sincronizarListas($acta, $datos['listas']);
+                $acta->load('listas.preferentes');
             }
 
             foreach ([...self::UBICACION, 'observacion'] as $campo) {
@@ -137,15 +145,30 @@ class E14IngestService
                 }
             }
 
-            $veredicto = $this->cuadre->evaluar(
-                sumaCandidatos: (int) $acta->resultados->sum('votos'),
-                votosBlanco: (int) $acta->votos_blanco,
-                votosNulos: (int) $acta->votos_nulos,
-                votosNoMarcados: (int) $acta->votos_no_marcados,
-                sumaDeclarada: (int) $acta->suma_declarada,
-                votosUrna: (int) $acta->votos_urna,
-                votantesE11: (int) $acta->votantes_e11,
-            );
+            $veredicto = $acta->es_corporacion
+                ? $this->cuadre->evaluarCorporacion(
+                    listas: $acta->listas->map(fn ($lista) => new ListaCuadrable(
+                        numero: (int) $lista->lista_numero,
+                        nombre: $lista->lista_nombre,
+                        votosSoloLista: (int) $lista->votos_solo_lista,
+                        sumaPreferentes: (int) $lista->preferentes->sum('votos'),
+                        totalDeclarado: (int) $lista->total_agrupacion,
+                    ))->all(),
+                    votosBlanco: (int) $acta->votos_blanco,
+                    votosNulos: (int) $acta->votos_nulos,
+                    votosNoMarcados: (int) $acta->votos_no_marcados,
+                    votosUrna: (int) $acta->votos_urna,
+                    votantesE11: (int) $acta->votantes_e11,
+                )
+                : $this->cuadre->evaluar(
+                    sumaCandidatos: (int) $acta->resultados->sum('votos'),
+                    votosBlanco: (int) $acta->votos_blanco,
+                    votosNulos: (int) $acta->votos_nulos,
+                    votosNoMarcados: (int) $acta->votos_no_marcados,
+                    sumaDeclarada: (int) $acta->suma_declarada,
+                    votosUrna: (int) $acta->votos_urna,
+                    votantesE11: (int) $acta->votantes_e11,
+                );
 
             $acta->fill([
                 'estado' => $veredicto->estado,
@@ -163,7 +186,7 @@ class E14IngestService
 
             $acta->save();
 
-            return $acta->load(['resultados.candidate', 'electoralEvent']);
+            return $acta->load(self::RELACIONES);
         });
     }
 
@@ -300,16 +323,9 @@ class E14IngestService
             }
 
             $resultados = $datos['resultados'] ?? [];
+            $listas = $datos['listas'] ?? [];
 
-            $veredicto = $this->cuadre->evaluar(
-                sumaCandidatos: (int) array_sum(array_column($resultados, 'votos')),
-                votosBlanco: (int) ($datos['votos_blanco'] ?? 0),
-                votosNulos: (int) ($datos['votos_nulos'] ?? 0),
-                votosNoMarcados: (int) ($datos['votos_no_marcados'] ?? 0),
-                sumaDeclarada: (int) ($datos['suma_declarada'] ?? 0),
-                votosUrna: (int) ($datos['votos_urna'] ?? 0),
-                votantesE11: (int) ($datos['votantes_e11'] ?? 0),
-            );
+            $veredicto = $this->evaluar($acta->tipo, $datos, $resultados, $listas);
 
             $acta->fill([
                 'estado' => $veredicto->estado,
@@ -333,8 +349,9 @@ class E14IngestService
             $acta->save();
 
             $this->sincronizarResultados($acta, $acta->electoralEvent, $resultados);
+            $this->sincronizarListas($acta, $listas);
 
-            return $acta->load(['resultados.candidate', 'electoralEvent']);
+            return $acta->load(self::RELACIONES);
         });
     }
 
@@ -402,7 +419,7 @@ class E14IngestService
             'claimed_at' => null,
         ])->save();
 
-        return $acta->load(['resultados.candidate', 'electoralEvent']);
+        return $acta->load(self::RELACIONES);
     }
 
     /**
@@ -423,6 +440,106 @@ class E14IngestService
             ->where('mesa', $datos['mesa'])
             ->whereKeyNot($acta->id)
             ->first();
+    }
+
+    /**
+     * El cuadre que le toca al acta según su tipo (Spec 0067 · RF-B3).
+     *
+     * Un acta uninominal se cuenta por candidatos contra la suma declarada; una
+     * de corporación, por agrupaciones contra la urna. La bifurcación vive aquí
+     * y no repartida por los tres puntos de entrada, para que los tres den el
+     * mismo veredicto sin acordarse de nada.
+     *
+     * @param  array<string, mixed>  $datos
+     * @param  array<int, array<string, mixed>>  $resultados
+     * @param  array<int, array<string, mixed>>  $listas
+     */
+    private function evaluar(?string $tipo, array $datos, array $resultados, array $listas): Cuadre
+    {
+        if (E14Acta::esCorporacion($tipo)) {
+            return $this->cuadre->evaluarCorporacion(
+                listas: array_map(ListaCuadrable::desdePayload(...), $listas),
+                votosBlanco: (int) ($datos['votos_blanco'] ?? 0),
+                votosNulos: (int) ($datos['votos_nulos'] ?? 0),
+                votosNoMarcados: (int) ($datos['votos_no_marcados'] ?? 0),
+                votosUrna: (int) ($datos['votos_urna'] ?? 0),
+                votantesE11: (int) ($datos['votantes_e11'] ?? 0),
+            );
+        }
+
+        return $this->cuadre->evaluar(
+            sumaCandidatos: (int) array_sum(array_column($resultados, 'votos')),
+            votosBlanco: (int) ($datos['votos_blanco'] ?? 0),
+            votosNulos: (int) ($datos['votos_nulos'] ?? 0),
+            votosNoMarcados: (int) ($datos['votos_no_marcados'] ?? 0),
+            sumaDeclarada: (int) ($datos['suma_declarada'] ?? 0),
+            votosUrna: (int) ($datos['votos_urna'] ?? 0),
+            votantesE11: (int) ($datos['votantes_e11'] ?? 0),
+        );
+    }
+
+    /**
+     * Guarda las agrupaciones del acta y sus preferentes (Spec 0067 · RF-B2).
+     *
+     * Mismo criterio que `sincronizarResultados`: es un upsert sobre la clave
+     * natural, así que reenviar la misma lectura deja lo mismo y una relectura
+     * con menos listas **borra las que sobran**. Si no, los votos de la lectura
+     * anterior seguirían sumando en el consolidado sin que nadie los viera.
+     *
+     * Los preferentes se sincronizan dentro de cada lista por la misma razón, y
+     * las listas que se van se llevan los suyos por la cascada de la FK.
+     *
+     * @param  array<int, array<string, mixed>>  $listas
+     */
+    private function sincronizarListas(E14Acta $acta, array $listas): void
+    {
+        $numeros = [];
+
+        foreach ($listas as $fila) {
+            $numero = (int) $fila['lista_numero'];
+            $numeros[] = $numero;
+
+            $lista = E14ListaResultado::updateOrCreate(
+                ['e14_acta_id' => $acta->id, 'lista_numero' => $numero],
+                [
+                    'tenant_id' => $acta->tenant_id,
+                    'lista_nombre' => $fila['lista_nombre'] ?? null,
+                    'votos_solo_lista' => (int) ($fila['votos_solo_lista'] ?? 0),
+                    'total_agrupacion' => (int) ($fila['total_agrupacion'] ?? 0),
+                    // Una lista sin candidatos es «sin voto preferente» aunque
+                    // el lector no lo diga: es lo que el papel enseña.
+                    'con_voto_preferente' => (bool) ($fila['con_voto_preferente'] ?? true),
+                ],
+            );
+
+            $this->sincronizarPreferentes($acta, $lista, $fila['preferentes'] ?? []);
+        }
+
+        $acta->listas()->whereNotIn('lista_numero', $numeros ?: [-1])->delete();
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $preferentes
+     */
+    private function sincronizarPreferentes(E14Acta $acta, E14ListaResultado $lista, array $preferentes): void
+    {
+        $numeros = [];
+
+        foreach ($preferentes as $fila) {
+            $numero = (int) $fila['numero'];
+            $numeros[] = $numero;
+
+            E14ListaPreferente::updateOrCreate(
+                ['e14_lista_resultado_id' => $lista->id, 'numero' => $numero],
+                [
+                    'tenant_id' => $acta->tenant_id,
+                    'e14_acta_id' => $acta->id,
+                    'votos' => (int) $fila['votos'],
+                ],
+            );
+        }
+
+        $lista->preferentes()->whereNotIn('numero', $numeros ?: [-1])->delete();
     }
 
     /**

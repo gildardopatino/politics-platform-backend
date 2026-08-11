@@ -5,6 +5,7 @@ namespace App\Http\Requests\Api\V1\E14;
 use App\Models\E14Acta;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 /**
  * Lo que el worker devuelve de un acta que reclamó (Spec 0071).
@@ -16,6 +17,8 @@ use Illuminate\Validation\Rule;
  */
 class StoreE14ResultadoRequest extends FormRequest
 {
+    use ValidaListasDeCorporacion;
+
     public function authorize(): bool
     {
         // El permiso lo aplica `permission:manage_e14` en la ruta.
@@ -29,6 +32,12 @@ class StoreE14ResultadoRequest extends FormRequest
     {
         $ilegible = $this->input('estado') === E14Acta::ESTADO_REVISION_MANUAL;
         $cifra = $ilegible ? 'nullable' : 'required';
+
+        // Aquí el tipo no viaja en el cuerpo —el acta ya existe y el tipo es
+        // suyo, lo eligió quien subió el PDF—, así que se lee de la ruta. Es lo
+        // que decide si lo que llega son candidatos o agrupaciones (Spec 0067).
+        $acta = $this->route('acta');
+        $corporacion = $acta instanceof E14Acta && $acta->es_corporacion;
 
         return [
             // El worker solo puede decir dos cosas: «esto leí» o «no pude».
@@ -59,7 +68,8 @@ class StoreE14ResultadoRequest extends FormRequest
             'recuento_solicitado_por' => 'sometimes|nullable|string|max:255',
             'recuento_representacion' => 'sometimes|nullable|string|max:255',
 
-            'suma_declarada' => $cifra.'|integer|min:0',
+            // En corporación esa casilla no existe en el papel (Spec 0067).
+            'suma_declarada' => ($corporacion ? 'nullable' : $cifra).'|integer|min:0',
             'votos_urna' => $cifra.'|integer|min:0',
             'votantes_e11' => 'nullable|integer|min:0',
             'votos_blanco' => 'nullable|integer|min:0',
@@ -68,11 +78,20 @@ class StoreE14ResultadoRequest extends FormRequest
             'suma_calculada' => 'nullable|integer|min:0',
             'dif_nivelacion' => 'nullable|integer',
 
-            'resultados' => $ilegible ? 'nullable|array' : 'required|array|min:1',
+            // Uninominal: un candidato por renglón (Spec 0061).
+            'resultados' => $ilegible || $corporacion ? 'nullable|array' : 'required|array|min:1',
             'resultados.*.numero' => 'required|integer|min:0|max:999|distinct',
             'resultados.*.nombre' => 'nullable|string|max:255',
             'resultados.*.votos' => 'required|integer|min:0',
+
+            // Corporación: agrupaciones con voto preferente (Spec 0067).
+            ...$this->reglasDeListas($ilegible, $corporacion),
         ];
+    }
+
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after($this->validarPreferentesPorLista(...));
     }
 
     /**
@@ -84,6 +103,7 @@ class StoreE14ResultadoRequest extends FormRequest
             'mesa.required' => 'Falta el número de mesa que leyó el acta.',
             'resultados.required' => 'Un acta legible tiene que traer los votos por candidato.',
             'resultados.*.numero.distinct' => 'Un candidato no puede aparecer dos veces en la misma acta.',
+            ...$this->mensajesDeListas(),
         ];
     }
 }

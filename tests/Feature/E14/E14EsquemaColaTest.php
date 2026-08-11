@@ -78,16 +78,33 @@ class E14EsquemaColaTest extends TestCase
         $this->actingAsTenantUser($user, $token);
 
         foreach (E14Acta::TIPOS as $indice => $tipo) {
+            // Cada familia trae su forma (Spec 0067): el uninominal, candidatos
+            // sueltos y su suma declarada; la corporación, agrupaciones —y sin
+            // suma declarada, que en su papel no existe.
+            $resultado = E14Acta::esCorporacion($tipo)
+                ? ['listas' => [[
+                    'lista_numero' => 11,
+                    'lista_nombre' => 'PARTIDO X',
+                    'votos_solo_lista' => 4,
+                    'total_agrupacion' => 10,
+                    'preferentes' => [['numero' => 1, 'votos' => 6]],
+                ]]]
+                : [
+                    'suma_declarada' => 10,
+                    'resultados' => [['numero' => 1, 'nombre' => 'X', 'votos' => 10]],
+                ];
+
             $this->postJson('/api/v1/e14/actas', [
                 'tipo' => $tipo,
                 'zona' => '01',
                 'puesto' => '01',
                 'mesa' => str_pad((string) $indice, 3, '0', STR_PAD_LEFT),
-                'suma_declarada' => 10,
                 'votos_urna' => 10,
                 'votantes_e11' => 10,
-                'resultados' => [['numero' => 1, 'nombre' => 'X', 'votos' => 10]],
-            ])->assertStatus(201)->assertJsonPath('data.tipo', $tipo);
+                ...$resultado,
+            ])->assertStatus(201)
+                ->assertJsonPath('data.tipo', $tipo)
+                ->assertJsonPath('data.estado', 'procesada');
         }
     }
 
