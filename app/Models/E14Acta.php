@@ -58,9 +58,10 @@ class E14Acta extends Model implements Auditable
     ];
 
     /**
-     * Tipos de elección (Spec 0071). Uninominales primero, corporaciones después:
-     * estas últimas se cargan y encolan, pero su lectura necesita el parser
-     * multipágina de la 0067.
+     * Tipos de elección (Spec 0071). Se leen y se cuadran de dos formas
+     * distintas porque el papel es distinto: los **uninominales** son una página
+     * con un candidato por renglón, y las **corporaciones** son N páginas con
+     * agrupaciones y voto preferente (Spec 0067).
      */
     public const TIPO_ALCALDIA = 'alcaldia';
 
@@ -85,6 +86,30 @@ class E14Acta extends Model implements Auditable
         self::TIPO_ALCALDIA,
         self::TIPO_GOBERNACION,
     ];
+
+    /** Los de voto preferente: N páginas, agrupaciones y preferentes (0067). */
+    public const TIPOS_CORPORACION = [
+        self::TIPO_CONCEJO,
+        self::TIPO_SENADO,
+        self::TIPO_ASAMBLEA,
+    ];
+
+    /**
+     * ¿Este acta se cuenta por agrupaciones en vez de por candidatos?
+     *
+     * Es la pregunta que bifurca el cuadre, la ingesta y el consolidado, así que
+     * vive en un solo sitio: repetir el `in_array` por ahí es como acaban
+     * discrepando dos ramas que deberían decidir lo mismo.
+     */
+    public static function esCorporacion(?string $tipo): bool
+    {
+        return in_array($tipo, self::TIPOS_CORPORACION, true);
+    }
+
+    public function getEsCorporacionAttribute(): bool
+    {
+        return self::esCorporacion($this->tipo);
+    }
 
     public const FUENTE_VISION = 'vision';
 
@@ -168,6 +193,30 @@ class E14Acta extends Model implements Auditable
     public function resultados(): HasMany
     {
         return $this->hasMany(E14Resultado::class, 'e14_acta_id');
+    }
+
+    /**
+     * Las agrupaciones del acta, si es de corporación (Spec 0067).
+     *
+     * En un acta uninominal está vacía, igual que `resultados` en una de
+     * corporación: un acta tiene lo uno o lo otro, y es el `tipo` quien decide
+     * cuál.
+     */
+    public function listas(): HasMany
+    {
+        return $this->hasMany(E14ListaResultado::class, 'e14_acta_id')
+            ->orderBy('id');
+    }
+
+    /**
+     * Todos los preferentes del acta, de todas sus listas.
+     *
+     * Atajo para consolidar y para borrar sin encadenar dos relaciones; el
+     * detalle por lista va en `listas.preferentes`.
+     */
+    public function preferentes(): HasMany
+    {
+        return $this->hasMany(E14ListaPreferente::class, 'e14_acta_id');
     }
 
     /**
