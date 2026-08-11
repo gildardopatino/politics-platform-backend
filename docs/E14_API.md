@@ -243,8 +243,8 @@ Sin credencial válida la API responde **401 y no escribe nada**.
 
 | Permiso | Qué habilita |
 | --- | --- |
-| `view_e14` | `GET /actas`, `GET /actas/{id}`, `GET /consolidado`, `GET /resumen`, `GET /eventos`, `GET /cruce`, `GET /rendimiento-lideres`, `GET /puestos-por-conciliar` |
-| `manage_e14` | `POST /actas`, `POST /actas/upload`, `POST /actas/procesar`, `POST /actas/siguiente`, `POST /actas/{id}/resultado`, `POST /actas/{id}/reprocesar`, `PUT /actas/{id}`, `DELETE /actas/{id}`, `PUT /eventos/{id}/candidato-propio`, `POST /puestos/fusionar` |
+| `view_e14` | `GET /actas`, `GET /actas/{id}`, `GET /consolidado`, `GET /resumen`, `GET /eventos`, `GET /candidato`, `GET /cruce`, `GET /rendimiento-lideres`, `GET /puestos-por-conciliar` |
+| `manage_e14` | `POST /actas`, `POST /actas/upload`, `POST /actas/procesar`, `POST /actas/siguiente`, `POST /actas/{id}/resultado`, `POST /actas/{id}/reprocesar`, `PUT /actas/{id}`, `DELETE /actas/{id}`, `PUT /candidato`, `POST /puestos/fusionar` |
 
 Los tiene `admin` y `coordinator`; `viewer` solo `view_e14`. Sin el permiso, 403.
 
@@ -258,18 +258,152 @@ sesión.
 
 ---
 
-## Configuración de campaña: el candidato propio (Spec 0062)
+## Configuración de campaña: mi candidato (Specs 0062 y 0080)
 
 En clave SaaS cada tenant es la campaña de **un** candidato a **un** cargo, y ese
 candidato es **una fila del E-14**. El consolidado no lo necesita —suma a todos—,
 pero el cruce sí: «base identificada vs votos» no se puede calcular sin saber de quién
 son los votos.
 
-Se configura **por elección**, no por tenant: una campaña puede tener cargada la
-de alcaldía y la de concejo, o la de 2027 y la de 2031, y el número del tarjetón
-es distinto en cada una.
+La 0062 lo configuraba **por elección**, así que la pantalla ofrecía tantas fichas como
+elecciones hubiera cargadas y el nombre se tecleaba en cada una. La 0080 lo corrigió:
+hay **una** ficha por campaña, su identidad sale del `Tenant` y lo único que se
+configura a mano es el número del tarjetón.
 
-### `GET /eventos` — las elecciones y su configuración
+### De dónde sale cada dato
+
+| Dato | Origen | ¿Se edita? |
+| --- | --- | --- |
+| Nombre del candidato | `tenants.nombre` | No — se administra en la configuración de la campaña |
+| Cargo | `tenants.tipo_cargo` | No — ídem |
+| **Número del tarjetón** | `electoral_events.candidato_propio_numero` | **Sí, es el único** |
+| Agrupación / partido | `electoral_events.candidato_propio_agrupacion` | Sí, opcional; se completa desde el tarjetón al elegir el número |
+
+El tenant **no tiene** campo de partido, así que la agrupación se queda en la elección
+y es editable, con lo que traiga el tarjetón como valor por defecto.
+
+### A qué elección aplica: `tipo_cargo` → `tipo`
+
+El número vive en **una** elección: la del cargo de la campaña. Con varias del mismo
+tipo —dos alcaldías de años distintos— gana la **más reciente por fecha**, que es la
+que se está escrutando.
+
+Los dos campos **no hablan el mismo idioma**: `tenants.tipo_cargo` es el enum del alta
+de campañas (capitalizado, sin tildes) y `electoral_events.tipo` es el vocabulario del
+E-14 (`E14Acta::TIPOS`). Traducir por texto acertaría en tres casos y fallaría en los
+dos que importan, así que la tabla es explícita y vive en un solo sitio,
+`EventoResolver::TIPO_POR_CARGO`:
+
+| `tenants.tipo_cargo` | `electoral_events.tipo` | Nota |
+| --- | --- | --- |
+| `Alcaldia` | `alcaldia` | |
+| `Gobernacion` | `gobernacion` | |
+| `Concejo` | `concejo` | |
+| `Diputado` | `asamblea_departamental` | Un diputado se elige en la asamblea: el cargo y el tipo de acta se llaman distinto |
+| `Congresista` | `senado` | El E-14 solo tiene `senado` para el Congreso, y la Cámara va aparte en el enum (`Representante`) |
+| `Representante` | — | Cámara de Representantes: **sin tipo de acta E-14 todavía** (llega con la 0067) |
+| `Otro` | — | No es un cargo de elección popular |
+
+Lo que no está en la tabla **no se adivina**. Con un cargo sin elección, `GET` responde
+200 con el aviso de qué falta configurar y `PUT` responde 422: escribir el número en la
+elección equivocada es peor que no configurarlo.
+
+> `Representante` está en el `FormRequest` de alta de tenants pero **no** en el enum de
+> la columna `tenants.tipo_cargo`, que solo admite
+> `Gobernacion|Alcaldia|Concejo|Congresista|Diputado|Otro`. Es una inconsistencia previa
+> a la 0080; el mapeo la contempla para que el día que la columna lo acepte no haya que
+> volver aquí.
+
+### `GET /candidato` — la ficha
+
+```json
+{
+  "data": {
+    "nombre": "MIGUEL ALCALDE",
+    "cargo": "Alcaldia",
+    "cargo_label": "Alcaldía",
+    "numero": 4,
+    "agrupacion": "MOVIMIENTO X",
+    "configurado": true,
+    "eleccion": {
+      "id": 3,
+      "nombre": "Alcaldía",
+      "tipo": "alcaldia",
+      "fecha": "2027-10-31",
+      "tiene_actas": true
+    },
+    "candidatos": [
+      { "numero": 1, "nombre": "JORGE BOLIVAR TORRES", "agrupacion": null, "cargo": "alcaldia" }
+    ]
+  },
+  "meta": {
+    "cargo_mapeado": true,
+    "tipo_eleccion": "alcaldia",
+    "aviso": null
+  }
+}
+```
+
+| Campo | Qué es |
+| --- | --- |
+| `nombre`, `cargo`, `cargo_label` | Identidad del tenant, **de solo lectura** |
+| `numero`, `agrupacion` | Lo configurado; `null` si aún no lo está |
+| `configurado` | Atajo de `numero !== null` — es lo que decide si el cruce se puede calcular |
+| `eleccion` | La del cargo; **`null`** si el cargo no mapea o si aún no existe (se creará al fijar el número) |
+| `eleccion.tiene_actas` | Le dice al frontend si el número se escribe a mano o se elige de una lista: la misma regla que valida el servidor |
+| `candidatos` | El tarjetón de esa elección, para el selector; `[]` si no hay elección todavía |
+| `meta.cargo_mapeado` | `false` cuando el `tipo_cargo` no tiene elección; la pantalla debe mandar a configurar el cargo, no a fijar un número |
+| `meta.aviso` | El texto de ese caso, en español; `null` cuando todo está en orden |
+
+El tarjetón viaja **con** la ficha y no en un endpoint aparte, por lo mismo que en la
+0062: la pantalla lo necesita siempre —es de donde se elige el número— y pedirlo en dos
+viajes solo abriría la ventana para mostrar un selector vacío mientras llega el segundo.
+
+### `PUT /candidato` — fijar o quitar el número
+
+```json
+{ "numero": 4, "agrupacion": "MOVIMIENTO X" }
+```
+
+| Campo | Regla |
+| --- | --- |
+| `numero` | **obligatorio en la petición**, admite `null` para deshacer; 1–999 |
+| `agrupacion` | opcional; si falta se toma del tarjetón |
+
+**El `nombre` no viaja.** Se escribe siempre desde `tenants.nombre`, y un `nombre` que
+mande el cliente se ignora: volver a pedir la identidad aquí es lo que permitía que la
+ficha del escrutinio dijera una cosa y la configuración de la campaña, otra.
+
+**Find-or-create.** Si todavía no hay elección del cargo, se crea al fijar el número: el
+número del tarjetón se sabe semanas antes de la primera acta, igual que en la ingesta.
+
+**Los dos momentos** (regla de la 0062, intacta). Antes de la primera acta el número se
+acepta a ciegas. En cuanto existe el catálogo `e14_candidates`, un número que no está en
+él responde 422 — apuntaría el cruce a una fila que ninguna acta va a traer.
+
+`numero: null` borra la ficha completa (nombre y agrupación incluidos) y deja el cruce
+sin calcular: un nombre suelto de un candidato que ya no se cruza solo confunde a quien
+lo lea después.
+
+Cambiar el número **no recalcula nada guardado**: el cruce se calcula al preguntarlo,
+así que la siguiente llamada a `/cruce` ya sale con el candidato nuevo.
+
+| Respuesta | Cuándo |
+| --- | --- |
+| `200` | Fijado o borrado; devuelve la ficha completa y un `message` |
+| `422` en `numero` | Hay catálogo y el número no está en él |
+| `422` en `cargo` | El `tipo_cargo` de la campaña no mapea a ninguna elección |
+| `403` | Falta `manage_e14`, o la sesión no pertenece a ninguna campaña (super admin) |
+
+### El número sigue donde el cruce lo lee
+
+La 0080 cambió el **flujo**, no el modelo: `candidato_propio_numero` / `_nombre` /
+`_agrupacion` siguen en `electoral_events`, que es de donde el cruce (0062), el déficit
+(0076) y el rendimiento de líderes (0063) los leen. Ninguno de los tres se tocó. Mover
+el número al `Tenant` era la alternativa más pura conceptualmente, y se descartó
+justamente por eso: no vale reescribir tres lectores por un cambio de pantalla.
+
+### `GET /eventos` — las elecciones (lectura)
 
 ```json
 {
@@ -290,38 +424,28 @@ es distinto en cada una.
 }
 ```
 
-El tarjetón (`candidatos`) viaja **con** la elección y no en un endpoint aparte:
-la pantalla de configuración lo necesita siempre, y pedirlo en dos viajes solo
-abriría la ventana para mostrar un selector vacío mientras llega el segundo.
+Se queda como **lectura**: de aquí salen las elecciones con las que el cruce y el
+consolidado eligen de cuál se consulta. Ya no es la vía para configurar el candidato.
 
-`tiene_actas` es lo que le dice al frontend si el número se escribe a mano o se
-elige de una lista — la misma regla que valida el servidor.
+> **Retirado en la 0080:** `PUT /eventos/{id}/candidato-propio` (0062). Era la única
+> forma de fijar candidato en una elección que no es la del cargo de la campaña, que es
+> justo lo que la 0080 elimina. Su sustituto es `PUT /candidato`. Un cliente que siga
+> llamándolo recibe `404`.
 
-### `PUT /eventos/{id}/candidato-propio`
+### Limpieza: `php artisan e14:candidato-unico`
 
-```json
-{ "numero": 4, "nombre": "MIGUEL ALCALDE", "agrupacion": "MOVIMIENTO X" }
-```
+Deja `candidato_propio_*` en `NULL` en toda elección del tenant que **no** sea la de su
+cargo — deshace lo que permitía la pantalla vieja. Acepta `--tenant=<id>` para acotar.
 
-| Campo | Regla |
-| --- | --- |
-| `numero` | **obligatorio en la petición**, admite `null` para deshacer; 1–999 |
-| `nombre` | opcional; si falta se toma del catálogo |
-| `agrupacion` | opcional; si falta se toma del catálogo |
+Es **idempotente**: escribe solo donde hay algo que borrar, así que la segunda corrida
+no toca nada (ni mueve `updated_at`). Va enganchado a `DatabaseSeeder`, de modo que
+`migrate:fresh --seed` lo ejecuta como no-op y una base traída de un entorno con la
+pantalla vieja queda consistente sin depender de que alguien recuerde el comando.
 
-**Los dos momentos.** Antes de la primera acta el número se acepta a ciegas: se
-sabe semanas antes de que haya un acta que leer, y obligar a esperar dejaría la
-campaña sin configurar justo cuando tiene tiempo de hacerlo. En cuanto existe el
-catálogo `e14_candidates`, un número que no está en él responde 422 — apuntaría el
-cruce a una fila que ninguna acta va a traer.
-
-`numero: null` borra la ficha completa (nombre y agrupación incluidos) y deja el
-cruce sin calcular: un nombre suelto de un candidato que ya no se cruza solo
-confunde a quien lo lea después.
-
-Cambiar el número **no recalcula nada guardado**: el cruce se calcula al
-preguntarlo, así que la siguiente llamada a `/cruce` ya sale con el candidato
-nuevo.
+Una campaña cuyo cargo **no mapea** se **salta** y se informa por consola. Sin saber
+cuál es su elección legítima, borrar destruiría el único candidato que tiene y la
+dejaría sin forma de volver a fijarlo (el endpoint también la rechaza). La causa es el
+cargo, y es lo que hay que arreglar.
 
 ---
 
@@ -1171,6 +1295,11 @@ registro de `e14_puesto_alias`, que sí está auditado.
 
 Las tres columnas de candidato propio son de la 0062 y son nullable: una elección
 recién creada por la ingesta todavía no sabe de quién es la campaña.
+
+Desde la 0080 **solo la elección del cargo del tenant las usa**: el candidato es uno por
+campaña y su nombre se deriva de `tenants.nombre`. Las columnas no se movieron —el
+cruce, el déficit y el rendimiento las leen aquí— y `e14:candidato-unico` deja en NULL
+las de cualquier otra elección.
 
 ### `e14_candidates`
 `id`, `tenant_id`, `electoral_event_id`, `numero`, `nombre`, `agrupacion`,
