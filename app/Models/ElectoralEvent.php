@@ -31,12 +31,14 @@ class ElectoralEvent extends Model implements Auditable
         'candidato_propio_lista_numero',
         'candidato_propio_nombre',
         'candidato_propio_agrupacion',
+        'meta_votos',
     ];
 
     protected $casts = [
         'fecha' => 'date',
         'candidato_propio_numero' => 'integer',
         'candidato_propio_lista_numero' => 'integer',
+        'meta_votos' => 'integer',
     ];
 
     public function tenant(): BelongsTo
@@ -52,6 +54,12 @@ class ElectoralEvent extends Model implements Auditable
     public function actas(): HasMany
     {
         return $this->hasMany(E14Acta::class);
+    }
+
+    /** Las metas por puesto de esta elección (Spec 0064). */
+    public function metasPorPuesto(): HasMany
+    {
+        return $this->hasMany(E14MetaPuesto::class, 'electoral_event_id');
     }
 
     /** ¿Esta elección es a una corporación —concejo, asamblea, senado—? */

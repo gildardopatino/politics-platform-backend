@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\V1\E14CandidatoController;
 use App\Http\Controllers\Api\V1\E14CruceController;
 use App\Http\Controllers\Api\V1\E14EventoController;
 use App\Http\Controllers\Api\V1\E14IngestController;
+use App\Http\Controllers\Api\V1\E14MetaController;
 use App\Http\Controllers\Api\V1\E14PuestoController;
 use App\Http\Controllers\Api\V1\E14RendimientoLideresController;
 use App\Http\Controllers\Api\V1\E14UploadController;
@@ -159,6 +160,14 @@ Route::prefix('v1')->group(function () {
             // apoya en el mismo conteo de votos por mesa que el cruce.
             Route::get('/rendimiento-lideres', [E14RendimientoLideresController::class, 'index'])
                 ->middleware('permission:view_e14');
+
+            // Meta de votos (Spec 0064): la fija el jefe de campaña a mano —una
+            // global y overrides por puesto—, y es lo que la proyección contrasta
+            // contra la base identificada y los votos reales. Va antes de
+            // `/actas/{acta}` por lo mismo que las demás: para que ningún
+            // segmento se lea como un id.
+            Route::get('/meta', [E14MetaController::class, 'show'])->middleware('permission:view_e14');
+            Route::put('/meta', [E14MetaController::class, 'update'])->middleware('permission:manage_e14');
 
             // Conciliación de puestos (Spec 0062): lo que la normalización no
             // pudo unir lo decide una persona, nunca el servidor por parecido.
