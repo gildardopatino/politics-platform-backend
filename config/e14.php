@@ -66,4 +66,24 @@ return [
         'umbral_deficit_ponderado' => (float) env('E14_UMBRAL_DEFICIT_PONDERADO', 30),
     ],
 
+    /**
+     * Los cortes del semáforo de la proyección «¿voy ganando?» (0064 · RF-5).
+     *
+     * Son **porcentajes de avance sobre la meta**, y son configurables porque no
+     * hay un número correcto: una campaña a un mes de la elección no lee el 70 %
+     * igual que una a una semana. Se exponen en `meta.umbrales` para que el panel
+     * pinte la leyenda con los que de verdad se están aplicando y no con los que
+     * alguien dejó escritos en el diseño.
+     *
+     * Los dos cortes son **inclusive por abajo**: llegar justo al umbral es
+     * cumplirlo. Y `verde >= ambar`, o el ámbar no se alcanzaría nunca.
+     */
+    'proyeccion' => [
+        /** Desde aquí, verde: la meta está prácticamente cubierta. */
+        'umbral_verde' => (float) env('E14_UMBRAL_VERDE', 90),
+
+        /** Desde aquí, ámbar. Por debajo, rojo: ahí es donde hay que ir. */
+        'umbral_ambar' => (float) env('E14_UMBRAL_AMBAR', 70),
+    ],
+
 ];

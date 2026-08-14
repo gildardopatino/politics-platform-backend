@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\V1\E14CruceController;
 use App\Http\Controllers\Api\V1\E14EventoController;
 use App\Http\Controllers\Api\V1\E14IngestController;
 use App\Http\Controllers\Api\V1\E14MetaController;
+use App\Http\Controllers\Api\V1\E14ProyeccionController;
 use App\Http\Controllers\Api\V1\E14PuestoController;
 use App\Http\Controllers\Api\V1\E14RendimientoLideresController;
 use App\Http\Controllers\Api\V1\E14UploadController;
@@ -168,6 +169,12 @@ Route::prefix('v1')->group(function () {
             // segmento se lea como un id.
             Route::get('/meta', [E14MetaController::class, 'show'])->middleware('permission:view_e14');
             Route::put('/meta', [E14MetaController::class, 'update'])->middleware('permission:manage_e14');
+
+            // El tablero de «¿voy ganando?» (Spec 0064): la meta contra la base
+            // identificada (0076) y contra los votos reales del cruce. Orquesta
+            // los servicios que ya existen; no recalcula ninguno de los tres.
+            Route::get('/proyeccion', [E14ProyeccionController::class, 'index'])
+                ->middleware('permission:view_e14');
 
             // Conciliación de puestos (Spec 0062): lo que la normalización no
             // pudo unir lo decide una persona, nunca el servidor por parecido.
