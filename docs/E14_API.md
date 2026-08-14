@@ -253,8 +253,8 @@ Sin credencial válida la API responde **401 y no escribe nada**.
 
 | Permiso | Qué habilita |
 | --- | --- |
-| `view_e14` | `GET /actas`, `GET /actas/{id}`, `GET /consolidado`, `GET /resumen`, `GET /eventos`, `GET /candidato`, `GET /cruce`, `GET /rendimiento-lideres`, `GET /puestos-por-conciliar` |
-| `manage_e14` | `POST /actas`, `POST /actas/upload`, `POST /actas/procesar`, `POST /actas/siguiente`, `POST /actas/{id}/resultado`, `POST /actas/{id}/reprocesar`, `PUT /actas/{id}`, `DELETE /actas/{id}`, `PUT /candidato`, `POST /puestos/fusionar` |
+| `view_e14` | `GET /actas`, `GET /actas/{id}`, `GET /consolidado`, `GET /resumen`, `GET /eventos`, `GET /candidato`, `GET /cruce`, `GET /rendimiento-lideres`, `GET /meta`, `GET /proyeccion`, `GET /puestos-por-conciliar` |
+| `manage_e14` | `POST /actas`, `POST /actas/upload`, `POST /actas/procesar`, `POST /actas/siguiente`, `POST /actas/{id}/resultado`, `POST /actas/{id}/reprocesar`, `PUT /actas/{id}`, `DELETE /actas/{id}`, `PUT /candidato`, `PUT /meta`, `POST /puestos/fusionar` |
 
 Los tiene `admin` y `coordinator`; `viewer` solo `view_e14`. Sin el permiso, 403.
 
@@ -1142,6 +1142,200 @@ municipio.
 
 ---
 
+## Meta y proyección: «¿voy ganando?» (Spec 0064)
+
+El cruce dice dónde se fuga y el rendimiento quién moviliza. Falta la pregunta que
+abre el tablero: *faltan X votos para ganar, tengo Y identificados, voy al Z %*.
+
+La proyección pone tres números **distintos** uno al lado del otro sin fundirlos:
+la **meta** (fijada a mano), la **base identificada** (0076) y los **votos
+reales** (0062/0083). Y **orquesta**: la base sale de `RegistradosService` y los
+votos de `VotosService`, los mismos que alimentan el cruce y el rendimiento. Nada
+se recalcula por su cuenta; si lo hiciera, el día que cambie qué estados de acta
+cuentan tendríamos dos tableros contradiciéndose y ninguna forma de saber cuál
+miente.
+
+### La meta se fija a mano
+
+No sale del histórico de la Registraduría ni del censo del puesto —los dos quedan
+como gancho para más adelante—: la pone el jefe de campaña. Hay **una global por
+elección** y **overrides opcionales por puesto**.
+
+**Municipio y zona no se fijan: se agregan de sus puestos.** Una tabla de metas por
+municipio conviviendo con las de sus puestos obligaría a decidir cuál gana cuando
+no cuadran, y esa pregunta no tiene respuesta buena.
+
+`null` no es `0`. «Todavía no fijé la meta» y «mi meta aquí es cero votos» son
+estados distintos: el primero no tiene avance que calcular ni semáforo que
+encender, y el segundo pintaría de verde un puesto donde nadie se propuso nada.
+Por eso quitar la meta de un puesto **borra la fila** en vez de guardar un cero, y
+una meta en `0` se trata como meta sin fijar.
+
+### `GET /meta`
+
+| Parámetro | Por defecto | Qué hace |
+| --- | --- | --- |
+| `event` | la elección más reciente del tenant | de qué elección es la meta |
+
+```json
+{
+  "data": {
+    "electoral_event_id": 3,
+    "meta_votos": 12000,
+    "puestos": [
+      {
+        "voting_place_id": 12,
+        "departamento": "TOLIMA",
+        "municipio": "IBAGUE",
+        "puesto": "COLEGIO SAN SIMON",
+        "meta_votos": 300
+      }
+    ]
+  },
+  "meta": { "meta_asignada": 300, "sin_asignar": 11700, "puestos_con_meta": 1 }
+}
+```
+
+`sin_asignar` es `max(0, global − asignada)`, y es `null` cuando no hay meta
+global —sin ella no hay nada que repartir, y un `0` ahí se leería como «ya está
+todo asignado»—. Que la suma de los puestos sea menor que la global es el estado
+normal, no un error; que sea mayor tampoco lo es.
+
+### `PUT /meta` — fijarla (`manage_e14`, auditado)
+
+```json
+{
+  "event": 3,
+  "meta_votos": 12000,
+  "puestos": [
+    { "voting_place_id": 12, "meta_votos": 300 },
+    { "voting_place_id": 15, "meta_votos": null }
+  ]
+}
+```
+
+Es un **PUT parcial**: la clave que no viene no se toca. Mandar solo `puestos` deja
+la global como estaba y al revés — la pantalla edita una casilla a la vez, y
+exigirle reenviar el estado entero convertiría cada ajuste en una ocasión de pisar
+lo que otro acababa de guardar. `meta_votos: null` **sí** viaja y significa
+«quítala»: la ausencia de la clave y el nulo explícito son cosas distintas.
+
+Devuelve la misma forma que el `GET`, más `message`. Cambiar la meta mueve el
+semáforo de todo el tablero, así que queda auditada (`owen-it`).
+
+### `GET /proyeccion`
+
+| Parámetro | Por defecto | Qué hace |
+| --- | --- | --- |
+| `event` | la elección más reciente del tenant | de qué elección se proyecta |
+| `nivel` | `puesto` | `global` \| `municipio` \| `puesto` |
+| `municipio` | — | coincidencia parcial sobre el municipio del puesto |
+| `incluir` | `voters` | `voters` \| `leads` \| `ambos` — la misma base de la 0076 |
+
+```json
+{
+  "data": [
+    {
+      "voting_place_id": 12,
+      "departamento": "TOLIMA",
+      "municipio": "IBAGUE",
+      "puesto": "COLEGIO SAN SIMON",
+      "meta": 300,
+      "identificados": 50,
+      "votos_reales": 30,
+      "tiene_actas": true,
+      "actas": 1,
+      "avance_base": 16.67,
+      "avance_real": 10,
+      "faltante": 270,
+      "semaforo": "rojo",
+      "base_del_semaforo": "real"
+    }
+  ],
+  "meta": {
+    "electoral_event_id": 3,
+    "nivel": "puesto",
+    "incluir": "voters",
+    "candidato": {
+      "numero": 2, "lista_numero": null,
+      "nombre": "JOHANA ARANDA", "agrupacion": null,
+      "es_corporacion": false
+    },
+    "totales": {
+      "meta": 12000, "meta_origen": "global", "meta_asignada": 300,
+      "puestos": 2, "puestos_sin_meta": 1,
+      "identificados": 80, "votos_reales": 30, "tiene_actas": true, "actas": 1,
+      "avance_base": 0.67, "avance_real": 0.25,
+      "faltante": 11970, "semaforo": "rojo", "base_del_semaforo": "real"
+    },
+    "umbrales": { "verde": 90, "ambar": 70 },
+    "aviso_base": "La base identificada … no es voto asegurado …"
+  }
+}
+```
+
+Con `nivel=municipio` la fila trae `departamento`, `municipio` y `puestos`
+(cuántos agregó), sin `voting_place_id` ni `puesto`. Con `nivel=global` es **una**
+fila, con `puestos` y `meta_origen`. Como en el cruce, un porcentaje redondo llega
+como entero (`10`, no `10.0`).
+
+El orden es **lo accionable arriba**: primero lo que más lejos está de su meta
+(`faltante` descendente), lo que no tiene meta al final —no hay distancia que
+medir— y dentro de cada grupo, el orden geográfico, que es estable entre llamadas.
+
+### El semáforo es honesto o no sirve
+
+| Campo | Regla |
+| --- | --- |
+| `avance_base` | `identificados / meta · 100`. `null` sin meta |
+| `avance_real` | `votos_reales / meta · 100`. `null` sin meta **o** sin actas |
+| `faltante` | `max(0, meta − (votos_reales ?? identificados))`. `null` sin meta |
+| `semaforo` | `verde` si el avance ≥ `umbral_verde`; `ambar` si ≥ `umbral_ambar`; si no, `rojo`. Sin meta, `sin_meta` |
+| `base_del_semaforo` | `real` donde hay actas, `base` donde no. `null` sin meta |
+
+El semáforo se enciende **sobre los votos reales donde los hay** y sobre la base
+donde no, y siempre dice cuál de las dos está mirando. Un verde sobre base
+identificada y un verde sobre votos escrutados no significan lo mismo: la base es
+el piso de trabajo de la campaña, **no voto asegurado** (0076) — puede rendir de
+más o de menos. Un tablero que no los distinga le vende a la campaña una certeza
+que no tiene, y por eso el aviso viaja en `meta.aviso_base`, junto al dato.
+
+Los cortes son **inclusive por abajo**: llegar justo al umbral es cumplirlo.
+
+`votos_reales` es `null` sin acta y `0` con acta: «todavía no se ha escrutado» no
+es «mi candidato sacó cero». Es la misma distinción que `tiene_acta` en el cruce.
+
+Casos borde: con meta `null` o `0` no hay avance ni faltante ni color
+(`sin_meta`); identificar **más** que la meta no es un error —avance > 100 %,
+faltante `0`, verde— pero sigue sin ser voto; y un puesto con meta y sin base ni
+actas sale con avance `0` y en rojo, que es exactamente lo que hay que ver.
+
+### De dónde sale cada número
+
+| Número | Fuente | Spec |
+| --- | --- | --- |
+| `meta` | `electoral_events.meta_votos` + `e14_meta_puesto` | 0064 |
+| `identificados` | `RegistradosService` (la base del cruce, `voters` ± `leads`) | 0076 |
+| `votos_reales` | `VotosService::deMiCandidato()`, actas `procesada` | 0062 / 0083 |
+
+**Corporación incluida, sin código propio.** Los votos reales salen del mismo
+`VotosService` que ya bifurca por cargo: en concejo/asamblea/senado cuenta la fila
+`(lista, preferente)` del E-14, nunca el preferente suelto de todas las listas. La
+proyección no se entera de la diferencia.
+
+Sin candidato propio configurado responde **422** pidiendo configurarlo, con el
+mismo mensaje del cruce; en corporación hacen falta **las dos** mitades del par.
+
+La lectura es siempre por puesto y se pliega después, así que las agregaciones son
+**por evento y no por fila**: doce puestos cuestan lo mismo que uno.
+
+Lo que la 0064 **no** hace: derivar la meta de histórico o censo, calcular cifra
+repartidora o adjudicar curules (→ futuro), ni proyectar tendencias — «proyección»
+aquí es meta vs base vs votos, no un modelo predictivo. Tampoco hay meta por
+líder: nadie la fijó, y el corte por líder es el de la 0063.
+
+---
+
 ## Rendimiento operativo del líder (Spec 0063)
 
 ### Por qué aquí no hay «votos del líder»
@@ -1683,7 +1877,7 @@ encadenar joins y para que `TenantScope` filtre directo.
 ### `electoral_events`
 `id`, `tenant_id`, `nombre`, `fecha`, `tipo`, `candidato_propio_numero`,
 `candidato_propio_lista_numero`, `candidato_propio_nombre`,
-`candidato_propio_agrupacion`, timestamps.
+`candidato_propio_agrupacion`, `meta_votos`, timestamps.
 Único: `(tenant_id, tipo, nombre)`.
 
 Las columnas de candidato propio son de la 0062 y son nullable: una elección recién
@@ -1701,6 +1895,19 @@ leyendo `candidato_propio_numero` como siempre. El preferente se guarda en esa m
 columna en vez de añadir una segunda de número: es el mismo concepto —cuál de las filas
 del acta es la mía— contado al nivel que corresponda, y duplicarlo obligaría a preguntar
 cuál de las dos vale en cada lectura.
+
+`meta_votos` la añadió la 0064: la meta global de votos, **nullable y sin
+defecto**. `null` es «todavía no la fijaron», que no es una meta de cero — un `0`
+por defecto habría pintado de rojo a toda campaña recién creada.
+
+### `e14_meta_puesto` (Spec 0064)
+`id`, `tenant_id`, `electoral_event_id`, `voting_place_id`, `meta_votos`,
+timestamps.
+Único: `(electoral_event_id, voting_place_id)`.
+
+El override de la meta por puesto. **Que exista la fila es la meta**: no hay
+estado «cero por defecto», y quitarla borra el renglón. No hay tabla análoga para
+municipio ni zona — esas metas se agregan de sus puestos.
 
 ### `e14_candidates`
 `id`, `tenant_id`, `electoral_event_id`, `numero`, `nombre`, `agrupacion`,
@@ -1785,6 +1992,10 @@ hash.
 | `E14_URL_TTL_MINUTES` | `15` | vigencia de la URL firmada del PDF |
 | `E14_CLAIM_TIMEOUT_MINUTES` | `15` | cuánto puede estar un acta en `procesando` antes de volver a la cola |
 | `E14_MAX_INTENTOS` | `3` | reclamos por acta antes de mandarla a revisión |
+| `E14_UMBRAL_MOVILIZADOS` | `20` | desde cuánta gente identificada la movilización de un líder es «mucha» (0063) |
+| `E14_UMBRAL_DEFICIT_PONDERADO` | `30` | puntos de déficit ponderado que marcan «posible inflado» (0063) |
+| `E14_UMBRAL_VERDE` | `90` | % de avance desde el que la proyección pinta verde (0064) |
+| `E14_UMBRAL_AMBAR` | `70` | % de avance desde el que pinta ámbar; por debajo, rojo (0064) |
 
 Todas las tablas llevan `HasTenant` y auditoría (`owen-it`); `e14_actas` además
 registra en `activity_log` los cambios de `estado`, `suma_declarada`,
