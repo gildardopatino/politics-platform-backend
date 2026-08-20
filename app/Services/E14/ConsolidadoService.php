@@ -6,6 +6,7 @@ use App\Models\E14Acta;
 use App\Models\E14ListaPreferente;
 use App\Models\E14ListaResultado;
 use App\Models\E14Resultado;
+use App\Models\ElectoralEvent;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
@@ -64,6 +65,53 @@ class ConsolidadoService
                 // `por_puesto`, pero legible: «COLEGIO SAN SIMON» en vez de «01».
                 'por_lugar' => $this->desglose($ids, 'lugar'),
             ],
+        ];
+    }
+
+    /**
+     * Los votos de **mi candidato** en todo el evento, con la misma cuenta con
+     * la que se arma el consolidado (Spec 0086).
+     *
+     * Existe porque la proyección necesitaba exactamente este número y lo estaba
+     * sacando del `VotosService`, que solo mira actas con puesto conciliado: el
+     * tablero de «¿voy ganando?» decía 50 donde el consolidado decía 411. Es la
+     * misma pregunta —«¿cuántos votos llevo?»—, así que sale de la **misma**
+     * cuenta; una tercera implementación sería una tercera cifra que un día deja
+     * de cuadrar y nadie sabe cuál miente.
+     *
+     * Aquí **no** hay geo-filtro, a propósito: entran todas las `procesada`,
+     * tengan puesto canónico o no. Dónde cayeron esos votos es otra pregunta, y
+     * esa la contesta el desglose por puesto —que sí lo necesita—.
+     *
+     * @return array{votos: int, actas: int}
+     */
+    public function totalDeMiCandidato(ElectoralEvent $evento): array
+    {
+        $ids = $this->actas($evento->id, $evento->tipo)
+            ->where('estado', E14Acta::ESTADO_PROCESADA)
+            ->pluck('id')
+            ->all();
+
+        if ($ids === []) {
+            return ['votos' => 0, 'actas' => 0];
+        }
+
+        $mias = E14Acta::esCorporacion($evento->tipo)
+            // En corporación mi candidato es el par `(lista, preferente)`: el 5
+            // de mi lista y el 5 de la de enfrente son dos personas distintas.
+            ? array_filter(
+                $this->votosPorPreferente($ids),
+                fn (array $fila) => $fila['lista_numero'] === (int) $evento->candidato_propio_lista_numero
+                    && $fila['numero'] === (int) $evento->candidato_propio_numero
+            )
+            : array_filter(
+                $this->votosPorCandidato($ids),
+                fn (array $fila) => $fila['numero'] === (int) $evento->candidato_propio_numero
+            );
+
+        return [
+            'votos' => (int) array_sum(array_column($mias, 'votos')),
+            'actas' => count($ids),
         ];
     }
 

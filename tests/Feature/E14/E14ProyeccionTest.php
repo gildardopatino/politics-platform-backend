@@ -116,6 +116,72 @@ class E14ProyeccionTest extends TestCase
         ]);
     }
 
+    /**
+     * Acta de concejo que cuadra, con **dos** listas que repiten el preferente 5:
+     * la mía (lista 11) saca 30 y la rival (lista 1) saca 99.
+     */
+    private function cargarActaDeConcejo(array $cambios = []): void
+    {
+        $this->postJson('/api/v1/e14/actas', array_replace([
+            'tipo' => E14Acta::TIPO_CONCEJO,
+            'estado' => 'procesada',
+            'zona' => '01',
+            'puesto' => '01',
+            'mesa' => '005',
+            'departamento' => 'TOLIMA',
+            'municipio' => 'IBAGUE',
+            'lugar' => 'UNIVERSIDAD COOPERATIVA',
+            'listas' => [
+                [
+                    'lista_numero' => 11,
+                    'lista_nombre' => 'PARTIDO CENTRO DEMOCRÁTICO',
+                    'votos_solo_lista' => 4,
+                    'total_agrupacion' => 36,
+                    'con_voto_preferente' => true,
+                    'preferentes' => [
+                        ['numero' => 5, 'votos' => 30],
+                        ['numero' => 7, 'votos' => 2],
+                    ],
+                ],
+                [
+                    'lista_numero' => 1,
+                    'lista_nombre' => 'OTRO PARTIDO',
+                    'votos_solo_lista' => 5,
+                    'total_agrupacion' => 105,
+                    'con_voto_preferente' => true,
+                    'preferentes' => [
+                        ['numero' => 5, 'votos' => 99],
+                        ['numero' => 9, 'votos' => 1],
+                    ],
+                ],
+            ],
+            'votos_blanco' => 4,
+            'votos_nulos' => 4,
+            'votos_no_marcados' => 4,
+            'votos_urna' => 153,
+            'votantes_e11' => 153,
+        ], $cambios))->assertSuccessful();
+    }
+
+    /** La elección de concejo del tenant, con mi candidato ya fijado. */
+    private function eventoDeConcejo(Tenant $tenant, ?int $metaGlobal = null): ElectoralEvent
+    {
+        $evento = ElectoralEvent::withoutGlobalScope(TenantScope::class)
+            ->where('tenant_id', $tenant->id)
+            ->where('tipo', E14Acta::TIPO_CONCEJO)
+            ->firstOrFail();
+
+        $evento->update([
+            'candidato_propio_lista_numero' => 11,
+            'candidato_propio_numero' => 5,
+            'candidato_propio_nombre' => 'ANA RUIZ',
+            'candidato_propio_agrupacion' => 'PARTIDO CENTRO DEMOCRÁTICO',
+            'meta_votos' => $metaGlobal,
+        ]);
+
+        return $evento;
+    }
+
     // ------------------------------------------------------- el contraste
 
     public function test_contrasta_meta_base_y_votos_reales_por_puesto(): void
@@ -435,6 +501,178 @@ class E14ProyeccionTest extends TestCase
             ->assertJsonPath('meta.incluir', 'voters');
     }
 
+    // ------------------------------------- el total real (Spec 0086 · RF-1)
+
+    public function test_el_total_global_es_el_conteo_real_y_coincide_con_el_consolidado(): void
+    {
+        $tenant = $this->operador();
+        $lugar = $this->puestoDelCatalogo();
+        $this->votantes($tenant, 50, ['voting_place_id' => $lugar->id]);
+
+        // Un acta que sí cuelga de su puesto (30 votos míos) y otra sin lugar
+        // legible (otros 30) que no cuelga de ninguno. El conteo real son 60.
+        $this->cargarActa();
+        $this->cargarActa(['lugar' => null, 'mesa' => '007']);
+
+        $evento = $this->evento($tenant, 2, 1000);
+        $this->metaDelPuesto($tenant, $evento, $lugar, 300);
+
+        $consolidado = $this->getJson('/api/v1/e14/consolidado?electoral_event_id='.$evento->id)
+            ->assertOk()
+            ->json('data');
+
+        $delConsolidado = collect($consolidado)->firstWhere('numero', 2)['votos'];
+        $this->assertSame(60, $delConsolidado);
+
+        $this->getJson('/api/v1/e14/proyeccion?nivel=puesto')
+            ->assertOk()
+            // El número estrella es el conteo real, no la suma de lo conciliado.
+            ->assertJsonPath('meta.totales.votos_reales', $delConsolidado)
+            ->assertJsonPath('meta.totales.avance_real', 6)
+            ->assertJsonPath('meta.totales.faltante', 940)
+            ->assertJsonPath('meta.totales.tiene_actas', true)
+            ->assertJsonPath('meta.totales.base_del_semaforo', 'real')
+            // …y la fila del puesto sigue contando solo lo suyo (RF-2).
+            ->assertJsonPath('data.0.votos_reales', 30)
+            ->assertJsonPath('data.0.faltante', 270);
+    }
+
+    public function test_la_cobertura_dice_cuantos_votos_reales_quedaron_sin_ubicar(): void
+    {
+        $tenant = $this->operador();
+        $lugar = $this->puestoDelCatalogo();
+        $this->votantes($tenant, 50, ['voting_place_id' => $lugar->id]);
+        $this->cargarActa();
+        $this->cargarActa(['lugar' => null, 'mesa' => '007']);
+        $this->evento($tenant, 2, 1000);
+
+        $this->getJson('/api/v1/e14/proyeccion?nivel=puesto')
+            ->assertOk()
+            ->assertJsonPath('meta.cobertura.votos_reales_total', 60)
+            ->assertJsonPath('meta.cobertura.votos_reales_ubicados', 30)
+            // El gap entre el número grande y el desglose, con nombre propio.
+            ->assertJsonPath('meta.cobertura.votos_reales_sin_ubicar', 30)
+            ->assertJsonPath('meta.cobertura.actas_sin_ubicar', 1);
+    }
+
+    public function test_con_todo_conciliado_no_queda_nada_sin_ubicar(): void
+    {
+        $tenant = $this->operador();
+        $lugar = $this->puestoDelCatalogo();
+        $this->votantes($tenant, 50, ['voting_place_id' => $lugar->id]);
+        $this->cargarActa();
+        $this->evento($tenant, 2, 1000);
+
+        $this->getJson('/api/v1/e14/proyeccion?nivel=puesto')
+            ->assertOk()
+            ->assertJsonPath('meta.totales.votos_reales', 30)
+            ->assertJsonPath('meta.cobertura.votos_reales_sin_ubicar', 0)
+            ->assertJsonPath('meta.cobertura.actas_sin_ubicar', 0);
+    }
+
+    public function test_la_fila_global_reporta_el_mismo_conteo_real_que_los_totales(): void
+    {
+        $tenant = $this->operador();
+        $lugar = $this->puestoDelCatalogo();
+        $this->votantes($tenant, 50, ['voting_place_id' => $lugar->id]);
+        $this->cargarActa();
+        $this->cargarActa(['lugar' => null, 'mesa' => '007']);
+        $this->evento($tenant, 2, 1000);
+
+        // La fila «toda la campaña» no es una fila por puesto: si dijera 30
+        // mientras la cabecera dice 60, la misma pantalla se contradiría.
+        $this->getJson('/api/v1/e14/proyeccion?nivel=global')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.votos_reales', 60)
+            ->assertJsonPath('data.0.faltante', 940)
+            ->assertJsonPath('data.0.actas', 2);
+    }
+
+    public function test_sin_ninguna_acta_el_total_global_sigue_midiendose_sobre_la_base(): void
+    {
+        $tenant = $this->operador();
+        $lugar = $this->puestoDelCatalogo();
+        $this->votantes($tenant, 80, ['voting_place_id' => $lugar->id]);
+        $evento = $this->evento($tenant, 2, 100);
+        $this->metaDelPuesto($tenant, $evento, $lugar, 100);
+
+        $this->getJson('/api/v1/e14/proyeccion?nivel=puesto')
+            ->assertOk()
+            // Sin actas no hay conteo real que enseñar: la 0064 sigue mandando.
+            ->assertJsonPath('meta.totales.votos_reales', null)
+            ->assertJsonPath('meta.totales.tiene_actas', false)
+            ->assertJsonPath('meta.totales.avance_base', 80)
+            ->assertJsonPath('meta.totales.base_del_semaforo', 'base')
+            ->assertJsonPath('meta.cobertura.votos_reales_total', 0)
+            ->assertJsonPath('meta.cobertura.votos_reales_sin_ubicar', 0);
+    }
+
+    public function test_con_filtro_de_municipio_el_total_es_el_de_lo_ubicado_ahi(): void
+    {
+        $tenant = $this->operador();
+        $lugar = $this->puestoDelCatalogo();
+        $this->votantes($tenant, 50, ['voting_place_id' => $lugar->id]);
+        $this->cargarActa();
+        $this->cargarActa(['lugar' => null, 'mesa' => '007']);
+        $this->evento($tenant, 2, 1000);
+
+        // Lo que no tiene puesto no pertenece a ningún municipio: metérselo a
+        // IBAGUE sería inventar de dónde salieron esos votos.
+        $this->getJson('/api/v1/e14/proyeccion?nivel=puesto&municipio=IBAGUE')
+            ->assertOk()
+            ->assertJsonPath('meta.totales.votos_reales', 30)
+            // La cobertura sí es de toda la campaña, como en el cruce.
+            ->assertJsonPath('meta.cobertura.votos_reales_sin_ubicar', 30);
+    }
+
+    public function test_en_corporacion_el_total_real_tambien_suma_las_actas_sin_puesto(): void
+    {
+        $tenant = $this->operador(tenant: Tenant::factory()->corporacion()->create());
+        $lugar = $this->puestoDelCatalogo(['puesto_votacion' => 'UNIVERSIDAD COOPERATIVA']);
+        $this->votantes($tenant, 50, [
+            'voting_place_id' => $lugar->id,
+            'puesto_votacion' => 'UNIVERSIDAD COOPERATIVA',
+        ]);
+
+        $this->cargarActaDeConcejo();
+        $this->cargarActaDeConcejo(['lugar' => null, 'mesa' => '007']);
+
+        $evento = $this->eventoDeConcejo($tenant, 1000);
+
+        $this->getJson('/api/v1/e14/proyeccion?nivel=puesto&event='.$evento->id)
+            ->assertOk()
+            // Los 30 del acta conciliada más los 30 de la que no cuelga de
+            // ningún puesto, siempre por el par `(lista 11, preferente 5)`: el
+            // 5 de la lista rival (99 votos) no es mío ni aquí ni allá.
+            ->assertJsonPath('meta.totales.votos_reales', 60)
+            ->assertJsonPath('meta.totales.faltante', 940)
+            ->assertJsonPath('meta.cobertura.votos_reales_sin_ubicar', 30)
+            ->assertJsonPath('data.0.votos_reales', 30);
+    }
+
+    public function test_el_conteo_real_no_ve_las_actas_de_otra_campana(): void
+    {
+        $otro = Tenant::factory()->create();
+        $this->operador(tenant: $otro);
+        // Sin lugar: si el total real se calculara sin acotar por evento, estos
+        // 30 votos se colarían justo por la puerta que esta spec abre.
+        $this->cargarActa(['lugar' => null, 'mesa' => '007']);
+        $this->evento($otro, 2, 1000);
+
+        $mio = $this->operador();
+        $lugar = $this->puestoDelCatalogo();
+        $this->votantes($mio, 50, ['voting_place_id' => $lugar->id]);
+        $this->cargarActa();
+        $this->evento($mio, 2, 1000);
+
+        $this->getJson('/api/v1/e14/proyeccion?nivel=puesto')
+            ->assertOk()
+            ->assertJsonPath('meta.totales.votos_reales', 30)
+            ->assertJsonPath('meta.cobertura.votos_reales_total', 30)
+            ->assertJsonPath('meta.cobertura.votos_reales_sin_ubicar', 0);
+    }
+
     // ------------------------------------------------------- corporación
 
     public function test_en_corporacion_los_votos_reales_son_los_de_lista_y_preferente(): void
@@ -449,57 +687,9 @@ class E14ProyeccionTest extends TestCase
         // Dos listas con el **mismo** preferente 5: la mía (11) saca 30, la otra
         // (1) saca 99. Sumar el 5 de todas las listas sería contarle a mi
         // candidato los votos de un rival.
-        $this->postJson('/api/v1/e14/actas', [
-            'tipo' => E14Acta::TIPO_CONCEJO,
-            'estado' => 'procesada',
-            'zona' => '01',
-            'puesto' => '01',
-            'mesa' => '005',
-            'departamento' => 'TOLIMA',
-            'municipio' => 'IBAGUE',
-            'lugar' => 'UNIVERSIDAD COOPERATIVA',
-            'listas' => [
-                [
-                    'lista_numero' => 11,
-                    'lista_nombre' => 'PARTIDO CENTRO DEMOCRÁTICO',
-                    'votos_solo_lista' => 4,
-                    'total_agrupacion' => 36,
-                    'con_voto_preferente' => true,
-                    'preferentes' => [
-                        ['numero' => 5, 'votos' => 30],
-                        ['numero' => 7, 'votos' => 2],
-                    ],
-                ],
-                [
-                    'lista_numero' => 1,
-                    'lista_nombre' => 'OTRO PARTIDO',
-                    'votos_solo_lista' => 5,
-                    'total_agrupacion' => 105,
-                    'con_voto_preferente' => true,
-                    'preferentes' => [
-                        ['numero' => 5, 'votos' => 99],
-                        ['numero' => 9, 'votos' => 1],
-                    ],
-                ],
-            ],
-            'votos_blanco' => 4,
-            'votos_nulos' => 4,
-            'votos_no_marcados' => 4,
-            'votos_urna' => 153,
-            'votantes_e11' => 153,
-        ])->assertSuccessful();
+        $this->cargarActaDeConcejo();
 
-        $evento = ElectoralEvent::withoutGlobalScope(TenantScope::class)
-            ->where('tenant_id', $tenant->id)
-            ->where('tipo', E14Acta::TIPO_CONCEJO)
-            ->firstOrFail();
-
-        $evento->update([
-            'candidato_propio_lista_numero' => 11,
-            'candidato_propio_numero' => 5,
-            'candidato_propio_nombre' => 'ANA RUIZ',
-            'candidato_propio_agrupacion' => 'PARTIDO CENTRO DEMOCRÁTICO',
-        ]);
+        $evento = $this->eventoDeConcejo($tenant);
 
         $this->metaDelPuesto($tenant, $evento, $lugar, 100);
 

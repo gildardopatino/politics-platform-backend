@@ -86,6 +86,7 @@ class ProyeccionService
         private readonly PuestoResolver $puestos,
         private readonly RegistradosService $registrados,
         private readonly VotosService $votos,
+        private readonly ConsolidadoService $consolidado,
     ) {}
 
     /**
@@ -114,16 +115,22 @@ class ProyeccionService
         // aquí, para que los votos y la base se encuentren en la misma llave.
         $this->puestos->conciliarActas($evento->id);
 
-        $porPuesto = $this->filtrar($this->porPuesto($evento, $incluir), $filtros);
+        $todos = $this->porPuesto($evento, $incluir);
+        $porPuesto = $this->filtrar($todos, $filtros);
+
+        // El conteo real de toda la campaña, con la cuenta del consolidado
+        // (0086). El desglose de arriba sigue siendo el geo-filtrado.
+        $real = $this->consolidado->totalDeMiCandidato($evento);
 
         return [
-            'data' => $this->plegar($evento, $porPuesto, $nivel, $filtros),
+            'data' => $this->plegar($evento, $porPuesto, $nivel, $filtros, $real),
             'meta' => [
                 'electoral_event_id' => $evento->id,
                 'nivel' => $nivel,
                 'incluir' => $incluir,
                 'candidato' => $evento->resumenDelCandidato(),
-                'totales' => $this->totales($evento, $porPuesto, $filtros),
+                'totales' => $this->totales($evento, $porPuesto, $filtros, $real),
+                'cobertura' => $this->cobertura($todos, $real),
                 'umbrales' => [
                     'verde' => $this->umbral('umbral_verde', 90),
                     'ambar' => $this->umbral('umbral_ambar', 70),
@@ -233,9 +240,10 @@ class ProyeccionService
      *
      * @param  array<int, array<string, mixed>>  $porPuesto
      * @param  array<string, mixed>  $filtros
+     * @param  array{votos: int, actas: int}  $real
      * @return array<int, array<string, mixed>>
      */
-    private function plegar(ElectoralEvent $evento, array $porPuesto, string $nivel, array $filtros): array
+    private function plegar(ElectoralEvent $evento, array $porPuesto, string $nivel, array $filtros, array $real): array
     {
         if ($nivel === self::NIVEL_PUESTO) {
             return $this->ordenar(array_map(
@@ -246,7 +254,10 @@ class ProyeccionService
 
         if ($nivel === self::NIVEL_GLOBAL) {
             [$meta, $origen] = $this->metaDelAmbito($evento, $porPuesto, $filtros);
-            $sumas = $this->sumar($porPuesto);
+            // La fila «toda la campaña» **no** es una fila por puesto: si dijera
+            // la suma geo mientras la cabecera dice el conteo real, la misma
+            // pantalla se contradiría a sí misma.
+            $sumas = $this->conElTotalReal($this->sumar($porPuesto), $real, $filtros);
 
             return [
                 ['meta' => $meta, 'meta_origen' => $origen]
@@ -338,12 +349,13 @@ class ProyeccionService
     /**
      * @param  array<int, array<string, mixed>>  $porPuesto
      * @param  array<string, mixed>  $filtros
+     * @param  array{votos: int, actas: int}  $real
      * @return array<string, mixed>
      */
-    private function totales(ElectoralEvent $evento, array $porPuesto, array $filtros): array
+    private function totales(ElectoralEvent $evento, array $porPuesto, array $filtros, array $real): array
     {
         [$meta, $origen] = $this->metaDelAmbito($evento, $porPuesto, $filtros);
-        $sumas = $this->sumar($porPuesto);
+        $sumas = $this->conElTotalReal($this->sumar($porPuesto), $real, $filtros);
 
         $sinMeta = array_filter(
             $porPuesto,
@@ -362,6 +374,70 @@ class ProyeccionService
         ]
             + $sumas
             + $this->derivadas($meta, $sumas['identificados'], $sumas['votos_reales']);
+    }
+
+    /**
+     * Cambia la suma de lo conciliado por el **conteo real** del ámbito (0086).
+     *
+     * El desglose por puesto tiene que estar geo-filtrado —una fila sin puesto
+     * no es una fila—, pero el número de cabecera no: ahí la pregunta es «¿cuántos
+     * votos llevo?», y la respuesta honesta incluye las actas que todavía no
+     * casaron con el catálogo. Antes de esta spec el tablero contestaba con la
+     * suma del desglose y decía 50 donde el consolidado decía 411.
+     *
+     * **Con filtro de municipio no aplica.** Ahí el ámbito ya no es la campaña, y
+     * lo que no tiene puesto no pertenece a ningún municipio: metérselo a IBAGUÉ
+     * sería inventar de dónde salieron esos votos. Lo que queda fuera se lee en
+     * la cobertura, que sí es de toda la campaña.
+     *
+     * @param  array<string, mixed>  $sumas
+     * @param  array{votos: int, actas: int}  $real
+     * @param  array<string, mixed>  $filtros
+     * @return array<string, mixed>
+     */
+    private function conElTotalReal(array $sumas, array $real, array $filtros): array
+    {
+        if (filled($filtros['municipio'] ?? null)) {
+            return $sumas;
+        }
+
+        return array_replace($sumas, [
+            // Sin una sola acta procesada no hay votos que enseñar: la regla de
+            // la 0064 se mantiene, solo cambia **qué** se cuenta cuando las hay.
+            'votos_reales' => $real['actas'] > 0 ? $real['votos'] : null,
+            'tiene_actas' => $real['actas'] > 0,
+            // Las actas también son todas: decir «0 actas, 411 votos» sería
+            // incoherente en la misma línea.
+            'actas' => $real['actas'],
+        ]);
+    }
+
+    /**
+     * El gap entre el número grande y el desglose, con nombre propio (RF-3).
+     *
+     * Es la misma idea que `actas_sin_conciliar` del cruce y se calcula igual:
+     * sobre **toda** la campaña y no sobre lo filtrado, porque un acta sin puesto
+     * no está en ningún municipio y ocultarla al filtrar dejaría el gap invisible
+     * justo donde se está mirando. Conciliar es lo que mueve estos votos al
+     * desglose; hasta entonces el total ya los cuenta.
+     *
+     * @param  array<int, array<string, mixed>>  $todos  todas las filas, sin filtrar
+     * @param  array{votos: int, actas: int}  $real
+     * @return array<string, mixed>
+     */
+    private function cobertura(array $todos, array $real): array
+    {
+        $ubicados = (int) array_sum(array_map(fn (array $fila) => $fila['votos_reales'] ?? 0, $todos));
+        $actasUbicadas = (int) array_sum(array_column($todos, 'actas'));
+
+        return [
+            'votos_reales_total' => $real['votos'],
+            'votos_reales_ubicados' => $ubicados,
+            // Nunca negativo: si el desglose sumara más que el total, el dato
+            // roto es el desglose y un número en rojo no lo arregla.
+            'votos_reales_sin_ubicar' => max(0, $real['votos'] - $ubicados),
+            'actas_sin_ubicar' => max(0, $real['actas'] - $actasUbicadas),
+        ];
     }
 
     /**
