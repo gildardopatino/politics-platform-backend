@@ -1264,9 +1264,13 @@ semáforo de todo el tablero, así que queda auditada (`owen-it`).
     "totales": {
       "meta": 12000, "meta_origen": "global", "meta_asignada": 300,
       "puestos": 2, "puestos_sin_meta": 1,
-      "identificados": 80, "votos_reales": 30, "tiene_actas": true, "actas": 1,
-      "avance_base": 0.67, "avance_real": 0.25,
-      "faltante": 11970, "semaforo": "rojo", "base_del_semaforo": "real"
+      "identificados": 80, "votos_reales": 60, "tiene_actas": true, "actas": 2,
+      "avance_base": 0.67, "avance_real": 0.5,
+      "faltante": 11940, "semaforo": "rojo", "base_del_semaforo": "real"
+    },
+    "cobertura": {
+      "votos_reales_total": 60, "votos_reales_ubicados": 30,
+      "votos_reales_sin_ubicar": 30, "actas_sin_ubicar": 1
     },
     "umbrales": { "verde": 90, "ambar": 70 },
     "aviso_base": "La base identificada … no es voto asegurado …"
@@ -1282,6 +1286,49 @@ como entero (`10`, no `10.0`).
 El orden es **lo accionable arriba**: primero lo que más lejos está de su meta
 (`faltante` descendente), lo que no tiene meta al final —no hay distancia que
 medir— y dentro de cada grupo, el orden geográfico, que es estable entre llamadas.
+
+### El total es el conteo real; el desglose, solo lo conciliado (0086)
+
+`meta.totales.votos_reales` —y con él `avance_real`, `faltante`, `tiene_actas` y
+`actas`— es el **conteo real** del candidato: **todas** las actas `procesada` del
+evento, con la misma cuenta del consolidado
+(`ConsolidadoService::totalDeMiCandidato()`, que reutiliza `votosPorCandidato` en
+uninominal y `votosPorPreferente` por el par `(lista, preferente)` en
+corporación). No es la suma de las filas.
+
+Las **filas** (`data[]` de nivel puesto y municipio) siguen geo-filtradas por
+`VotosService`: solo cuentan actas cuyo puesto ya casó con el catálogo, porque
+una fila sin puesto no es una fila y el cruce necesita que votos y base se
+encuentren en la misma llave. **Que la suma de las filas sea menor que el total
+es el estado normal**, no un error: la diferencia son actas sin conciliar.
+
+La fila de `nivel=global` **sí** lleva el conteo real: no es una fila por puesto,
+es la cabecera en forma de fila, y si dijera la suma geo mientras
+`meta.totales` dice el total, la misma pantalla se contradiría.
+
+Antes de esta spec el total salía de la suma geo-filtrada y el tablero decía 50
+donde el consolidado decía 411 — el número estrella de «¿voy ganando?» mentía por
+defecto, y con meta 10.000 reclamaba 9.950 votos que no faltaban.
+
+| Campo de `meta.cobertura` | Qué es |
+| --- | --- |
+| `votos_reales_total` | el conteo real: todas las `procesada` |
+| `votos_reales_ubicados` | Σ de los votos de las filas por puesto |
+| `votos_reales_sin_ubicar` | `max(0, total − ubicados)` — el gap, con nombre propio |
+| `actas_sin_ubicar` | actas que cuadran y todavía no cuelgan de ningún puesto |
+
+La cobertura se calcula sobre **toda** la campaña y no sobre lo filtrado, igual
+que `actas_sin_conciliar` del cruce: un acta sin puesto no está en ningún
+municipio, y esconderla al filtrar dejaría el gap invisible justo donde se mira.
+Conciliar puestos es lo que mueve esos votos al desglose; hasta entonces el total
+ya los cuenta.
+
+**Con `municipio=` el total vuelve a ser la suma de lo ubicado ahí.** El ámbito
+ya no es la campaña, y atribuirle a IBAGUÉ votos que no tienen puesto sería
+inventar de dónde salieron. La cobertura sigue reportando el gap global.
+
+Sin ninguna acta `procesada`, `votos_reales` es `null` y el avance se mide sobre
+la base: la regla de la 0064 no cambia, solo **qué** se cuenta cuando hay actas.
 
 ### El semáforo es honesto o no sirve
 
@@ -1316,7 +1363,8 @@ actas sale con avance `0` y en rojo, que es exactamente lo que hay que ver.
 | --- | --- | --- |
 | `meta` | `electoral_events.meta_votos` + `e14_meta_puesto` | 0064 |
 | `identificados` | `RegistradosService` (la base del cruce, `voters` ± `leads`) | 0076 |
-| `votos_reales` | `VotosService::deMiCandidato()`, actas `procesada` | 0062 / 0083 |
+| `votos_reales` de cada fila | `VotosService::deMiCandidato()`, actas `procesada` **con puesto** | 0062 / 0083 |
+| `votos_reales` del total | `ConsolidadoService::totalDeMiCandidato()`, **todas** las `procesada` | 0086 |
 
 **Corporación incluida, sin código propio.** Los votos reales salen del mismo
 `VotosService` que ya bifurca por cargo: en concejo/asamblea/senado cuenta la fila
