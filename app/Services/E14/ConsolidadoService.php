@@ -277,7 +277,22 @@ class ConsolidadoService
     }
 
     /**
-     * Los mismos votos, abiertos por puesto o por zona.
+     * Los mismos votos, abiertos por puesto, por zona o por lugar (Spec 0089).
+     *
+     * **La clave es `(departamento, municipio, eje)`, no el eje solo.** El código
+     * de puesto («00»), el de zona («00») y hasta el nombre del lugar («PUESTO
+     * CABECERA MUNICIPAL») son identificadores **locales**: se repiten en cada
+     * municipio del país. Agrupar por el eje a secas fundía en una sola fila las
+     * cabeceras de municipios distintos, y el número que salía —«por lugar →
+     * PUESTO CABECERA MUNICIPAL = 806»— no era el total de ningún puesto.
+     *
+     * No es que se leyera raro: **estaba mal**. Y por lo mismo cada fila viaja
+     * con su municipio y su departamento; un total sin decir de dónde es no
+     * significa nada. En `por_puesto` viaja además el `lugar`, que es funcional
+     * al código dentro del municipio: «00» no le dice nada a nadie.
+     *
+     * Los dos ejes geográficos van en la clave porque hay municipios homónimos
+     * en departamentos distintos.
      *
      * @param  array<int, int>  $actaIds
      * @return array<int, array<string, mixed>>
@@ -288,35 +303,67 @@ class ConsolidadoService
             return [];
         }
 
-        $filas = E14Resultado::query()
+        $consulta = E14Resultado::query()
             ->join('e14_actas', 'e14_actas.id', '=', 'e14_resultados.e14_acta_id')
             ->join('e14_candidates', 'e14_candidates.id', '=', 'e14_resultados.e14_candidate_id')
             ->whereIn('e14_resultados.e14_acta_id', $actaIds)
             ->selectRaw("e14_actas.{$eje} as eje")
+            ->selectRaw('e14_actas.departamento as departamento')
+            ->selectRaw('e14_actas.municipio as municipio')
             ->selectRaw('e14_candidates.numero as numero')
             ->selectRaw('e14_candidates.nombre as nombre')
             ->selectRaw('SUM(e14_resultados.votos) as votos')
-            ->groupBy("e14_actas.{$eje}", 'e14_candidates.numero', 'e14_candidates.nombre')
+            ->groupBy(
+                "e14_actas.{$eje}",
+                'e14_actas.departamento',
+                'e14_actas.municipio',
+                'e14_candidates.numero',
+                'e14_candidates.nombre'
+            )
+            ->orderBy('e14_actas.departamento')
+            ->orderBy('e14_actas.municipio')
             ->orderBy("e14_actas.{$eje}")
-            ->orderBy('e14_candidates.numero')
-            ->get();
+            ->orderBy('e14_candidates.numero');
+
+        // Solo en `por_puesto`: el nombre impreso del puesto. Con `MIN` porque el
+        // agrupado no lo lleva —dos actas del mismo puesto podrían haberlo
+        // transcrito distinto— y hace falta elegir uno de forma estable.
+        if ($eje !== 'lugar') {
+            $consulta->selectRaw('MIN(e14_actas.lugar) as lugar');
+        }
 
         $agrupado = [];
 
-        foreach ($filas as $fila) {
+        foreach ($consulta->get() as $fila) {
             // Un acta sin ese eje no hace grupo: un renglón «(sin nombre)» con
             // votos dentro se lee como si fuera un puesto de votación más.
             if (blank($fila->eje)) {
                 continue;
             }
 
-            $agrupado[$fila->eje] ??= [$eje => $fila->eje, 'candidatos' => [], 'total' => 0];
-            $agrupado[$fila->eje]['candidatos'][] = [
+            // Lo que no tiene ubicación leída no se cuelga del primer municipio
+            // que aparezca: hace su propio grupo, que el panel rotula «(sin
+            // ubicación)». Meterlo en uno cualquiera sería inventarle un origen.
+            $departamento = blank($fila->departamento) ? null : $fila->departamento;
+            $municipio = blank($fila->municipio) ? null : $fila->municipio;
+
+            $clave = ($departamento ?? '').'|'.($municipio ?? '').'|'.$fila->eje;
+
+            $agrupado[$clave] ??= [$eje => $fila->eje]
+                + ($eje === 'puesto' ? ['lugar' => $fila->lugar] : [])
+                + [
+                    'departamento' => $departamento,
+                    'municipio' => $municipio,
+                    'candidatos' => [],
+                    'total' => 0,
+                ];
+
+            $agrupado[$clave]['candidatos'][] = [
                 'numero' => (int) $fila->numero,
                 'nombre' => $fila->nombre,
                 'votos' => (int) $fila->votos,
             ];
-            $agrupado[$fila->eje]['total'] += (int) $fila->votos;
+            $agrupado[$clave]['total'] += (int) $fila->votos;
         }
 
         return array_values($agrupado);

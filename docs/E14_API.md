@@ -969,9 +969,9 @@ Votos por candidato **solo de las actas `procesada`**. Filtros:
     "total_votos": 989
   },
   "desglose": {
-    "por_puesto": [{ "puesto": "01", "candidatos": [], "total": 889 }],
-    "por_zona":   [{ "zona": "01",   "candidatos": [], "total": 889 }],
-    "por_lugar":  [{ "lugar": "INSTITUCION EDUCATIVA SAN JOSE", "candidatos": [], "total": 889 }]
+    "por_puesto": [{ "puesto": "01", "lugar": "INSTITUCION EDUCATIVA SAN JOSE", "departamento": "TOLIMA", "municipio": "IBAGUE", "candidatos": [], "total": 889 }],
+    "por_zona":   [{ "zona": "01", "departamento": "TOLIMA", "municipio": "IBAGUE", "candidatos": [], "total": 889 }],
+    "por_lugar":  [{ "lugar": "INSTITUCION EDUCATIVA SAN JOSE", "departamento": "TOLIMA", "municipio": "IBAGUE", "candidatos": [], "total": 889 }]
   }
 }
 ```
@@ -980,6 +980,38 @@ Votos por candidato **solo de las actas `procesada`**. Filtros:
 nombre impreso del puesto en vez de su código. Las actas sin ese dato no hacen
 grupo — un renglón sin nombre con votos dentro se lee como si fuera un puesto de
 votación más.
+
+### El desglose agrupa por municipio, no por el código (Spec 0089)
+
+La clave de cada fila es **`(departamento, municipio, eje)`**, y por eso cada una
+viaja con `departamento` y `municipio` — y `por_puesto`, además, con el `lugar`.
+
+El motivo es aritmético, no cosmético. El código de puesto (`00`), el de zona
+(`00`) y hasta el nombre del lugar (`PUESTO CABECERA MUNICIPAL`) son
+identificadores **locales**: se repiten en cada municipio del país. Agrupar por el
+eje a secas fundía en una fila las cabeceras de municipios distintos y publicaba
+un total que no era de ningún puesto — en datos reales, «por lugar → PUESTO
+CABECERA MUNICIPAL = 806» era la suma de varias cabeceras.
+
+| Campo | En qué corte | Qué es |
+| --- | --- | --- |
+| `departamento`, `municipio` | los tres | De dónde es la fila. `null` cuando el acta no traía ubicación leída |
+| `lugar` | `por_puesto` | El nombre impreso del puesto, funcional a su código dentro del municipio: «00» no le dice nada a nadie |
+
+Dos reglas de borde:
+
+- **Sin ubicación no se mezcla.** Un acta con puesto pero sin municipio hace su
+  **propio grupo** (`departamento`/`municipio` en `null`, que el panel rotula
+  «(sin ubicación)»): colgarla del primer municipio que aparezca sería inventarle
+  un origen.
+- **Los dos ejes van en la clave** porque hay municipios homónimos en
+  departamentos distintos.
+
+El **total global no cambia**: lo que cambia es el reparto. Una prueba fija que
+la Σ de las filas de cada corte es `meta.total_candidatos`.
+
+La corporación no tiene desglose geográfico —reparte por lista y por preferente—
+así que no había nada que corregir ahí.
 
 `meta.actas` está ahí a propósito: un consolidado sin decir cuántas actas quedaron
 fuera invita a leerlo como definitivo cuando no lo es.
