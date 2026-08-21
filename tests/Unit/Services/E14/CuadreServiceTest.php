@@ -186,6 +186,120 @@ class CuadreServiceTest extends TestCase
         $this->assertStringContainsString('no coincide', $noCuadra->motivo);
     }
 
+    // ------------------------------- la nivelación de la mesa (Spec 0088)
+
+    public function test_el_acta_del_ejemplo_cuadra_contra_la_urna_nivelada(): void
+    {
+        // El acta que destapó el defecto: 253 sufragantes, 254 votos en la urna
+        // y uno incinerado para nivelarla. Las casillas cuadran en 253 y el
+        // servidor la marcaba `inconsistente` por comparar contra la cruda.
+        $veredicto = $this->cuadre->evaluar(
+            sumaCandidatos: 241,
+            votosBlanco: 4,
+            votosNulos: 4,
+            votosNoMarcados: 4,
+            sumaDeclarada: 253,
+            votosUrna: 254,
+            votantesE11: 253,
+            votosIncinerados: 1,
+        );
+
+        $this->assertTrue($veredicto->cuadra);
+        $this->assertSame('procesada', $veredicto->estado);
+        $this->assertSame('', $veredicto->motivo);
+        $this->assertSame(253, $veredicto->sumaCalculada);
+        // La cruda se reporta tal cual: el papel no se corrige, se interpreta.
+        $this->assertSame(254, $veredicto->votosUrna);
+        $this->assertSame(1, $veredicto->votosIncinerados);
+        $this->assertSame(253, $veredicto->urnaEfectiva);
+        $this->assertSame(0, $veredicto->difNivelacion);
+    }
+
+    public function test_si_no_cuadra_el_motivo_nombra_la_urna_nivelada(): void
+    {
+        $veredicto = $this->cuadre->evaluar(
+            sumaCandidatos: 240,
+            votosBlanco: 4,
+            votosNulos: 4,
+            votosNoMarcados: 4,
+            sumaDeclarada: 252,
+            votosUrna: 254,
+            votantesE11: 253,
+            votosIncinerados: 1,
+        );
+
+        $this->assertFalse($veredicto->cuadra);
+        $this->assertSame('inconsistente', $veredicto->estado);
+        // Con el papel delante, un «no coincide con 253» frente a un acta que
+        // dice 254 parece el error del sistema hasta que se ve el descuento.
+        $this->assertStringContainsString(
+            'la urna nivelada (253 = 254 − 1 incinerado)',
+            $veredicto->motivo
+        );
+    }
+
+    public function test_sin_incineracion_el_acta_se_juzga_contra_la_urna_cruda(): void
+    {
+        // Con la casilla en cero, el veredicto de la 0061 no se mueve.
+        $veredicto = $this->cuadre->evaluar(
+            sumaCandidatos: 99,
+            votosBlanco: 4,
+            votosNulos: 4,
+            votosNoMarcados: 4,
+            sumaDeclarada: 111,
+            votosUrna: 110,
+            votantesE11: 111,
+        );
+
+        $this->assertFalse($veredicto->cuadra);
+        $this->assertSame(0, $veredicto->votosIncinerados);
+        $this->assertSame(110, $veredicto->urnaEfectiva);
+        $this->assertStringContainsString('los votos en la urna (110)', $veredicto->motivo);
+        $this->assertStringNotContainsString('nivelada', $veredicto->motivo);
+    }
+
+    public function test_la_nivelacion_se_mide_contra_la_urna_nivelada(): void
+    {
+        // 250 registrados y 253 contados: alguien votó sin quedar registrado. Es
+        // novedad, no error — el acta cuadra consigo misma.
+        $veredicto = $this->cuadre->evaluar(
+            sumaCandidatos: 241,
+            votosBlanco: 4,
+            votosNulos: 4,
+            votosNoMarcados: 4,
+            sumaDeclarada: 253,
+            votosUrna: 254,
+            votantesE11: 250,
+            votosIncinerados: 1,
+        );
+
+        $this->assertTrue($veredicto->cuadra);
+        $this->assertSame(-3, $veredicto->difNivelacion);
+    }
+
+    public function test_mas_incinerados_que_urna_manda_el_acta_a_revision(): void
+    {
+        // Imposible en un acta bien diligenciada: no se aproxima, se dice.
+        $veredicto = $this->cuadre->evaluar(
+            sumaCandidatos: 241,
+            votosBlanco: 4,
+            votosNulos: 4,
+            votosNoMarcados: 4,
+            sumaDeclarada: 253,
+            votosUrna: 254,
+            votantesE11: 253,
+            votosIncinerados: 300,
+        );
+
+        $this->assertFalse($veredicto->cuadra);
+        $this->assertSame('inconsistente', $veredicto->estado);
+        $this->assertSame(0, $veredicto->urnaEfectiva, 'acotada: nunca un negativo');
+        $this->assertStringContainsString(
+            'más votos incinerados (300) que votos en la urna (254)',
+            $veredicto->motivo
+        );
+    }
+
     public function test_mas_votos_que_votantes_da_una_nivelacion_negativa(): void
     {
         // No debe truncarse a cero: una urna con más votos que votantes

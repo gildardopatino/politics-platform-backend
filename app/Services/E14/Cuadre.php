@@ -21,9 +21,14 @@ class Cuadre
         public readonly string $motivo,
         public readonly int $sumaCalculada,
         public readonly int $sumaDeclarada,
+        /** La urna **cruda**, tal como la escribió el jurado. No se corrige nunca. */
         public readonly int $votosUrna,
         public readonly int $difNivelacion,
         public readonly array $listasDescuadradas = [],
+        /** «TOTAL VOTOS INCINERADOS» de la nivelación de la mesa (Spec 0088). */
+        public readonly int $votosIncinerados = 0,
+        /** Contra esto se juzgó el acta: `max(0, urna − incinerados)` (Spec 0088). */
+        public readonly int $urnaEfectiva = 0,
     ) {}
 
     public function esProcesada(): bool

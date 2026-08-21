@@ -78,6 +78,7 @@ class CuadreCorporacionTest extends TestCase
         int $noMarcados = 12,
         int $urna = 111,
         int $e11 = 111,
+        int $incinerados = 0,
     ) {
         return $this->cuadre->evaluarCorporacion(
             listas: $listas ?? $this->listasDeLaMuestra(),
@@ -86,6 +87,7 @@ class CuadreCorporacionTest extends TestCase
             votosNoMarcados: $noMarcados,
             votosUrna: $urna,
             votantesE11: $e11,
+            votosIncinerados: $incinerados,
         );
     }
 
@@ -102,6 +104,41 @@ class CuadreCorporacionTest extends TestCase
         $this->assertSame(111, $veredicto->votosUrna);
         $this->assertSame(0, $veredicto->difNivelacion);
         $this->assertSame([], $veredicto->listasDescuadradas);
+    }
+
+    public function test_el_global_se_contrasta_contra_la_urna_nivelada(): void
+    {
+        // La misma acta (las listas y los controles suman 111), pero la urna
+        // trae 112 y un voto incinerado: se contaron 111 (Spec 0088).
+        $veredicto = $this->evaluar(urna: 112, incinerados: 1);
+
+        $this->assertTrue($veredicto->cuadra);
+        $this->assertSame('procesada', $veredicto->estado);
+        $this->assertSame(112, $veredicto->votosUrna);
+        $this->assertSame(111, $veredicto->urnaEfectiva);
+        $this->assertSame(0, $veredicto->difNivelacion, '111 sufragantes contra 111 contados');
+    }
+
+    public function test_sin_descontar_los_incinerados_la_misma_acta_no_cuadraria(): void
+    {
+        // El control del control: si mandara la urna cruda, este acta —que es
+        // correcta— acabaría en revisión por el voto que se incineró.
+        $veredicto = $this->evaluar(urna: 112);
+
+        $this->assertFalse($veredicto->cuadra);
+        $this->assertStringContainsString('112', $veredicto->motivo);
+    }
+
+    public function test_mas_incinerados_que_urna_manda_el_acta_a_revision(): void
+    {
+        $veredicto = $this->evaluar(urna: 111, incinerados: 200);
+
+        $this->assertFalse($veredicto->cuadra);
+        $this->assertSame(0, $veredicto->urnaEfectiva);
+        $this->assertStringContainsString(
+            'más votos incinerados (200) que votos en la urna (111)',
+            $veredicto->motivo
+        );
     }
 
     public function test_la_suma_declarada_no_existe_en_corporacion(): void
