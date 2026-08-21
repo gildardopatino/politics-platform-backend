@@ -184,6 +184,42 @@ class MeetingsBackfillQrTest extends TestCase
         $this->assertNotNull($this->conQr($laBuena->id));
     }
 
+    // ------------------------------------------ el guard de la factory
+
+    public function test_toda_reunion_de_la_factory_nace_con_qr(): void
+    {
+        $tenant = Tenant::factory()->create();
+        $reunion = Meeting::factory()->forTenant($tenant)->create();
+
+        $this->assertNotNull($reunion->qr_code);
+
+        [$user] = $this->createTenantWithUser(['view_meetings'], $tenant);
+
+        $this->actingAsTenantUser($user)
+            ->getJson("/api/v1/meetings/{$reunion->id}")
+            ->assertStatus(200)
+            ->assertJsonPath('data.qr_data.code', $reunion->qr_code);
+    }
+
+    public function test_un_qr_dado_a_mano_manda_sobre_el_de_la_factory(): void
+    {
+        // Media suite fija el código para poder hacer check-in con él: el guard
+        // rellena el hueco, no pisa lo que alguien escribió.
+        $reunion = Meeting::factory()->create(['qr_code' => 'QR-A-MANO']);
+
+        $this->assertSame('QR-A-MANO', $reunion->qr_code);
+    }
+
+    public function test_pedir_una_reunion_sin_qr_a_proposito_sigue_siendo_posible(): void
+    {
+        // El guard es un defecto, no una imposición: hay pruebas que necesitan
+        // la reunión que todavía no tiene código —la del 404 de `GET /qr-code`—
+        // y el backfill se prueba justamente contra ella.
+        $reunion = Meeting::factory()->create(['qr_code' => null]);
+
+        $this->assertNull($reunion->qr_code);
+    }
+
     // ------------------------------------------------------- sin regresión
 
     public function test_el_store_de_la_api_sigue_generando_su_qr_una_sola_vez(): void

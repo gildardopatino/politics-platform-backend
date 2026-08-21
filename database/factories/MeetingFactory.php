@@ -5,6 +5,7 @@ namespace Database\Factories;
 use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
+use Illuminate\Support\Str;
 
 /**
  * @extends \Illuminate\Database\Eloquent\Factories\Factory<\App\Models\Meeting>
@@ -28,6 +29,23 @@ class MeetingFactory extends Factory
             'lugar_nombre' => fake()->company(),
             'direccion' => fake()->address(),
             'status' => 'scheduled',
+            // Toda reunión sembrada nace con QR, y con él con formulario público
+            // (Spec 0087). El panel pinta el QR y el link de check-in solo si la
+            // reunión tiene `qr_code` —el recurso deriva el SVG de ahí bajo
+            // demanda—, y ese código lo generaba **únicamente** el `store()` de
+            // la API: todo lo sembrado nacía sin él, así que tras un
+            // `migrate:fresh --seed` no había QR que imprimir aunque el check-in
+            // funcionara.
+            //
+            // Solo el **código**, que es lo que faltaba; el SVG lo sigue
+            // derivando el recurso. Llamar al servicio de QR desde aquí le
+            // cobraría a cada prueba un archivo en disco sin necesitarlo.
+            //
+            // Va en `definition()` y no en un `afterCreating` para que lo que se
+            // pase a mano mande: media suite fija el código para hacer check-in
+            // con él, y alguna prueba pide `qr_code => null` a propósito para
+            // ejercitar la reunión que todavía no lo tiene.
+            'qr_code' => Str::random(32),
         ];
     }
 
