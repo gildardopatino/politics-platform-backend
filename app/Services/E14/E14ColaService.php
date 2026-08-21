@@ -46,8 +46,9 @@ class E14ColaService
      * jurados. Si el archivo se fuera, no habría nada que volver a leer.
      */
     private const CIFRAS_LEIDAS = [
-        'suma_calculada', 'suma_declarada', 'votos_urna', 'votantes_e11',
-        'dif_nivelacion', 'votos_blanco', 'votos_nulos', 'votos_no_marcados',
+        'suma_calculada', 'suma_declarada', 'votos_urna', 'votos_incinerados',
+        'votantes_e11', 'dif_nivelacion', 'votos_blanco', 'votos_nulos',
+        'votos_no_marcados',
     ];
 
     public function __construct(

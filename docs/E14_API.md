@@ -20,7 +20,8 @@ de cuadre.
 ## La regla que gobierna todo
 
 ```
-Σ candidatos + blanco + nulos + no marcados  =  suma declarada  =  votos en la urna
+Σ candidatos + blanco + nulos + no marcados  =  suma declarada  =  urna nivelada
+urna nivelada  =  votos_urna − votos_incinerados
 ```
 
 Un acta que cumple las tres igualdades queda `procesada` y entra al
@@ -32,9 +33,49 @@ el `estado` decide qué votos entran al total, así que no puede depender de que
 cliente lo calcule bien. Que ambos manden su resultado y gane el del servidor es
 justamente lo que permite que una discrepancia se note.
 
-Aparte va la **nivelación**: `dif_nivelacion = votantes_e11 − votos_urna`. Que
+Aparte va la **nivelación**: `dif_nivelacion = votantes_e11 − urna nivelada`. Que
 alguien se registrara y no depositara es una novedad del acta, no un error de
-lectura; se anota y no bloquea nada.
+lectura; se anota y no bloquea nada. Con la mesa bien nivelada da **0**.
+
+### La urna es la nivelada, no la cruda (Spec 0088)
+
+El bloque «NIVELACIÓN DE LA MESA» del E-14 trae **tres** casillas: sufragantes
+del E-11, votos en la urna y **votos incinerados**. Cuando en la urna hay más
+votos que sufragantes, los jurados extraen al azar el excedente y lo **incineran
+sin abrirlo** para nivelar la mesa. La regla de la Registraduría es exacta:
+
+```
+votos_urna − votos_incinerados = sufragantes (E-11)
+```
+
+Los votos que se cuentan salen de la urna **ya nivelada**, así que es contra ella
+—y no contra la cruda— que se compara la suma de las casillas, en uninominal y en
+corporación. Compararlas contra la cruda descuadraba en falso **toda** acta con
+incineración: la que lo destapó traía E-11 253, urna 254 y un incinerado, cuadraba
+en 253 y salía `inconsistente`.
+
+`votos_urna` se guarda y se devuelve **cruda** —es lo que dice el papel— y
+`votos_incinerados` viaja al lado, para que quien lea el acta pueda rehacer la
+cuenta que la juzgó. Con `votos_incinerados = 0` —el caso normal— nada cambia
+respecto de 0061/0067.
+
+Los motivos de descuadre nombran la urna nivelada y llevan la cuenta a la vista:
+
+```
+la suma declarada (252) no coincide con la urna nivelada (253 = 254 − 1 incinerado)
+```
+
+**Borde:** si el acta declara más incinerados que votos en la urna —imposible bien
+diligenciada— la urna nivelada se acota a **0**, nunca a un negativo, y el acta va
+a revisión con su propio motivo:
+
+```
+el acta declara más votos incinerados (300) que votos en la urna (254): la
+nivelación de la mesa está mal diligenciada
+```
+
+La misma fórmula la aplica el lector Python antes de publicar (0088-A); el
+veredicto que manda sigue siendo el del servidor.
 
 ### El acta sin datos no cuadra (Spec 0077)
 
@@ -47,7 +88,7 @@ Por eso `CuadreService::evaluar()` tiene un guardia **antes** de las
 comparaciones:
 
 ```
-suma_calculada == 0  &&  suma_declarada == 0  &&  votos_urna == 0
+suma_calculada == 0  &&  suma_declarada == 0  &&  urna nivelada == 0
         →  estado = revision_manual
         →  observacion = «el acta no tiene datos: ninguna casilla ni la urna registran votos»
 ```
@@ -119,7 +160,7 @@ Devuelve el acta a la cola y **descarta la lectura anterior**. 200 con el acta y
 | Se limpia | Se conserva |
 | --- | --- |
 | `e14_resultados` del acta (borrado explícito) | `archivo_path`, `archivo_hash`, `archivo_nombre` |
-| `suma_calculada`, `suma_declarada`, `votos_urna`, `votantes_e11`, `dif_nivelacion` → `0` | `tipo`, `electoral_event_id` |
+| `suma_calculada`, `suma_declarada`, `votos_urna`, `votos_incinerados`, `votantes_e11`, `dif_nivelacion` → `0` | `tipo`, `electoral_event_id` |
 | `votos_blanco`, `votos_nulos`, `votos_no_marcados` → `0` | ubicación (`departamento*`, `municipio*`, `lugar`, `voting_place_id`, `zona`, `puesto`, `mesa`) |
 | `confianza`, `observacion`, `claimed_at`, `processed_at` → `null` | constancias de los jurados (0073) |
 | `intentos` → `0`; `fuente` → `vision` | |
@@ -188,7 +229,7 @@ La diferencia atraviesa toda la API, así que conviene tenerla presente:
 | --- | --- | --- |
 | Qué trae el acta | `resultados[]` (candidato, votos) | `listas[]` (agrupación → preferentes) |
 | `suma_declarada` | **obligatoria** | **no existe** en el papel; no se exige ni se guarda |
-| Cuadre global | casillas = declarada = urna | Σ totales de agrupación + controles = **urna** |
+| Cuadre global | casillas = declarada = urna nivelada | Σ totales de agrupación + controles = **urna nivelada** |
 | Cuadre por fila | — | `solo_lista + Σ preferentes = total_agrupacion` |
 | Consolidado | por candidato | por lista **y** por (lista, preferente) |
 
@@ -683,7 +724,7 @@ el worker acaba de leer:
   "municipio_code": "73001", "municipio": "IBAGUE",
   "lugar": "INSTITUCION EDUCATIVA SAN JOSE",
   "fuente": "vision",
-  "suma_declarada": 111, "votos_urna": 111, "votantes_e11": 111,
+  "suma_declarada": 111, "votos_urna": 111, "votos_incinerados": 0, "votantes_e11": 111,
   "votos_blanco": 4, "votos_nulos": 4, "votos_no_marcados": 4,
   "resultados": [ { "numero": 1, "nombre": "JORGE BOLIVAR TORRES", "votos": 50 } ],
 
@@ -790,6 +831,7 @@ entero no duplica un solo voto.
   "suma_calculada": 111,
   "suma_declarada": 111,
   "votos_urna": 111,
+  "votos_incinerados": 0,
   "votantes_e11": 111,
   "dif_nivelacion": 0,
   "votos_blanco": 4,
@@ -883,7 +925,8 @@ Un acta de otro tenant responde **404**.
 
 ### `PUT /actas/{id}` — corrección manual
 
-Acepta cualquier subconjunto de `suma_declarada`, `votos_urna`, `votantes_e11`,
+Acepta cualquier subconjunto de `suma_declarada`, `votos_urna`,
+`votos_incinerados`, `votantes_e11`,
 `votos_blanco`, `votos_nulos`, `votos_no_marcados`, `departamento_code`,
 `departamento`, `municipio_code`, `municipio`, `lugar`, `observacion` y
 `resultados`.
@@ -1776,7 +1819,7 @@ directa) y `POST /actas/{id}/resultado` (worker).
 
 ```
 por lista:  votos_solo_lista + Σ preferentes = total_agrupacion
-global:     Σ total_agrupacion + blanco + nulos + no_marcados = votos_urna
+global:     Σ total_agrupacion + blanco + nulos + no_marcados = urna nivelada
 ```
 
 El **self-check por lista** es lo que hace útil el error. Un acta de diecisiete
@@ -1797,7 +1840,7 @@ sus casillas: es la cifra que alguien tallaría del papel, y recalcularla tapar�
 justo el error que el self-check acaba de señalar. Y se contrasta **contra la
 urna**, no contra una suma declarada que no existe.
 
-La **nivelación** (`votantes_e11 − votos_urna`) es una novedad, no un error, igual
+La **nivelación** (`votantes_e11 − urna nivelada`) es una novedad, no un error, igual
 que en uninominal. El guardia de **acta sin datos** (spec 0077) aplica al nivel
 que toca: sin listas y con la urna en cero, `revision_manual` — `0 = 0` lo
 cumpliría en silencio. Pero listas en cero **con** urna es `inconsistente`, no
@@ -1967,7 +2010,8 @@ municipio ni zona — esas metas se agregan de sus puestos.
 `departamento`, `municipio_code`, `municipio`, `zona`, `puesto`, `mesa`,
 `lugar`, `voting_place_id`, `archivo_nombre`,
 `archivo_hash`, `upload_batch_id`, `archivo_path`, `estado`, `suma_calculada`,
-`suma_declarada`, `votos_urna`, `votantes_e11`, `dif_nivelacion`,
+`suma_declarada`, `votos_urna`, `votos_incinerados` (entera, default `0`,
+Spec 0088), `votantes_e11`, `dif_nivelacion`,
 `votos_blanco`, `votos_nulos`, `votos_no_marcados`, `fuente`, `confianza`,
 `observacion`, `hubo_recuento`, `constancias`, `recuento_solicitado_por`,
 `recuento_representacion`, `processed_at`, `claimed_at`, `intentos`, timestamps.

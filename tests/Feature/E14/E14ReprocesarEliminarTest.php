@@ -89,6 +89,7 @@ class E14ReprocesarEliminarTest extends TestCase
             'suma_calculada' => 111,
             'suma_declarada' => 100,
             'votos_urna' => 100,
+            'votos_incinerados' => 3,
             'votantes_e11' => 120,
             'dif_nivelacion' => 20,
             'votos_blanco' => 4,
@@ -141,7 +142,9 @@ class E14ReprocesarEliminarTest extends TestCase
         $this->assertSame(0, $acta->intentos);
         $this->assertSame(E14Acta::FUENTE_VISION, $acta->fuente);
 
-        foreach (['suma_calculada', 'suma_declarada', 'votos_urna', 'votantes_e11', 'dif_nivelacion', 'votos_blanco', 'votos_nulos', 'votos_no_marcados'] as $cifra) {
+        // `votos_incinerados` entra en la lista (0088): una incineración que se
+        // quedara de la lectura anterior descontaría votos de la siguiente.
+        foreach (['suma_calculada', 'suma_declarada', 'votos_urna', 'votos_incinerados', 'votantes_e11', 'dif_nivelacion', 'votos_blanco', 'votos_nulos', 'votos_no_marcados'] as $cifra) {
             $this->assertSame(0, $acta->{$cifra}, "«{$cifra}» tenía que quedar en cero.");
         }
 
