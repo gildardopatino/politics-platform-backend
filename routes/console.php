@@ -18,16 +18,24 @@ Schedule::command('voters:sync')
     ->onOneServer()
     ->emailOutputOnFailure(config('mail.from.address'));
 
-// Sincronizar redes sociales - cada 15 minutos para tenants con auto-sync habilitado
+// Sincronizar redes sociales - cada 15 minutos para tenants con auto-sync habilitado.
+//
+// Va con la landing (Spec 0085): el feed que alimenta es suyo y no tiene otro
+// consumidor, asi que con la vitrina apagada esto solo gastaria cuota de API y
+// mantendria vivas unas credenciales que nadie usa.
 Schedule::call(function () {
+    if (! config('landing.habilitada')) {
+        return;
+    }
+
     $tenants = Tenant::where('social_auto_sync_enabled', true)->get();
-    
+
     foreach ($tenants as $tenant) {
         // Check if enough time has passed based on tenant's interval setting
         $interval = $tenant->social_sync_interval_minutes ?? 15;
         $lastSync = $tenant->social_last_synced_at;
-        
-        if (!$lastSync || $lastSync->addMinutes($interval)->isPast()) {
+
+        if (! $lastSync || $lastSync->addMinutes($interval)->isPast()) {
             SyncSocialMediaJob::dispatch($tenant->id);
         }
     }

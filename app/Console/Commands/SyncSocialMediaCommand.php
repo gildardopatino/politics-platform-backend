@@ -28,6 +28,15 @@ class SyncSocialMediaCommand extends Command
 
     public function handle(): int
     {
+        // El sync alimenta el feed de la landing, que esta retirada del producto
+        // (Spec 0085). Se avisa en vez de fallar: no es un error del operador,
+        // es que el modulo esta apagado.
+        if (! config('landing.habilitada')) {
+            $this->warn('La landing esta apagada (LANDING_HABILITADA=false), y el sync de redes va con ella. No hay nada que sincronizar.');
+
+            return self::SUCCESS;
+        }
+
         $tenantSlug = $this->option('tenant');
         $platform = $this->option('platform');
 
@@ -40,6 +49,7 @@ class SyncSocialMediaCommand extends Command
 
         if ($tenants->isEmpty()) {
             $this->warn('No tenants with auto-sync enabled');
+
             return self::SUCCESS;
         }
 
@@ -56,8 +66,9 @@ class SyncSocialMediaCommand extends Command
     {
         $tenant = Tenant::where('slug', $slug)->first();
 
-        if (!$tenant) {
+        if (! $tenant) {
             $this->error("Tenant '{$slug}' not found");
+
             return self::FAILURE;
         }
 
@@ -74,6 +85,7 @@ class SyncSocialMediaCommand extends Command
 
             if ($result === null) {
                 $this->error("Invalid platform: {$platform}");
+
                 return self::FAILURE;
             }
 
@@ -103,4 +115,3 @@ class SyncSocialMediaCommand extends Command
         }
     }
 }
-

@@ -104,18 +104,26 @@ Route::prefix('v1')->group(function () {
     // MercadoPago Webhook (public - must be outside authentication)
     Route::post('/mercadopago/webhook', [MercadoPagoController::class, 'webhook']);
 
-    // Landing Page Public Routes
-    Route::prefix('landingpage')->group(function () {
-        Route::get('/banners', [LandingPageController::class, 'getBanners']);
-        Route::get('/biografia', [LandingPageController::class, 'getBiografia']);
-        Route::get('/propuestas', [LandingPageController::class, 'getPropuestas']);
-        Route::get('/eventos', [LandingPageController::class, 'getEventos']);
-        Route::get('/galeria', [LandingPageController::class, 'getGaleria']);
-        Route::get('/testimonios', [LandingPageController::class, 'getTestimonios']);
-        Route::get('/social-feed', [LandingPageController::class, 'getSocialFeed']);
-        Route::post('/voluntarios', [LandingPageController::class, 'storeVoluntario']);
-        Route::post('/contacto', [LandingPageController::class, 'storeContacto']);
-    });
+    // Landing Page Public Routes — apagadas por defecto (Spec 0085).
+    //
+    // La landing se retiró del producto: es vitrina pública y no toca ninguna
+    // decisión de campaña. Las rutas no se registran, en vez de responder un 404
+    // desde dentro: para quien llama es lo mismo, y además quita superficie de
+    // ataque —lo que no existe no se explota—. `LANDING_HABILITADA=true` las
+    // devuelve tal cual.
+    if (config('landing.habilitada')) {
+        Route::prefix('landingpage')->group(function () {
+            Route::get('/banners', [LandingPageController::class, 'getBanners']);
+            Route::get('/biografia', [LandingPageController::class, 'getBiografia']);
+            Route::get('/propuestas', [LandingPageController::class, 'getPropuestas']);
+            Route::get('/eventos', [LandingPageController::class, 'getEventos']);
+            Route::get('/galeria', [LandingPageController::class, 'getGaleria']);
+            Route::get('/testimonios', [LandingPageController::class, 'getTestimonios']);
+            Route::get('/social-feed', [LandingPageController::class, 'getSocialFeed']);
+            Route::post('/voluntarios', [LandingPageController::class, 'storeVoluntario']);
+            Route::post('/contacto', [LandingPageController::class, 'storeContacto']);
+        });
+    }
 
     // Descarga del PDF de un acta (Spec 0071). Pública **por firma**: el worker
     // recibe la URL ya firmada al reclamar el acta y la usa en segundos. La
@@ -507,32 +515,38 @@ Route::prefix('v1')->group(function () {
                 Route::get('/calls-stats', [CallController::class, 'stats']);
             });
 
-            // Landing Page Admin Routes (Protected)
-            Route::prefix('landingpage/admin')->middleware('permission:manage_landingpage')->group(function () {
-                Route::apiResource('banners', LandingBannerAdminController::class);
-                Route::apiResource('propuestas', LandingPropuestaAdminController::class);
-                Route::apiResource('eventos', LandingEventoAdminController::class);
-                Route::apiResource('galeria', LandingGaleriaAdminController::class);
-                Route::apiResource('testimonios', LandingTestimonioAdminController::class);
-                Route::apiResource('social-feed', LandingSocialFeedAdminController::class);
+            // Landing Page Admin Routes (Protected) — tras el flag (Spec 0085).
+            //
+            // El sync de redes va con ellas: alimenta el feed de la landing y no
+            // tiene otro consumidor, así que apagar la vitrina y dejar corriendo
+            // las credenciales sociales sería quedarse con el riesgo sin el uso.
+            if (config('landing.habilitada')) {
+                Route::prefix('landingpage/admin')->middleware('permission:manage_landingpage')->group(function () {
+                    Route::apiResource('banners', LandingBannerAdminController::class);
+                    Route::apiResource('propuestas', LandingPropuestaAdminController::class);
+                    Route::apiResource('eventos', LandingEventoAdminController::class);
+                    Route::apiResource('galeria', LandingGaleriaAdminController::class);
+                    Route::apiResource('testimonios', LandingTestimonioAdminController::class);
+                    Route::apiResource('social-feed', LandingSocialFeedAdminController::class);
 
-                // Biografia - special routes (updates JSON field in tenants table)
-                Route::get('biografia', [BiografiaAdminController::class, 'show']);
-                Route::put('biografia', [BiografiaAdminController::class, 'update']);
-                Route::delete('biografia/imagen', [BiografiaAdminController::class, 'deleteImage']);
-            });
+                    // Biografia - special routes (updates JSON field in tenants table)
+                    Route::get('biografia', [BiografiaAdminController::class, 'show']);
+                    Route::put('biografia', [BiografiaAdminController::class, 'update']);
+                    Route::delete('biografia/imagen', [BiografiaAdminController::class, 'deleteImage']);
+                });
 
-            // Social Media Settings
-            Route::prefix('settings/social-media')->group(function () {
-                Route::get('/', [SocialMediaSettingsController::class, 'show']);
-                Route::put('/twitter', [SocialMediaSettingsController::class, 'updateTwitter']);
-                Route::put('/facebook', [SocialMediaSettingsController::class, 'updateFacebook']);
-                Route::put('/instagram', [SocialMediaSettingsController::class, 'updateInstagram']);
-                Route::put('/youtube', [SocialMediaSettingsController::class, 'updateYouTube']);
-                Route::put('/auto-sync', [SocialMediaSettingsController::class, 'updateAutoSync']);
-                Route::post('/sync', [SocialMediaSettingsController::class, 'syncAll']);
-                Route::post('/sync/{platform}', [SocialMediaSettingsController::class, 'syncPlatform']);
-            });
+                // Social Media Settings
+                Route::prefix('settings/social-media')->group(function () {
+                    Route::get('/', [SocialMediaSettingsController::class, 'show']);
+                    Route::put('/twitter', [SocialMediaSettingsController::class, 'updateTwitter']);
+                    Route::put('/facebook', [SocialMediaSettingsController::class, 'updateFacebook']);
+                    Route::put('/instagram', [SocialMediaSettingsController::class, 'updateInstagram']);
+                    Route::put('/youtube', [SocialMediaSettingsController::class, 'updateYouTube']);
+                    Route::put('/auto-sync', [SocialMediaSettingsController::class, 'updateAutoSync']);
+                    Route::post('/sync', [SocialMediaSettingsController::class, 'syncAll']);
+                    Route::post('/sync/{platform}', [SocialMediaSettingsController::class, 'syncPlatform']);
+                });
+            }
 
             // Audits (Activity Logs) — el controller ya comprobaba view_audits
             // a mano; ahora además lo exige la ruta.
