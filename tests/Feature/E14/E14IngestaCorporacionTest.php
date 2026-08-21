@@ -286,6 +286,36 @@ class E14IngestaCorporacionTest extends TestCase
         ]))->assertStatus(201)->assertJsonPath('data.estado', 'revision_manual');
     }
 
+    // --------------------------------- la nivelación de la mesa (Spec 0088)
+
+    public function test_el_global_se_contrasta_contra_la_urna_nivelada(): void
+    {
+        $this->operador();
+
+        // La misma acta (listas y controles suman 55), pero la urna trae 56 y un
+        // voto incinerado para nivelar la mesa: se contaron 55.
+        $this->postJson('/api/v1/e14/actas', $this->acta([
+            'votos_urna' => 56,
+            'votos_incinerados' => 1,
+            'votantes_e11' => 55,
+        ]))
+            ->assertStatus(201)
+            ->assertJsonPath('data.estado', 'procesada')
+            ->assertJsonPath('data.suma_calculada', 55)
+            ->assertJsonPath('data.votos_urna', 56)
+            ->assertJsonPath('data.votos_incinerados', 1)
+            ->assertJsonPath('data.dif_nivelacion', 0);
+    }
+
+    public function test_sin_descontar_los_incinerados_la_misma_acta_no_cuadraria(): void
+    {
+        $this->operador();
+
+        $this->postJson('/api/v1/e14/actas', $this->acta(['votos_urna' => 56]))
+            ->assertStatus(201)
+            ->assertJsonPath('data.estado', 'inconsistente');
+    }
+
     // ------------------------------------------------------- idempotencia
 
     public function test_reenviar_la_misma_acta_no_duplica_nada(): void

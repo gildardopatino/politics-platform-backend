@@ -371,6 +371,167 @@ class E14IngestTest extends TestCase
             ->assertJsonPath('data.fuente', 'manual');
     }
 
+    // --------------------------------- la nivelación de la mesa (Spec 0088)
+
+    /**
+     * El acta que destapó el defecto: 253 sufragantes, 254 votos en la urna y
+     * uno incinerado para nivelarla. Las casillas cuadran en 253.
+     *
+     * @param  array<string, mixed>  $cambios
+     * @return array<string, mixed>
+     */
+    private function actaNivelada(array $cambios = []): array
+    {
+        return $this->acta(array_replace([
+            'suma_declarada' => 253,
+            'votos_urna' => 254,
+            'votos_incinerados' => 1,
+            'votantes_e11' => 253,
+            'resultados' => [
+                ['numero' => 1, 'nombre' => 'JORGE BOLIVAR TORRES', 'votos' => 200],
+                ['numero' => 2, 'nombre' => 'JOHANA ARANDA', 'votos' => 30],
+                ['numero' => 3, 'nombre' => 'RENSO GARCIA', 'votos' => 11],
+            ],
+        ], $cambios));
+    }
+
+    public function test_un_acta_con_incinerados_cuadra_contra_la_urna_nivelada(): void
+    {
+        $this->operador();
+
+        $this->postJson('/api/v1/e14/actas', $this->actaNivelada())
+            ->assertStatus(201)
+            ->assertJsonPath('data.estado', 'procesada')
+            ->assertJsonPath('data.suma_calculada', 253)
+            // La urna cruda se guarda tal cual: el papel no se corrige.
+            ->assertJsonPath('data.votos_urna', 254)
+            ->assertJsonPath('data.votos_incinerados', 1)
+            // 253 sufragantes contra 253 contados: la mesa quedó nivelada.
+            ->assertJsonPath('data.dif_nivelacion', 0);
+
+        $this->assertDatabaseHas('e14_actas', [
+            'mesa' => '001',
+            'estado' => 'procesada',
+            'votos_urna' => 254,
+            'votos_incinerados' => 1,
+        ]);
+    }
+
+    public function test_sin_descontar_los_incinerados_la_misma_acta_no_cuadraria(): void
+    {
+        $this->operador();
+
+        // El control del control: es el veredicto que daba el servidor antes de
+        // la 0088 — un acta correcta parada por el voto que se incineró.
+        $this->postJson('/api/v1/e14/actas', $this->actaNivelada(['votos_incinerados' => 0]))
+            ->assertStatus(201)
+            ->assertJsonPath('data.estado', 'inconsistente');
+    }
+
+    public function test_el_descuadre_cita_la_urna_nivelada(): void
+    {
+        $this->operador();
+
+        $respuesta = $this->postJson('/api/v1/e14/actas', $this->actaNivelada([
+            'suma_declarada' => 252,
+            'resultados' => [
+                ['numero' => 1, 'nombre' => 'JORGE BOLIVAR TORRES', 'votos' => 200],
+                ['numero' => 2, 'nombre' => 'JOHANA ARANDA', 'votos' => 30],
+                ['numero' => 3, 'nombre' => 'RENSO GARCIA', 'votos' => 10],
+            ],
+        ]))->assertStatus(201)->assertJsonPath('data.estado', 'inconsistente');
+
+        // Con el papel delante, un «no coincide con 253» frente a un acta que
+        // dice 254 parece el error del sistema hasta que se ve el descuento.
+        $this->assertStringContainsString(
+            'la urna nivelada (253 = 254 − 1 incinerado)',
+            (string) $respuesta->json('data.observacion')
+        );
+    }
+
+    public function test_los_incinerados_se_guardan_y_se_releen(): void
+    {
+        $this->operador();
+
+        $id = $this->postJson('/api/v1/e14/actas', $this->actaNivelada())->json('data.id');
+
+        $this->getJson("/api/v1/e14/actas/{$id}")
+            ->assertStatus(200)
+            ->assertJsonPath('data.votos_incinerados', 1)
+            ->assertJsonPath('data.votos_urna', 254)
+            ->assertJsonPath('data.dif_nivelacion', 0);
+    }
+
+    public function test_corregir_los_incinerados_vuelve_a_evaluar_el_cuadre(): void
+    {
+        $this->operador();
+
+        // La visión no leyó la casilla de incinerados y el acta paró.
+        $id = $this->postJson('/api/v1/e14/actas', $this->actaNivelada(['votos_incinerados' => 0]))
+            ->assertJsonPath('data.estado', 'inconsistente')
+            ->json('data.id');
+
+        // Quien mira el papel la ve: era 1.
+        $this->putJson("/api/v1/e14/actas/{$id}", ['votos_incinerados' => 1])
+            ->assertStatus(200)
+            ->assertJsonPath('data.estado', 'procesada')
+            ->assertJsonPath('data.votos_incinerados', 1)
+            ->assertJsonPath('data.dif_nivelacion', 0)
+            ->assertJsonPath('data.observacion', null);
+    }
+
+    public function test_mas_incinerados_que_urna_manda_el_acta_a_revision(): void
+    {
+        $this->operador();
+
+        $respuesta = $this->postJson('/api/v1/e14/actas', $this->actaNivelada(['votos_incinerados' => 300]))
+            ->assertStatus(201)
+            ->assertJsonPath('data.estado', 'inconsistente');
+
+        // Acotada a cero: no se publica una urna efectiva negativa.
+        $this->assertStringContainsString(
+            'más votos incinerados (300) que votos en la urna (254)',
+            (string) $respuesta->json('data.observacion')
+        );
+    }
+
+    public function test_sin_la_casilla_el_acta_se_juzga_como_siempre(): void
+    {
+        $this->operador();
+
+        // El payload de un lector viejo, sin la clave: default 0 y el veredicto
+        // de la 0061 intacto.
+        $datos = $this->acta();
+        $this->assertArrayNotHasKey('votos_incinerados', $datos);
+
+        $this->postJson('/api/v1/e14/actas', $datos)
+            ->assertStatus(201)
+            ->assertJsonPath('data.estado', 'procesada')
+            ->assertJsonPath('data.votos_incinerados', 0)
+            ->assertJsonPath('data.dif_nivelacion', 0);
+    }
+
+    public function test_los_incinerados_de_una_campana_no_se_mezclan_con_los_de_otra(): void
+    {
+        $otro = Tenant::factory()->create();
+        $this->operador([Permissions::VIEW_E14, Permissions::MANAGE_E14], $otro);
+        $ajena = $this->postJson('/api/v1/e14/actas', $this->actaNivelada())->json('data.id');
+
+        // La otra campaña tiene la misma mesa, sin incineración y cuadrando en
+        // 111: cada acta se juzga con su propia nivelación.
+        $this->operador();
+        $mia = $this->postJson('/api/v1/e14/actas', $this->acta([
+            'archivo_hash' => str_repeat('b', 64),
+        ]))->json('data.id');
+
+        $this->getJson("/api/v1/e14/actas/{$mia}")
+            ->assertStatus(200)
+            ->assertJsonPath('data.votos_incinerados', 0)
+            ->assertJsonPath('data.votos_urna', 111);
+
+        $this->getJson("/api/v1/e14/actas/{$ajena}")->assertStatus(404);
+    }
+
     // ------------------------------------------------------------- permisos
 
     public function test_sin_permiso_de_lectura_no_se_consulta(): void

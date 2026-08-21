@@ -71,6 +71,10 @@ class StoreE14ResultadoRequest extends FormRequest
             // En corporación esa casilla no existe en el papel (Spec 0067).
             'suma_declarada' => ($corporacion ? 'nullable' : $cifra).'|integer|min:0',
             'votos_urna' => $cifra.'|integer|min:0',
+            // «TOTAL VOTOS INCINERADOS» de la nivelación (Spec 0088): opcional y
+            // cero por defecto, porque la inmensa mayoría de las mesas no
+            // incineran nada y el lector viejo ni siquiera manda la clave.
+            'votos_incinerados' => 'nullable|integer|min:0',
             'votantes_e11' => 'nullable|integer|min:0',
             'votos_blanco' => 'nullable|integer|min:0',
             'votos_nulos' => 'nullable|integer|min:0',

@@ -34,6 +34,7 @@ class UpdateE14ActaRequest extends FormRequest
 
             'suma_declarada' => 'sometimes|integer|min:0',
             'votos_urna' => 'sometimes|integer|min:0',
+            'votos_incinerados' => 'sometimes|integer|min:0',
             'votantes_e11' => 'sometimes|integer|min:0',
             'votos_blanco' => 'sometimes|integer|min:0',
             'votos_nulos' => 'sometimes|integer|min:0',

@@ -70,6 +70,9 @@ class E14ActaResource extends JsonResource
             'suma_calculada' => $this->suma_calculada,
             'suma_declarada' => $this->suma_declarada,
             'votos_urna' => $this->votos_urna,
+            // La urna cruda y el descuento, por separado (Spec 0088): quien lea
+            // el acta tiene que poder rehacer la cuenta que la juzgó.
+            'votos_incinerados' => $this->votos_incinerados,
             'votantes_e11' => $this->votantes_e11,
             'dif_nivelacion' => $this->dif_nivelacion,
 

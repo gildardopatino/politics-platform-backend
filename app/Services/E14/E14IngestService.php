@@ -84,6 +84,7 @@ class E14IngestService
                 'suma_calculada' => $veredicto->sumaCalculada,
                 'suma_declarada' => $veredicto->sumaDeclarada,
                 'votos_urna' => $veredicto->votosUrna,
+                'votos_incinerados' => $veredicto->votosIncinerados,
                 'votantes_e11' => (int) ($datos['votantes_e11'] ?? 0),
                 'dif_nivelacion' => $veredicto->difNivelacion,
                 'votos_blanco' => (int) ($datos['votos_blanco'] ?? 0),
@@ -139,7 +140,7 @@ class E14IngestService
             // corregido, no con el que leyó mal la visión.
             $this->aplicarPuesto($acta);
 
-            foreach (['suma_declarada', 'votos_urna', 'votantes_e11', 'votos_blanco', 'votos_nulos', 'votos_no_marcados'] as $cifra) {
+            foreach (['suma_declarada', 'votos_urna', 'votos_incinerados', 'votantes_e11', 'votos_blanco', 'votos_nulos', 'votos_no_marcados'] as $cifra) {
                 if (array_key_exists($cifra, $datos)) {
                     $acta->{$cifra} = (int) $datos[$cifra];
                 }
@@ -159,6 +160,7 @@ class E14IngestService
                     votosNoMarcados: (int) $acta->votos_no_marcados,
                     votosUrna: (int) $acta->votos_urna,
                     votantesE11: (int) $acta->votantes_e11,
+                    votosIncinerados: (int) $acta->votos_incinerados,
                 )
                 : $this->cuadre->evaluar(
                     sumaCandidatos: (int) $acta->resultados->sum('votos'),
@@ -168,6 +170,7 @@ class E14IngestService
                     sumaDeclarada: (int) $acta->suma_declarada,
                     votosUrna: (int) $acta->votos_urna,
                     votantesE11: (int) $acta->votantes_e11,
+                    votosIncinerados: (int) $acta->votos_incinerados,
                 );
 
             $acta->fill([
@@ -332,6 +335,7 @@ class E14IngestService
                 'suma_calculada' => $veredicto->sumaCalculada,
                 'suma_declarada' => $veredicto->sumaDeclarada,
                 'votos_urna' => $veredicto->votosUrna,
+                'votos_incinerados' => $veredicto->votosIncinerados,
                 'votantes_e11' => (int) ($datos['votantes_e11'] ?? 0),
                 'dif_nivelacion' => $veredicto->difNivelacion,
                 'votos_blanco' => (int) ($datos['votos_blanco'] ?? 0),
@@ -464,6 +468,7 @@ class E14IngestService
                 votosNoMarcados: (int) ($datos['votos_no_marcados'] ?? 0),
                 votosUrna: (int) ($datos['votos_urna'] ?? 0),
                 votantesE11: (int) ($datos['votantes_e11'] ?? 0),
+                votosIncinerados: (int) ($datos['votos_incinerados'] ?? 0),
             );
         }
 
@@ -475,6 +480,7 @@ class E14IngestService
             sumaDeclarada: (int) ($datos['suma_declarada'] ?? 0),
             votosUrna: (int) ($datos['votos_urna'] ?? 0),
             votantesE11: (int) ($datos['votantes_e11'] ?? 0),
+            votosIncinerados: (int) ($datos['votos_incinerados'] ?? 0),
         );
     }
 
