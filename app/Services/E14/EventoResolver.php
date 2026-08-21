@@ -43,8 +43,6 @@ class EventoResolver
         'concejo' => 'concejo',
         'diputado' => 'asamblea_departamental',
         'congresista' => 'senado',
-        // Cámara de Representantes: sin tipo de acta E-14 (llega con la 0067).
-        'representante' => null,
         'otro' => null,
     ];
 

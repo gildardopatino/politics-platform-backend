@@ -62,8 +62,8 @@ class EventoDelCargoTest extends TestCase
             // Un diputado se elige en la asamblea departamental: el cargo y el
             // tipo de acta se llaman distinto, y es justo lo que la tabla salva.
             'diputado → asamblea' => ['Diputado', 'asamblea_departamental'],
-            // El E-14 solo tiene `senado` para el Congreso; la Cámara va aparte
-            // (`Representante`) y todavía no tiene tipo de acta.
+            // El E-14 solo tiene `senado` para el Congreso. La Cámara ni siquiera
+            // es un cargo elegible desde la 0084: sin actas no hay qué escrutar.
             'congresista → senado' => ['Congresista', 'senado'],
         ];
     }
@@ -83,7 +83,10 @@ class EventoDelCargoTest extends TestCase
             'sin cargo' => [null],
             'vacío' => [''],
             'Otro' => ['Otro'],
-            // Cámara de Representantes: no hay tipo de acta E-14 todavía.
+            // Cámara de Representantes: dejó de ser un cargo elegible en la 0084
+            // (sin actas de Cámara no hay escrutinio que ofrecer). Se queda en la
+            // lista por si alguna campaña vieja lo tuviera a mano: sin elección,
+            // el cruce avisa en vez de escribir en la equivocada.
             'Representante' => ['Representante'],
             'inventado' => ['Presidencia'],
         ];

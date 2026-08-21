@@ -13,6 +13,34 @@ class Tenant extends Model
 {
     use HasFactory, LogsActivity, SoftDeletes;
 
+    /**
+     * Los cargos a los que una campaña puede aspirar (Spec 0084).
+     *
+     * **Es la lista, no una copia de la lista.** La validan los FormRequest de
+     * alta y edición, y es el mismo conjunto que el enum de la columna
+     * `tenants.tipo_cargo`; una prueba compara las dos fuentes y se cae si
+     * alguien mueve una sola. Antes de la 0084 divergían: el FormRequest aceptaba
+     * `Representante` y la columna no, así que una campaña de Cámara pasaba la
+     * validación y reventaba contra el CHECK al insertar, lejos de la causa.
+     *
+     * `Representante` (Cámara) se quitó porque el sistema **no tiene actas de
+     * Cámara**: sin tipo de acta E-14 no hay escrutinio ni cruce que ofrecerle.
+     * Vuelve cuando exista el lector, como extensión de la 0067.
+     *
+     * `Otro` se queda como catch-all sin elección asociada: no es un cargo de
+     * elección popular y `EventoResolver` lo deja sin mapear a propósito.
+     *
+     * @var array<int, string>
+     */
+    public const TIPOS_CARGO = [
+        'Gobernacion',
+        'Alcaldia',
+        'Concejo',
+        'Congresista',
+        'Diputado',
+        'Otro',
+    ];
+
     protected $fillable = [
         'slug',
         'nombre',

@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests\Api\V1\Tenant;
 
+use App\Models\Tenant;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class StoreTenantRequest extends FormRequest
 {
@@ -24,7 +26,10 @@ class StoreTenantRequest extends FormRequest
         return [
             'slug' => 'required|string|max:255|unique:tenants,slug',
             'nombre' => 'required|string|max:255',
-            'tipo_cargo' => 'required|in:Gobernacion,Alcaldia,Concejo,Congresista,Diputado,Otro,Representante',
+            // La lista vive en el modelo, junto al enum de la columna (Spec
+            // 0084): dos copias es lo que dejó pasar campañas de Cámara que la
+            // base rechazaba al insertar.
+            'tipo_cargo' => ['required', Rule::in(Tenant::TIPOS_CARGO)],
             'identificacion' => 'required|string|max:50|unique:tenants,identificacion',
             'email_contacto' => 'required|email|max:255',
             'phone_contacto' => 'nullable|string|max:30',
@@ -38,7 +43,7 @@ class StoreTenantRequest extends FormRequest
             'expiration_date' => 'nullable|date|after:start_date',
             'initial_emails' => 'nullable|integer|min:0',
             'initial_whatsapp' => 'nullable|integer|min:0',
-            
+
             // Theme colors
             'sidebar_bg_color' => 'nullable|string|regex:/^#[0-9A-Fa-f]{6}$/',
             'sidebar_text_color' => 'nullable|string|regex:/^#[0-9A-Fa-f]{6}$/',
@@ -46,7 +51,7 @@ class StoreTenantRequest extends FormRequest
             'header_text_color' => 'nullable|string|regex:/^#[0-9A-Fa-f]{6}$/',
             'content_bg_color' => 'nullable|string|regex:/^#[0-9A-Fa-f]{6}$/',
             'content_text_color' => 'nullable|string|regex:/^#[0-9A-Fa-f]{6}$/',
-            
+
             // Hierarchy settings
             'hierarchy_mode' => 'nullable|in:disabled,simple_tree,multiple_supervisors,context_based',
             'auto_assign_hierarchy' => 'nullable|boolean',

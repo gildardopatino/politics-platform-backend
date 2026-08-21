@@ -364,19 +364,25 @@ dos que importan, así que la tabla es explícita y vive en un solo sitio,
 | `Gobernacion` | `gobernacion` | |
 | `Concejo` | `concejo` | |
 | `Diputado` | `asamblea_departamental` | Un diputado se elige en la asamblea: el cargo y el tipo de acta se llaman distinto |
-| `Congresista` | `senado` | El E-14 solo tiene `senado` para el Congreso, y la Cámara va aparte en el enum (`Representante`) |
-| `Representante` | — | Cámara de Representantes: **sin tipo de acta E-14**. La 0067 activó concejo, senado y asamblea, pero no añadió Cámara: haría falta un tipo nuevo |
+| `Congresista` | `senado` | El E-14 solo tiene `senado` para el Congreso |
 | `Otro` | — | No es un cargo de elección popular |
 
 Lo que no está en la tabla **no se adivina**. Con un cargo sin elección, `GET` responde
 200 con el aviso de qué falta configurar y `PUT` responde 422: escribir el número en la
 elección equivocada es peor que no configurarlo.
 
-> `Representante` está en el `FormRequest` de alta de tenants pero **no** en el enum de
-> la columna `tenants.tipo_cargo`, que solo admite
-> `Gobernacion|Alcaldia|Concejo|Congresista|Diputado|Otro`. Es una inconsistencia previa
-> a la 0080; el mapeo la contempla para que el día que la columna lo acepte no haya que
-> volver aquí.
+> **Cámara fuera, y las tres fuentes reconciliadas (Spec 0084).** Hasta la 0084,
+> `Representante` (Cámara de Representantes) estaba en el `FormRequest` de alta de
+> tenants pero **no** en el enum de la columna: una campaña de Cámara pasaba la
+> validación y reventaba contra el CHECK al insertar, lejos de la causa. Se quitó del
+> FormRequest y del mapeo porque el sistema **no tiene actas de Cámara** —sin tipo de
+> acta E-14 no hay escrutinio ni cruce que ofrecer—, y la lista quedó en un solo sitio,
+> `Tenant::TIPOS_CARGO`: `Gobernacion|Alcaldia|Concejo|Congresista|Diputado|Otro`, que
+> es exactamente lo que admite la columna. Una prueba compara las tres fuentes —columna,
+> constante y reglas— y se cae si alguien mueve una sola.
+>
+> La Cámara vuelve cuando exista su lector: es corporación con voto preferente, así que
+> re-habilitarla es añadir el tipo de acta y el mapeo, una extensión pequeña de la 0067.
 
 ### Corporación: lista + preferente (Spec 0082)
 

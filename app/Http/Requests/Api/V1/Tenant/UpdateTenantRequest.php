@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests\Api\V1\Tenant;
 
+use App\Models\Tenant;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class UpdateTenantRequest extends FormRequest
 {
@@ -24,16 +26,17 @@ class UpdateTenantRequest extends FormRequest
         $tenantId = $this->route('tenant')->id;
 
         return [
-            'slug' => 'sometimes|string|max:255|unique:tenants,slug,' . $tenantId,
+            'slug' => 'sometimes|string|max:255|unique:tenants,slug,'.$tenantId,
             'nombre' => 'sometimes|string|max:255',
-            'tipo_cargo' => 'sometimes|in:Gobernacion,Alcaldia,Concejo,Congresista,Diputado,Otro,Representante',
-            'identificacion' => 'sometimes|string|max:50|unique:tenants,identificacion,' . $tenantId,
+            // Misma lista que el alta y que la columna (Spec 0084).
+            'tipo_cargo' => ['sometimes', Rule::in(Tenant::TIPOS_CARGO)],
+            'identificacion' => 'sometimes|string|max:50|unique:tenants,identificacion,'.$tenantId,
             'email_contacto' => 'sometimes|email|max:255',
             'phone_contacto' => 'nullable|string|max:30',
             'metadata' => 'nullable|array',
             'start_date' => 'nullable|date',
             'expiration_date' => 'nullable|date|after:start_date',
-            
+
             // Theme colors
             'sidebar_bg_color' => 'nullable|string|regex:/^#[0-9A-Fa-f]{6}$/',
             'sidebar_text_color' => 'nullable|string|regex:/^#[0-9A-Fa-f]{6}$/',
@@ -41,7 +44,7 @@ class UpdateTenantRequest extends FormRequest
             'header_text_color' => 'nullable|string|regex:/^#[0-9A-Fa-f]{6}$/',
             'content_bg_color' => 'nullable|string|regex:/^#[0-9A-Fa-f]{6}$/',
             'content_text_color' => 'nullable|string|regex:/^#[0-9A-Fa-f]{6}$/',
-            
+
             // Hierarchy settings
             'hierarchy_mode' => 'nullable|in:disabled,simple_tree,multiple_supervisors,context_based',
             'auto_assign_hierarchy' => 'nullable|boolean',
