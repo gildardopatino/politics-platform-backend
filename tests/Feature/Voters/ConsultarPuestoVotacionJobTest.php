@@ -41,15 +41,31 @@ class ConsultarPuestoVotacionJobTest extends TestCase
         $this->tenant = Tenant::factory()->create();
     }
 
+    /**
+     * Un votante de escenario, sin disparar el encolado automático.
+     *
+     * El observer de la Spec 0091 encola al nacer el votante y la cola de las
+     * pruebas es `sync`: si el servicio estuviera configurado en ese momento, el
+     * Job correría solo y la prueba estaría midiendo otra ejecución. Se apaga
+     * mientras se prepara el escenario y la única corrida es la que lanza la
+     * prueba con `dispatchSync`.
+     */
     private function votante(?Tenant $tenant = null, array $atributos = []): Voter
     {
-        return Voter::factory()->forTenant($tenant ?? $this->tenant)->create(array_replace([
-            'cedula' => '14398737',
-            'departamento_votacion' => null,
-            'municipio_votacion' => null,
-            'puesto_votacion' => null,
-            'voting_place_id' => null,
-        ], $atributos));
+        $url = config('services.registraduria.url');
+        config()->set('services.registraduria.url', null);
+
+        try {
+            return Voter::factory()->forTenant($tenant ?? $this->tenant)->create(array_replace([
+                'cedula' => '14398737',
+                'departamento_votacion' => null,
+                'municipio_votacion' => null,
+                'puesto_votacion' => null,
+                'voting_place_id' => null,
+            ], $atributos));
+        } finally {
+            config()->set('services.registraduria.url', $url);
+        }
     }
 
     private function servicioResponde(array $cuerpo, int $codigo = 200): void
