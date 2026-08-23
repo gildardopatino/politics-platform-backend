@@ -3,7 +3,9 @@
 namespace App\Providers;
 
 use App\Models\MeetingAttendee;
+use App\Models\Voter;
 use App\Observers\MeetingAttendeeObserver;
+use App\Observers\VoterObserver;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -48,5 +50,9 @@ class AppServiceProvider extends ServiceProvider
     {
         // Register observers
         MeetingAttendee::observe(MeetingAttendeeObserver::class);
+        // Spec 0091: al nacer un votante sin puesto se encola la consulta a
+        // Registraduría. Aquí y en ningún otro sitio: es el punto único por el
+        // que pasan el check-in, el alta manual y los comandos de sincronización.
+        Voter::observe(VoterObserver::class);
     }
 }
