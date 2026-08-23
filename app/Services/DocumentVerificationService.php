@@ -108,6 +108,13 @@ class DocumentVerificationService
      * necesita rellenar. La dirección y el puesto de votación son PII que no
      * debe viajar por una ruta sin autenticación.
      *
+     * `fecha_nacimiento` entra en la lista blanca porque el formulario la pide
+     * y quien hace el check-in la está tecleando de todas formas: no ahorra un
+     * dato al atacante, le ahorra un campo a la persona. Es una excepción
+     * deliberada y **única**; el recorte de la Spec 0026 sigue en pie para el
+     * resto. Hoy solo la puebla la rama `leads`: desde `voters` y PISAMI llega
+     * nula, que es lo correcto —esas fuentes no la traen—.
+     *
      * @param  array<string, mixed>  $datos
      * @return array<string, mixed>
      */
@@ -118,6 +125,7 @@ class DocumentVerificationService
             'apellidos' => $datos['apellidos'] ?? null,
             'telefono' => $datos['telefono'] ?? null,
             'email' => $datos['email'] ?? null,
+            'fecha_nacimiento' => $datos['fecha_nacimiento'] ?? null,
         ];
     }
 }

@@ -75,7 +75,8 @@ class VerifyDocumentTenantScopeTest extends TestCase
 
     public function test_la_respuesta_publica_no_lleva_direccion_ni_puesto_de_votacion(): void
     {
-        // El formulario del QR solo necesita el nombre y el contacto. La
+        // El formulario del QR solo necesita el nombre, el contacto y la fecha
+        // de nacimiento —los campos que la persona teclea ahí mismo—. La
         // dirección y el puesto de votación son PII que no pinta ahí.
         $this->crearLead($this->tenantA, '71000001');
 
@@ -83,12 +84,18 @@ class VerifyDocumentTenantScopeTest extends TestCase
             ->assertStatus(200)
             ->json('data');
 
-        $this->assertSame(['nombres', 'apellidos', 'telefono', 'email'], array_keys($data));
+        // `fecha_nacimiento` se añadió a la lista blanca a propósito (el campo
+        // existía en el formulario y no se autollenaba); el resto del recorte de
+        // la 0026 sigue intacto.
+        $this->assertSame(
+            ['nombres', 'apellidos', 'telefono', 'email', 'fecha_nacimiento'],
+            array_keys($data)
+        );
 
         foreach ([
             'direccion', 'barrio', 'puesto_votacion', 'mesa_votacion',
             'zona_votacion', 'direccion_votacion', 'departamento_votacion',
-            'municipio_votacion', 'fecha_nacimiento', 'latitud', 'longitud',
+            'municipio_votacion', 'latitud', 'longitud',
             'cedula', 'nombre_completo', 'locality_name',
         ] as $campo) {
             $this->assertArrayNotHasKey($campo, $data);

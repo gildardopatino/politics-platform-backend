@@ -42,7 +42,7 @@ class ConsultarPuestosVotantes extends Command
         $tenants = Tenant::query()
             ->when($this->option('tenant'), fn ($q) => $q->whereKey((int) $this->option('tenant')))
             ->orderBy('id')
-            ->get(['id', 'name']);
+            ->get(['id', 'nombre']);
 
         if ($tenants->isEmpty()) {
             $this->warn('No hay campañas que recorrer.');
@@ -67,7 +67,7 @@ class ConsultarPuestosVotantes extends Command
             $total += $encolados;
 
             if ($encolados > 0) {
-                $filas[] = [$tenant->name, $encolados];
+                $filas[] = [$tenant->nombre, $encolados];
             }
         }
 

@@ -106,6 +106,39 @@ class AttendanceLookupTest extends TestCase
             ->assertJsonPath('data.nombres', 'Ana');
     }
 
+    public function test_la_fecha_de_nacimiento_del_lead_llega_al_formulario(): void
+    {
+        // El formulario del QR la pide y la persona la teclea igual: devolverla
+        // no le ahorra un dato a nadie, le ahorra un campo a quien se registra.
+        Lead::create([
+            'tenant_id' => $this->tenant->id,
+            'cedula' => '71000001',
+            'nombre1' => 'Ana',
+            'apellido1' => 'Restrepo',
+            'fecha_nacimiento' => '1985-03-12',
+        ]);
+
+        $this->lookup('71000001')
+            ->assertStatus(200)
+            ->assertJsonPath('source', 'leads')
+            ->assertJsonPath('data.fecha_nacimiento', '1985-03-12');
+    }
+
+    public function test_una_fuente_sin_fecha_de_nacimiento_la_devuelve_nula(): void
+    {
+        // `voters` y PISAMI no la traen: la clave existe y vale null, para que el
+        // formulario no tenga que adivinar si falta el campo o el dato.
+        Voter::factory()->forTenant($this->tenant)->create([
+            'cedula' => '71000001',
+            'nombres' => 'Ana María',
+        ]);
+
+        $this->lookup('71000001')
+            ->assertStatus(200)
+            ->assertJsonPath('source', 'voters')
+            ->assertJsonPath('data.fecha_nacimiento', null);
+    }
+
     // ------------------------------------------------------------------
     // La política de la 0026 sigue en pie
     // ------------------------------------------------------------------
@@ -122,7 +155,49 @@ class AttendanceLookupTest extends TestCase
 
         $data = $this->lookup('71000001')->assertStatus(200)->json('data');
 
-        $this->assertSame(['nombres', 'apellidos', 'telefono', 'email'], array_keys($data));
+        // La lista blanca creció en **un** campo (`fecha_nacimiento`) y en nada
+        // más: el recorte de la 0026 no se reabre.
+        $this->assertSame(
+            ['nombres', 'apellidos', 'telefono', 'email', 'fecha_nacimiento'],
+            array_keys($data)
+        );
+    }
+
+    public function test_la_fuente_mas_rica_tampoco_filtra_lo_que_la_0026_recorto(): void
+    {
+        // El lead es la fuente con más campos —dirección, puesto, mesa, zona y
+        // coordenadas—: si el recorte se rompiera, se rompería por aquí.
+        Lead::create([
+            'tenant_id' => $this->tenant->id,
+            'cedula' => '71000001',
+            'nombre1' => 'Ana',
+            'apellido1' => 'Restrepo',
+            'fecha_nacimiento' => '1985-03-12',
+            'telefono' => '3001112233',
+            'direccion' => 'Calle 50 #45-30',
+            'departamento_votacion' => 'TOLIMA',
+            'municipio_votacion' => 'IBAGUE',
+            'puesto_votacion' => 'IE El Centro',
+            'zona_votacion' => '01',
+            'mesa_votacion' => '012',
+            'direccion_votacion' => 'CARRERA 5 # 60-10',
+            'latitud' => 4.4389,
+            'longitud' => -75.2322,
+        ]);
+
+        $data = $this->lookup('71000001')->assertStatus(200)->json('data');
+
+        $this->assertSame(
+            ['nombres', 'apellidos', 'telefono', 'email', 'fecha_nacimiento'],
+            array_keys($data)
+        );
+
+        foreach ([
+            'direccion', 'departamento_votacion', 'municipio_votacion', 'puesto_votacion',
+            'zona_votacion', 'mesa_votacion', 'direccion_votacion', 'latitud', 'longitud',
+        ] as $recortado) {
+            $this->assertArrayNotHasKey($recortado, $data);
+        }
     }
 
     public function test_no_alcanza_a_los_votantes_de_otra_campania(): void
