@@ -27,6 +27,12 @@
         <env name="DB_DATABASE" value=":memory:"/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
+        <!-- Spec 0091: la cola corre en `sync`, así que un servicio de
+             Registraduría configurado haría que cada votante de un factory
+             saliera a la red. Se fija vacío: quien pruebe el flujo pone la URL
+             con `config([...])` dentro de su prueba. -->
+        <env name="REGISTRADURIA_SERVICE_URL" value=""/>
+        <env name="REGISTRADURIA_SERVICE_TOKEN" value=""/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>

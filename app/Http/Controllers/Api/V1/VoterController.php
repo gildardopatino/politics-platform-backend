@@ -10,6 +10,7 @@ use App\Models\Voter;
 use App\Models\VotingPlace;
 use App\Services\DocumentVerificationService;
 use App\Services\E14\PuestoResolver;
+use App\Services\Registraduria\RegistraduriaSyncService;
 use App\Traits\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -27,7 +28,10 @@ class VoterController extends Controller
      * los alias del tenant una sola vez: resolver por votante con su propia
      * consulta sería el N+1 que la spec prohíbe.
      */
-    public function __construct(private readonly PuestoResolver $puestos) {}
+    public function __construct(
+        private readonly PuestoResolver $puestos,
+        private readonly RegistraduriaSyncService $sync,
+    ) {}
 
     /**
      * Display a listing of voters with filters.
@@ -332,24 +336,6 @@ class VoterController extends Controller
 
         $data = $validator->validated();
 
-        // El mismo resolver que el E-14 (Spec 0075): alias del tenant → catálogo
-        // normalizado → alta. `voting_places` sigue siendo un catálogo global
-        // compartido entre campañas; lo que cambió es que ya no se le añade un
-        // renglón por cada diferencia de tildes o de espacios.
-        //
-        // `refrescar()` porque la instancia puede venir de una petición anterior
-        // —el router memoiza el controlador dentro de un proceso— y una fusión
-        // hecha hace un momento tiene que contar ya.
-        $this->puestos->refrescar();
-
-        $puestoId = $this->puestos->resolverRegistraduria(
-            $data['departamento_votacion'],
-            $data['municipio_votacion'],
-            $data['puesto_votacion'],
-        );
-
-        $this->sembrarDireccionDelPuesto($puestoId, $data['direccion_votacion'] ?? null);
-
         // Acotado por `TenantScope`; la regla `exists` de arriba ya lo garantiza,
         // esto es la segunda cerradura.
         $voter = Voter::find($data['id']);
@@ -358,13 +344,16 @@ class VoterController extends Controller
             return response()->json(['success' => false, 'message' => 'Votante no encontrado.'], 404);
         }
 
-        $voter->update([
+        // El guardado vive en `RegistraduriaSyncService` desde la Spec 0091: el
+        // mismo resolver del E-14 (alias del tenant → catálogo normalizado →
+        // alta) y la misma siembra de dirección, para que esta ruta y la cola
+        // escriban exactamente igual.
+        $this->sync->aplicar($voter, [
             'departamento_votacion' => $data['departamento_votacion'],
             'municipio_votacion' => $data['municipio_votacion'],
             'puesto_votacion' => $data['puesto_votacion'],
             'direccion_votacion' => $data['direccion_votacion'] ?? null,
-            'mesa_votacion' => $data['mesa_votacion'] ?? null,
-            'voting_place_id' => $puestoId,
+            'mesa_votacion' => isset($data['mesa_votacion']) ? (string) $data['mesa_votacion'] : null,
         ]);
 
         return response()->json([

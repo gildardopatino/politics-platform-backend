@@ -66,4 +66,19 @@ return [
         'access_token' => env('MERCADOPAGO_ACCESS_TOKEN'),
     ],
 
+    /*
+    | Servicio propio de consulta a la Registraduría (Spec 0091, Parte A).
+    |
+    | Reemplaza a n8n: Laravel llama de salida cuando un votante no tiene puesto.
+    | Sin `url` configurada el flujo queda **apagado** —no se encola nada y el
+    | cliente no sale a la red—, que es el estado por defecto en pruebas y en una
+    | instalación que todavía no levantó el servicio Python.
+    */
+    'registraduria' => [
+        'url' => env('REGISTRADURIA_SERVICE_URL'),
+        'token' => env('REGISTRADURIA_SERVICE_TOKEN'),
+        // El camino pago (2Captcha) tarda ~15-60 s; el techo va holgado.
+        'timeout' => (int) env('REGISTRADURIA_SERVICE_TIMEOUT', 300),
+    ],
+
 ];
