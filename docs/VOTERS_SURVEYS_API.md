@@ -1316,24 +1316,19 @@ el resto del país sale en `votantes_externos`, sin agrupar. Quien no tiene
 
 ---
 
-## Webhooks de Registraduría
+## Registraduría: ya no hay webhooks (Spec 0091)
 
-Dos rutas para n8n, **autenticadas con un secreto por tenant** en la cabecera
-`X-Registraduria-Secret` (Spec 0030). Contrato completo, generación del secreto
-y códigos de rechazo en `VOTER_SYNC_SYSTEM.md`, sección «Webhooks de
-Registraduría».
+Las dos rutas `GET/POST /api/v1/webhook/political/registraduria/*` **se
+eliminaron** y responden 404. El puesto de votación ya no lo escribe n8n de
+entrada: lo consulta la plataforma **de salida**, en cola, contra el servicio
+propio `platform-politics-registraduria`.
 
-| Ruta | Qué hace |
-| --- | --- |
-| `GET /api/v1/webhook/political/registraduria/pendientes` | hasta 100 votantes **del tenant del secreto** sin `departamento_votacion`; devuelve `id` y `cedula` |
-| `POST /api/v1/webhook/political/registraduria/actualizar` | escribe el puesto de votación de **un votante del tenant**; responde un acuse `{id, updated}` |
+Con ellas se fueron el middleware `webhook.registraduria`, el comando
+`registraduria:secret` y la columna `tenants.registraduria_secret_hash`.
 
-`throttle:60,1` delante de la verificación. Sin secreto → 401; vigencia vencida
-→ 403; un `id` de otra campaña → 422, el mismo que uno inexistente.
-
-Hasta la 0030 ambas eran **públicas y sin filtro de tenant** —repartían cédulas
-de todas las campañas y dejaban escribir en sus votantes—. La historia está en
-`VOTER_SYNC_SYSTEM.md`.
+El flujo nuevo —cliente, servicio de guardado, Job, encolado automático y el
+backfill `voters:consultar-puestos`— está en `VOTER_SYNC_SYSTEM.md`, sección
+«Consulta de Registraduría».
 
 ---
 

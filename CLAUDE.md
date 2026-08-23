@@ -35,6 +35,12 @@ php artisan migrate:fresh --seed
 docker-compose up -d
 ```
 
+**PHP version (importante en este entorno):** el proyecto necesita **PHP 8.3** (Laravel 12,
+8.2+), pero el `php` del PATH del sistema es **7.4**. Para `artisan`, `composer` y `pint` usa la
+8.3: `php83 <cmd>` si tienes el alias configurado, o el binario directo
+`C:\laragon\bin\php\php-8.3.9-nts-Win32-vs16-x64\php.exe <cmd>` (ajusta la versión a la que tenga
+Laragon). No corras la suite con el `php` por defecto — falla por versión, no por el código.
+
 Tests run on SQLite `:memory:` with sync queue and array cache/mail (see `phpunit.xml`); your PHP needs the `pdo_sqlite` and `sqlite3` extensions enabled. Production/dev runtime uses PostgreSQL (`pgsql`), Redis for queue/cache/session, and SMS provider `log` by default.
 
 The test harness lives in `tests/TestCase.php` (`RefreshDatabase` + JWT/tenant helpers) with factories for Tenant/Meeting/Commitment/User — read `docs/TESTING.md` before writing tests. Tests named `test_caracteriza_*` are **characterization** tests: they pin down current *defective* behavior (cross-tenant leak via implicit route-model binding; permissions not enforced on any route) and are meant to fail when those bugs get fixed. Run `./vendor/bin/pint` on the paths you touched, not repo-wide — the repo carries pre-existing formatting debt.
@@ -61,7 +67,7 @@ JWT via `tymon/jwt-auth`; the `api` guard uses the `jwt` driver. `User implement
 - `tenant` → `EnsureTenant` — establishes tenant context (see above).
 - `tenant.active` → `CheckTenantExpiration` — blocks expired tenants.
 
-Route structure: public routes first (login, password reset, public meeting check-in by QR, MercadoPago + registraduria webhooks, landing page public reads, voting-place image gen). Then `jwt.auth` group wrapping a `superadmin` subgroup and a `['tenant','tenant.active']` subgroup that holds the bulk of the app.
+Route structure: public routes first (login, password reset, public meeting check-in by QR, MercadoPago webhook, landing page public reads, voting-place image gen). Then `jwt.auth` group wrapping a `superadmin` subgroup and a `['tenant','tenant.active']` subgroup that holds the bulk of the app.
 
 **Middleware order is load-bearing.** `bootstrap/app.php` declares an explicit `$middleware->priority([...])` so a tenant route runs `throttle → jwt.auth → tenant → tenant.active → SubstituteBindings → …`. Without it, `SubstituteBindings` (from the `api` group) resolved implicit route bindings *before* `EnsureTenant` bound `current_tenant_id`, so `TenantScope` did not filter and `GET/PUT/DELETE /<resource>/{id}` returned another tenant's records. Keep any new auth/tenant middleware ahead of `SubstituteBindings` in that list, and see `docs/TESTING.md` before changing it — `tests/Feature/Middleware/MiddlewarePriorityTest.php` pins the order.
 
@@ -80,7 +86,8 @@ Standard Laravel layering, namespaced by API version:
 - **MercadoPago** (`mercadopago/dx-php`) — messaging-credit purchases; webhook is public, payment routes authenticated.
 - **WhatsApp via Evolution API** — `WhatsAppNotificationService`, per-tenant `TenantWhatsAppInstance`. (Migrated off an older provider — see `docs/WHATSAPP_*`.)
 - **Wasabi / S3** (`league/flysystem-aws-s3-v3`) — tenant file/image storage via `WasabiStorageService`; QR codes, logos, voting-place images.
-- **n8n webhooks** — outbound for transactional email / password reset; inbound registraduria voter-sync webhooks (public routes).
+- **n8n webhooks** — outbound for transactional email / password reset. (The inbound registraduria voter-sync webhooks were removed in Spec 0091.)
+- **Registraduría service** — outbound to `platform-politics-registraduria` (own repo, FastAPI) to resolve a voter's polling station; queued via `ConsultarPuestoVotacionJob`, config under `services.registraduria`. See `docs/VOTER_SYNC_SYSTEM.md`.
 - **Social media sync** — `SocialMediaSyncService` + `SyncSocialMediaJob` pull Twitter/Facebook/Instagram/YouTube feeds for landing pages.
 - **Sentry** — error reporting wired in `bootstrap/app.php`.
 

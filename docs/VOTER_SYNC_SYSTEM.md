@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | Check-in de reunión | crea o liga la persona por cédula | `App\Services\AttendanceService` (Spec 0022) |
 | Comando programado | recorre `meeting_attendees` y rellena huecos | `voters:sync`, dos veces al día |
-| Webhooks de Registraduría | escribe el puesto de votación | rutas públicas, ver abajo |
+| Consulta a Registraduría | escribe el puesto de votación | cola: `ConsultarPuestoVotacionJob` (Spec 0091), ver abajo |
 
 > **Actualizado por la Spec 0022.** La sincronización asistente → votante ya no
 > vive en `MeetingAttendeeObserver` con su propia copia de la lógica: el observer
@@ -17,8 +17,10 @@
 > dos votantes distintos. Lo que sigue describiendo este documento —qué campos se
 > rellenan y cuándo se marca `has_multiple_records`— se conserva igual.
 
-> **Contrato observado (Spec 0011).** Los webhooks están verificados con
-> `tests/Feature/Voters/RegistraduriaWebhookCharacterizationTest.php`.
+> **Actualizado por la Spec 0091.** Los webhooks de n8n **ya no existen**. El
+> puesto de votación lo consulta ahora la propia campaña, de salida y en cola,
+> contra el servicio propio `platform-politics-registraduria`. Ver «Consulta de
+> Registraduría» más abajo.
 
 ---
 
@@ -414,7 +416,7 @@ Los tres caminos de escritura del votante pasan por el mismo
 
 | Camino | Qué hace | Por qué |
 | --- | --- | --- |
-| Webhook Registraduría | `resolverRegistraduria()` — **find-or-create** normalizado | es el censo oficial de dónde vota esa persona: si el puesto no está en el catálogo, lo que falta es el renglón (igual que el acta E-14) |
+| Consulta a Registraduría (cola) | `resolverRegistraduria()` — **find-or-create** normalizado | es el censo oficial de dónde vota esa persona: si el puesto no está en el catálogo, lo que falta es el renglón (igual que el acta E-14) |
 | `POST /voters` (alta manual) | `buscarPorNombre()` — **solo busca** | un nombre tecleado en un formulario no da de alta un puesto en el catálogo **global**; si no resuelve queda nulo y lo recoge la conciliación de la 0062 |
 | `PUT/PATCH /voters/{id}` | `buscarPorNombre()` — **solo busca**, y recalcula | el id es función de la ubicación con la que **queda** el votante |
 
@@ -436,150 +438,108 @@ Reglas que valen para los tres:
 
 ---
 
-## Webhooks de Registraduría
+## Consulta de Registraduría (Spec 0091)
 
-Dos rutas para que n8n complete la información electoral de los votantes.
-**Autenticadas con un secreto por tenant** desde la Spec 0030 (antes eran
-públicas; ver «Historia» al final de la sección).
+Quien no tiene puesto de votación se lo pregunta a la Registraduría. Lo hace la
+plataforma, **de salida**, contra un servicio propio.
 
-### Autenticación
+### Antes (n8n) y ahora
 
-Cada campaña tiene **su propio secreto**, que viaja en la cabecera:
+| | Antes (Spec 0030) | Ahora (Spec 0091) |
+| --- | --- | --- |
+| Quién scrapea | n8n, fuera del monorepo | `platform-politics-registraduria` (FastAPI), repo propio |
+| Quién empieza | n8n preguntaba `GET .../pendientes` por lotes | Laravel encola al **nacer** el votante sin puesto |
+| Cómo escribe | `POST .../actualizar` con secreto por tenant | `RegistraduriaSyncService`, dentro del proceso |
+| Credencial | `tenants.registraduria_secret_hash` (una por campaña) | `REGISTRADURIA_SERVICE_TOKEN` en `.env`, de salida |
+| Latencia | la del lote de n8n | segundos tras el check-in |
 
+Las dos rutas (`GET/POST /api/v1/webhook/political/registraduria/*`), el middleware
+`webhook.registraduria`, el comando `registraduria:secret` y la columna del secreto
+**se eliminaron**. Responden 404; lo fija
+`tests/Feature/Voters/RetiroWebhookN8nTest.php`.
+
+### Las piezas
+
+| Pieza | Qué hace |
+| --- | --- |
+| `App\Services\Registraduria\RegistraduriaClient` | `consultar(string $cedula): ResultadoConsulta`. Llama a `POST {url}/api/consultar` con `Authorization: Bearer`. Mapea el estado del servicio a `encontrado` / `no_encontrado` / `fallo`. |
+| `App\Services\Registraduria\RegistraduriaSyncService` | `aplicar(Voter, array $datos)`. Escribe los cinco campos y liga `voting_place_id` con `PuestoResolver::resolverRegistraduria()`; siembra la dirección del puesto solo si estaba vacía. `mapear(array $fila)` traduce el contrato del servicio. |
+| `App\Jobs\Registraduria\ConsultarPuestoVotacionJob` | La consulta, en cola: enlaza el tenant, comprueba la guarda de idempotencia, llama al cliente y aplica. |
+| `App\Observers\VoterObserver` | El disparo: encola al **crearse** un votante sin puesto. Punto único. |
+| `voters:consultar-puestos` | El backfill de los que ya estaban en la base. |
+
+### Configuración
+
+```env
+REGISTRADURIA_SERVICE_URL=http://127.0.0.1:8100
+REGISTRADURIA_SERVICE_TOKEN=<el mismo API_TOKEN del .env del servicio>
+REGISTRADURIA_SERVICE_TIMEOUT=300
 ```
-X-Registraduria-Secret: <64 caracteres>
-```
 
-El secreto **autentica e identifica a la vez**: no hay campo de tenant en el
-payload que un atacante pueda elegir, y una fuga compromete una campaña, no la
-plataforma. Al validarlo, el middleware `webhook.registraduria` enlaza
-`current_tenant_id`, así que el resto de la petición está acotada por
-`TenantScope` igual que las rutas con sesión.
+**Sin `REGISTRADURIA_SERVICE_URL` el flujo queda apagado**: no se encola nada y no
+se sale a la red. Es el estado por defecto —y el de las pruebas—, para que una
+instalación sin el servicio Python levantado no llene la cola de trabajos
+condenados a fallar.
 
-En la tabla `tenants` solo se guarda el **SHA-256** del secreto
-(`registraduria_secret_hash`), no el secreto: quien lea la base no puede firmar
-peticiones. Sin sal a propósito —son 64 caracteres aleatorios, no hay
-diccionario que atacar— para que la búsqueda sea por índice y no un recorrido de
-todos los tenants.
+El servicio se levanta en su repo con `uvicorn app:app --host 127.0.0.1 --port 8100`.
+Su contrato y su estrategia de dos niveles (intenta gratis, y solo paga 2Captcha si
+hace falta) están en el README de `platform-politics-registraduria`.
 
-#### Generar o rotar el secreto
+### El disparo automático
+
+`VoterObserver::created` encola `ConsultarPuestoVotacionJob` cuando el votante nace
+**sin** puesto (`departamento_votacion` vacío **y** `voting_place_id` nulo). Está en
+el observer y no en cada sitio que crea votantes: los caminos son tres —check-in de
+reunión (Spec 0022), alta manual y comandos de sincronización— y repartir el
+`dispatch` era garantizar que el cuarto se olvidara.
+
+Quien nace **con** la ubicación tecleada no gasta consulta.
+
+### El Job
+
+- **Enlaza `current_tenant_id`** antes de tocar datos y lo restaura al terminar. En
+  la cola no hay petición, así que `EnsureTenant` no corrió: sin ese enlace
+  `TenantScope` no acotaría los votantes y `PuestoResolver` usaría los alias de otra
+  campaña (Constitución, Art. III).
+- **Guarda de idempotencia:** si el votante ya tiene puesto, termina sin consultar.
+  Dos check-in casi simultáneos de la misma persona encolan dos Jobs y solo el
+  primero gasta la consulta.
+- **`no_encontrado` no se reintenta:** esa cédula no está en el censo e insistir no
+  la va a poner. Se registra y se termina.
+- **Los fallos técnicos sí:** `tries = 3` con `backoff()` de 60 s, 5 min y 15 min.
+  Agotados los intentos el Job queda en `failed_jobs` y el votante lo recoge la
+  siguiente corrida del backfill.
+- Serializa **ids**, nunca la cédula: lo que se guarda en `jobs`/`failed_jobs` no
+  lleva PII (Art. VII). En los logs la cédula va enmascarada (`14****37`).
+
+### El backfill
 
 ```bash
-php artisan registraduria:secret {id-o-slug-del-tenant}
-php artisan registraduria:secret mi-campania --rotate
+php artisan voters:consultar-puestos                      # todas las campañas
+php artisan voters:consultar-puestos --tenant=1            # solo esa campaña
+php artisan voters:consultar-puestos --tenant=1 --limit=50 # y como mucho 50 consultas
 ```
 
-Imprime el valor en claro **una sola vez**. Si se pierde, hay que rotarlo y
-reconfigurar n8n. Rotar invalida el anterior de inmediato.
+Recorre campaña por campaña (enlazando el tenant) a quien no tiene puesto y encola
+un Job por cada uno. Reemplaza al `pendientes` de n8n. Es **idempotente**: la
+segunda corrida no vuelve a encolar a los que ya se resolvieron.
 
-La columna es **nullable**: un tenant recién creado no tiene secreto y **no
-puede sincronizar** hasta que se le genere. Es el estado seguro por defecto.
+`--limit` no es una comodidad: el servicio cae a 2Captcha cuando el camino gratis
+falla, y eso se cobra por consulta. Una reunión de 300 personas son 300 consultas.
 
-#### Respuestas de rechazo
+### Qué escribe
 
-| Situación | Código | `error` |
-| --- | --- | --- |
-| Falta la cabecera o viene vacía | 401 | `WEBHOOK_SECRET_MISSING` |
-| El secreto no es de nadie (o el tenant fue borrado) | 401 | `WEBHOOK_SECRET_INVALID` |
-| Vigencia de la campaña expirada | 403 | `TENANT_EXPIRED` |
-| Vigencia aún no iniciada | 403 | `TENANT_NOT_STARTED` |
-| Más de 60 peticiones por minuto e IP | 429 | — |
+Lo mismo que escribía el webhook, con el mismo resolver (Spec 0075):
+`departamento_votacion`, `municipio_votacion`, `puesto_votacion`,
+`direccion_votacion`, `mesa_votacion` y `voting_place_id` **canónico**.
 
-El `throttle:60,1` va **delante** de la verificación para que el secreto no se
-pueda tantear a fuerza bruta.
+`mesa_votacion` se guarda como texto (la columna es `string(20)`): una mesa «12A»
+ya no se rechaza — el webhook la validaba como entero, y esa validación se fue con
+él.
 
-> ⚠️ **Configuración de n8n.** Antes bastaba una llamada para obtener los
-> pendientes de **toda** la plataforma. Ahora el flujo es **por campaña**: n8n
-> necesita una credencial por tenant y debe recorrerlas. Es la consecuencia
-> directa de acotar por tenant, y es intencional.
-
-### `GET /api/v1/webhook/political/registraduria/pendientes`
-
-Devuelve un **array crudo**, sin envoltorio ni paginación, con hasta **100**
-votantes **del tenant del secreto** que no tienen `departamento_votacion`.
-
-```json
-[ { "id": 12, "cedula": "71000001" } ]
-```
-
-Solo `id` y `cedula`. (Antes se colaban además un `full_name` vacío y un
-`location_type` nulo por los `$appends` del modelo, pese al `select`.)
-
-Sin cursor ni paginación: la única forma de avanzar es actualizar los primeros
-100 y volver a llamar.
-
-### `POST /api/v1/webhook/political/registraduria/actualizar`
-
-| Campo | Regla |
-| --- | --- |
-| `id` | requerido, entero, **debe ser un votante del tenant del secreto** |
-| `departamento_votacion` | requerido, máx 255 |
-| `municipio_votacion` | requerido, máx 255 |
-| `puesto_votacion` | requerido, máx 255 |
-| `direccion_votacion` | opcional, máx 500 |
-| `mesa_votacion` | opcional, **entero** |
-
-Escribe los cinco campos en el votante y liga `voters.voting_place_id` al puesto
-**canónico** del catálogo, resuelto por el mismo `PuestoResolver` que usa el E-14
-(Spec 0075): **alias del tenant → catálogo normalizado → alta**. Normalizado =
-insensible a mayúsculas, acentos y espacios de más, así que «Ibagué / colegio san
-simón » y «IBAGUE / COLEGIO SAN SIMON» son el **mismo** renglón.
-
-Puede **crear** el renglón si no existe (con departamento presente, que la
-validación exige): la consulta de Registraduría es el censo oficial de dónde vota
-esa persona, así que si el puesto no está en el catálogo lo que falta es el
-renglón. Es la misma regla que el acta E-14 (`resolverActa`). La contraria —el alta
-y la edición manual— **solo busca**; ver «Los tres caminos» más abajo.
-
-La **dirección del puesto** se completa solo si el renglón no la tenía: el catálogo
-es global y la dirección que ya tenga pudo ponerla otra campaña.
-
-> **Hasta la Spec 0075** esta ruta tenía su propio `VotingPlace::firstOrCreate`
-> sobre el texto **crudo**, y ahí estaba el cabo suelto de la 0062: dos grafías del
-> mismo colegio creaban **dos** renglones, el acta apuntaba al canónico y el
-> votante al duplicado, y el cruce por `voting_place_id` fallaba **en silencio**.
-> Peor que un nulo: el resolver de respaldo por nombre solo rescata los
-> `voting_place_id` nulos, así que un id equivocado no-nulo nunca caía en él.
-
-Un `id` de otra campaña se rechaza **igual que uno inexistente** —mismo código y
-mismo cuerpo—, así que el webhook no sirve para averiguar qué ids tiene la
-competencia.
-
-```json
-{ "success": true,
-  "message": "Información de registraduría actualizada correctamente.",
-  "data": { "id": 12, "updated": true } }
-```
-
-**Acuse mínimo**: ni PII ni `tenant_id`. Errores: **422** con
-`{ success: false, errors: {...} }`.
-
-⚠️ `mesa_votacion` se valida como **entero** aunque `voters.mesa_votacion` sea
-`string(20)` y el formulario interno la acepte como texto: una mesa «12A» se
-rechaza aquí. Sigue abierto en `known-issues.md`.
-
-⚠️ La rama que devuelve `404 «Votante no encontrado»` es **inalcanzable**: la
-regla `exists` corta antes con un 422. Se conserva como segunda cerradura.
-
-### Historia — qué se cerró y por qué
-
-Hasta la Spec 0030 las dos rutas estaban **fuera del grupo `jwt.auth`**, sin
-token, sin firma y sin `throttle`, y consultaban con
-`withoutGlobalScope(TenantScope::class)`:
-
-1. `pendientes` **repartía hasta 100 cédulas de cualquier campaña** a quien
-   supiera la URL. (El agujero que cerró la Spec 0026 exigía conocer ya la
-   cédula; este las entregaba.)
-2. `actualizar` **escribía** el puesto de votación en el votante de cualquier
-   tenant.
-3. Y devolvía `data => $voter->fresh()`, el modelo **completo**: nombres,
-   apellidos, correo, teléfono, dirección y `tenant_id`.
-
-Encadenando (1) → (3) se podía vaciar la base de votantes de **todas** las
-campañas sin autenticarse. Lo caracterizó la Spec 0011 y lo cerró la 0030.
-
-Pruebas: `tests/Feature/Voters/RegistraduriaWebhookSecurityTest.php` (contrato
-de seguridad) y `RegistraduriaWebhookCharacterizationTest.php` (lo que hacen).
+Pruebas: `tests/Unit/Services/Registraduria/*`, `tests/Feature/Voters/ConsultarPuestoVotacionJobTest.php`,
+`EncoladoConsultaPuestoTest.php`, `RetiroWebhookN8nTest.php` y
+`tests/Feature/Console/ConsultarPuestosVotantesTest.php`.
 
 ---
 
@@ -587,7 +547,7 @@ de seguridad) y `RegistraduriaWebhookCharacterizationTest.php` (lo que hacen).
 
 | Comando | Clase | Programado |
 | --- | --- | --- |
-| `registraduria:secret {tenant} [--rotate]` | `GenerateRegistraduriaSecret` | no (manual, Spec 0030) |
+| `voters:consultar-puestos {--tenant=} {--limit=}` | `ConsultarPuestosVotantes` | no (manual, Spec 0091) |
 | `voters:sync {--tenant=}` | `SyncVotersFromAttendees` | sí, `twiceDaily(6, 18)` en `routes/console.php` |
 | `voters:sync-attendees {--tenant-id=}` | `SyncAttendeesToVoters` | no |
 | `voters:reapuntar-voting-place {--tenant=}` | `ReapuntarVotingPlaceVotantes` | no (manual, Spec 0075) |
