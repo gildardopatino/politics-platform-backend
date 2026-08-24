@@ -294,7 +294,7 @@ Sin credencial válida la API responde **401 y no escribe nada**.
 
 | Permiso | Qué habilita |
 | --- | --- |
-| `view_e14` | `GET /actas`, `GET /actas/{id}`, `GET /consolidado`, `GET /resumen`, `GET /eventos`, `GET /candidato`, `GET /cruce`, `GET /rendimiento-lideres`, `GET /meta`, `GET /proyeccion`, `GET /puestos-por-conciliar` |
+| `view_e14` | `GET /actas`, `GET /actas/{id}`, `GET /consolidado`, `GET /resumen`, `GET /eventos`, `GET /candidato`, `GET /cruce`, `GET /estadisticas`, `GET /rendimiento-lideres`, `GET /meta`, `GET /proyeccion`, `GET /puestos-por-conciliar` |
 | `manage_e14` | `POST /actas`, `POST /actas/upload`, `POST /actas/procesar`, `POST /actas/siguiente`, `POST /actas/{id}/resultado`, `POST /actas/{id}/reprocesar`, `PUT /actas/{id}`, `DELETE /actas/{id}`, `PUT /candidato`, `PUT /meta`, `POST /puestos/fusionar` |
 
 Los tiene `admin` y `coordinator`; `viewer` solo `view_e14`. Sin el permiso, 403.
@@ -1220,6 +1220,129 @@ sobre todos, y sin este bloque las dos cosas se leen igual.
 Los tres primeros siguen a los filtros; los dos de «sin conciliar» son globales de
 la elección, porque un registro sin puesto no se puede atribuir a ningún
 municipio.
+
+---
+
+## Estadísticas del escrutinio (Spec 0092)
+
+El cruce contesta «¿dónde se me fugó la base?» en una tabla. Esta es la misma
+materia prima servida para **explorarla**: una fila por mesa con todo lo que hace
+falta para que el panel arme sus gráficas y su drill-down —departamento →
+municipio → zona → puesto → mesa— **en memoria**, sin una petición por nivel.
+
+No recalcula nada: pide el cruce a `nivel=mesa` y le cose encima lo que el acta
+sabe de esa misma mesa. Una segunda implementación del conteo sería una segunda
+cifra que un día deja de cuadrar con «Potencial vs real» sin que nadie sepa cuál
+miente.
+
+### `GET /estadisticas`
+
+| Parámetro | Por defecto | Qué hace |
+| --- | --- | --- |
+| `tipo` | **obligatorio** | de qué elección: `alcaldia`, `gobernacion`, `concejo`, `senado`, `asamblea_departamental`. Sin él, 422 |
+| `event` | la más reciente **de ese tipo** en el tenant | fija la elección por id |
+| `municipio` | — | coincidencia parcial sobre el municipio del puesto |
+| `voting_place` | — | el **id** si se eligió de la lista, o texto parcial del nombre |
+| `incluir` | `voters` | `voters` \| `leads` \| `ambos` — qué cuenta como base |
+
+`nivel` **no** se acepta: la fila de este endpoint es siempre la mesa. Y `tipo` no
+tiene valor por defecto a propósito: una campaña puede tener alcaldía y concejo
+cargados a la vez, y «la última elección» sería una respuesta correcta a una
+pregunta que nadie hizo.
+
+```json
+{
+  "data": [
+    {
+      "voting_place_id": 12,
+      "departamento": "TOLIMA",
+      "municipio": "IBAGUE",
+      "zona": "01",
+      "puesto": "COLEGIO SAN SIMON",
+      "mesa": 5,
+      "base": 50,
+      "votos_candidato": 30,
+      "deficit": 20,
+      "excedente": 0,
+      "tiene_acta": true,
+      "votos_urna": 111,
+      "votantes_e11": 108
+    }
+  ],
+  "meta": {
+    "total": 1,
+    "con_acta": 1,
+    "electoral_event_id": 3,
+    "tipo": "alcaldia",
+    "nivel": "mesa",
+    "candidato": {
+      "numero": 2, "lista_numero": null,
+      "nombre": "JOHANA ARANDA", "agrupacion": null,
+      "es_corporacion": false
+    }
+  }
+}
+```
+
+`meta` no trae los cortes por zona, puesto ni municipio: son el mismo `data`
+filtrado, y el cliente los pliega con lo que ya tiene. `total` y `con_acta` son
+la cobertura **global**; la del ámbito que el usuario tenga abierto sale de contar
+las filas de ese ámbito.
+
+### Las dos mitades de la fila no miden lo mismo
+
+Es lo único que hay que saber para leer este endpoint sin equivocarse:
+
+| Campos | De quién son |
+| --- | --- |
+| `base`, `votos_candidato`, `deficit`, `excedente` | **del candidato del tenant**: su base identificada y la fila del E-14 con su número (o su par lista + preferente en corporación) |
+| `votos_urna`, `votantes_e11` | **de la mesa entera**: todos los candidatos, más blancos, nulos y no marcados |
+
+Ponerlos en la misma fila es lo que permite leer «aquí votaron 400 personas y yo
+saqué 12». Dividir uno por el otro sin decirlo inventaría una cuota de mercado que
+el acta no afirma.
+
+### No hay «% de participación», y no es un olvido
+
+La participación real es sufragantes ÷ **censo**, y el censo por mesa no existe en
+el modelo —ni el histórico de la RNEC ni los habilitados del puesto se guardan—.
+Así que aquí solo viajan **volúmenes**: `votantes_e11` (sufragantes del E-11) y
+`votos_urna` (papeletas en la urna). Cualquier porcentaje de participación que
+alguien muestre a partir de esto se lo habría inventado. El día que haya censo por
+mesa se carga como catálogo, igual que `voting_places`, y el turnout real es otra
+spec.
+
+### Qué cuenta como lectura, y qué como acta
+
+Los dos umbrales son distintos **a propósito**:
+
+- `votos_urna`, `votantes_e11` y `zona` salen de las actas **leídas**
+  (`procesada`, `inconsistente`, `revision_manual`), igual que el desglose del
+  consolidado: son transcripciones de casillas, y un acta que no cuadra igual
+  reporta cuánta gente votó ahí.
+- `tiene_acta` sigue siendo el del cruce —solo `procesada`—, porque esa bandera
+  dice si los **votos** de esa mesa se pueden usar para juzgar a alguien.
+
+Una mesa puede entonces traer `tiene_acta: false` con `votos_urna: 120`: se leyó,
+no cuadra, y por eso no aporta votos pero sí volumen.
+
+Una mesa **sin** acta va con `votos_urna` y `votantes_e11` en `0`, `zona` en
+`null` —una zona en cero sería una zona inventada— y `tiene_acta: false`, y
+**cuenta en `total`**: es el denominador de la cobertura, la mesa que todavía
+falta por escrutar.
+
+### La llave es puesto + mesa, nunca la mesa sola
+
+El número de mesa es local a su puesto: el «002» del Colegio San Simón y el «002»
+de la Escuela La Paz son dos mesas distintas. Cada fila viaja con su
+`voting_place_id`, que es lo que las desambigua, y la unión con el acta se hace
+por ese par —con la mesa normalizada a entero, así que el `005` del acta casa con
+el `5` del votante—.
+
+Las actas sin puesto canónico quedan fuera, igual que en el cruce: sin
+`voting_place_id` no hay fila con la que casarlas, y aproximarlas por nombre es
+justo lo que la conciliación existe para no hacer. Se ven en
+`GET /cruce` → `meta.cobertura.actas_sin_conciliar`.
 
 ---
 
