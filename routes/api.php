@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\V1\CorregimientoController;
 use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\E14CandidatoController;
 use App\Http\Controllers\Api\V1\E14CruceController;
+use App\Http\Controllers\Api\V1\E14EstadisticasController;
 use App\Http\Controllers\Api\V1\E14EventoController;
 use App\Http\Controllers\Api\V1\E14IngestController;
 use App\Http\Controllers\Api\V1\E14MetaController;
@@ -154,6 +155,14 @@ Route::prefix('v1')->group(function () {
             // hay que cruzar. Va antes que `/actas/{acta}` por la misma razón
             // que `upload`: para que ningún segmento se lea como un id.
             Route::get('/cruce', [E14CruceController::class, 'index'])->middleware('permission:view_e14');
+
+            // Estadísticas del escrutinio (Spec 0092): el mismo cruce a nivel
+            // mesa, enriquecido con lo que el acta sabe de la mesa (zona, urna,
+            // sufragantes). Una llamada por vista: el drill-down de la página
+            // —departamento, municipio, zona, puesto, mesa— se pliega en el
+            // cliente, no con una petición por nivel.
+            Route::get('/estadisticas', [E14EstadisticasController::class, 'index'])
+                ->middleware('permission:view_e14');
 
             // Scorecard operativo del líder (Spec 0063): su actividad —que es
             // cierta— y el rendimiento de sus mesas como proxy declarado. Se

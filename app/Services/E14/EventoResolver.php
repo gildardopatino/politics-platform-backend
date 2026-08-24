@@ -104,6 +104,41 @@ class EventoResolver
     }
 
     /**
+     * De qué elección se consulta, cuando quien pregunta la nombra por tipo
+     * (Spec 0092).
+     *
+     * `delTenant()` sin id devuelve la más reciente **del tenant**, sea de lo que
+     * sea. Eso vale para el cruce, que se abre sobre «la elección que estoy
+     * escrutando», pero no para una página que se abre eligiendo elección: una
+     * campaña con alcaldía y concejo cargados recibiría las estadísticas de la
+     * otra sin enterarse. Aquí el tipo acota, y el id —si viene— manda.
+     *
+     * Nunca se crea nada: consultar no es dar de alta.
+     */
+    public function delTipo(string $tipo, ?int $id = null): ElectoralEvent
+    {
+        if ($id !== null) {
+            return $this->delTenant($id);
+        }
+
+        // Con `TenantScope`: una elección de otra campaña sencillamente no
+        // existe desde aquí.
+        $evento = ElectoralEvent::query()
+            ->where('tipo', $tipo)
+            ->orderByDesc('fecha')
+            ->orderByDesc('id')
+            ->first();
+
+        if ($evento) {
+            return $evento;
+        }
+
+        throw ValidationException::withMessages([
+            'tipo' => 'Todavía no hay ninguna elección de ese tipo en esta campaña.',
+        ]);
+    }
+
+    /**
      * El tipo de elección del cargo del tenant, o `null` si no mapea (Spec 0080).
      *
      * Se normaliza la caja porque el enum de `tenants` se escribió capitalizado
