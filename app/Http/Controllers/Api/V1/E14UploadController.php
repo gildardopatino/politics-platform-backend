@@ -7,6 +7,7 @@ use App\Http\Requests\Api\V1\E14\UploadE14ActaRequest;
 use App\Http\Resources\Api\V1\E14ActaResource;
 use App\Models\E14Acta;
 use App\Services\E14\E14ColaService;
+use App\Services\E14\EventoResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -21,11 +22,18 @@ use Illuminate\Validation\Rule;
  */
 class E14UploadController extends Controller
 {
-    public function __construct(private readonly E14ColaService $cola) {}
+    public function __construct(
+        private readonly E14ColaService $cola,
+        private readonly EventoResolver $eventos,
+    ) {}
 
     /**
      * Sube un acta y **la deja en la cola**. Deduplica por contenido: el mismo
      * PDF no se carga dos veces ni reabre una que ya se leyó.
+     *
+     * El tipo de elección ya no se pide (Spec 0093): lo pone la campaña. Una sin
+     * elección —cargo `Otro`— no puede cargar, y se le dice por qué en vez de
+     * dejarla subir PDFs a un escrutinio que no existe.
      */
     public function upload(UploadE14ActaRequest $request): JsonResponse
     {
@@ -33,7 +41,7 @@ class E14UploadController extends Controller
 
         [$acta, $duplicada] = $this->cola->cargar(
             archivo: $request->file('archivo'),
-            tipo: $request->input('tipo'),
+            tipo: $this->eventos->tipoDeLaCampana($request->user()->tenant),
             tenantId: $request->user()->tenant_id,
             eventoId: $request->input('electoral_event_id') ? (int) $request->input('electoral_event_id') : null,
             batchId: $lote,

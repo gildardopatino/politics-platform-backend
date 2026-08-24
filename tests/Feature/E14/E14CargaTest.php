@@ -206,25 +206,34 @@ class E14CargaTest extends TestCase
         $this->assertSame(0, E14Acta::withoutGlobalScope(TenantScope::class)->count());
     }
 
-    public function test_hay_que_decir_de_que_eleccion_es(): void
+    public function test_no_hay_que_decir_de_que_eleccion_es_porque_la_pone_la_campana(): void
     {
+        // Hasta la 0093 el tipo lo elegía quien subía, y equivocarlo mandaba el
+        // acta al parser que no le tocaba. Ya no se pregunta: la campaña sirve a
+        // una sola elección (0093 · RF-B4).
         $this->operador();
 
         $this->postJson('/api/v1/e14/actas/upload', ['archivo' => $this->pdf()])
-            ->assertStatus(422)
-            ->assertJsonValidationErrors('tipo');
+            ->assertStatus(201)
+            ->assertJsonPath('data.tipo', 'alcaldia');
     }
 
     public function test_las_actas_de_corporacion_tambien_se_cargan(): void
     {
-        $this->operador();
-
         // Concejo, senado y asamblea todavía no tienen parser (0067), pero eso
-        // es cosa del worker: cargarlas y encolarlas ya funciona.
-        foreach (['concejo', 'senado', 'asamblea_departamental'] as $indice => $tipo) {
+        // es cosa del worker: cargarlas y encolarlas ya funciona. Cada una en su
+        // campaña, que es de lo que va la 0093.
+        $cargos = [
+            'Concejo' => 'concejo',
+            'Congresista' => 'senado',
+            'Diputado' => 'asamblea_departamental',
+        ];
+
+        foreach ($cargos as $cargo => $tipo) {
+            $this->operador(tenant: Tenant::factory()->create(['tipo_cargo' => $cargo]));
+
             $this->postJson('/api/v1/e14/actas/upload', [
-                'tipo' => $tipo,
-                'archivo' => $this->pdf("{$tipo}.pdf", (string) $indice),
+                'archivo' => $this->pdf("{$tipo}.pdf", $tipo),
             ])->assertStatus(201)->assertJsonPath('data.tipo', $tipo);
         }
 

@@ -36,7 +36,9 @@ class E14ConsolidadoCorporacionTest extends TestCase
         array $permisos = [Permissions::VIEW_E14, Permissions::MANAGE_E14],
         ?Tenant $tenant = null
     ): Tenant {
-        $tenant ??= Tenant::factory()->create();
+        // Una campaña de concejo, porque desde la 0093 el consolidado es el de
+        // **su** elección: el `?tipo=` de la URL ya no elige nada.
+        $tenant ??= Tenant::factory()->corporacion()->create();
         [$user, $token] = $this->createTenantWithUser($permisos, $tenant);
 
         $this->actingAsTenantUser($user, $token);
@@ -227,7 +229,9 @@ class E14ConsolidadoCorporacionTest extends TestCase
 
     public function test_el_consolidado_de_alcaldia_sigue_igual(): void
     {
-        $this->operador();
+        // Aquí sí, una campaña de alcaldía: el consolidado uninominal es el de
+        // quien se presenta a la alcaldía (0093).
+        $this->operador(tenant: Tenant::factory()->create(['tipo_cargo' => 'Alcaldia']));
 
         $this->postJson('/api/v1/e14/actas', [
             'tipo' => E14Acta::TIPO_ALCALDIA,

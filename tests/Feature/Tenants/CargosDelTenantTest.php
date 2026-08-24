@@ -118,13 +118,23 @@ class CargosDelTenantTest extends TestCase
     public function test_los_formrequest_validan_exactamente_esos_cargos(): void
     {
         $store = (new StoreTenantRequest)->rules()['tipo_cargo'];
-        $update = $this->reglasDeEdicion()['tipo_cargo'];
 
-        // Es la comparación que la 0080 no podía hacer: hoy las tres fuentes son
-        // la misma lista, y esta prueba se cae el día que dejen de serlo.
+        // Es la comparación que la 0080 no podía hacer: hoy las dos fuentes que
+        // quedan son la misma lista, y esta prueba se cae el día que dejen de
+        // serlo. La tercera —la regla de edición— desapareció en la 0093 al
+        // hacerse inmutable el cargo; ver la prueba de abajo.
         $this->assertEqualsCanonicalizing(Tenant::TIPOS_CARGO, $this->valoresDeLaRegla($store));
-        $this->assertEqualsCanonicalizing(Tenant::TIPOS_CARGO, $this->valoresDeLaRegla($update));
         $this->assertEqualsCanonicalizing(Tenant::TIPOS_CARGO, $this->cargosDeLaColumna());
+    }
+
+    public function test_la_edicion_ya_no_acepta_el_cargo(): void
+    {
+        // Inmutable desde la 0093: el cargo **es** la elección de la campaña, y
+        // de ella cuelga todo el escrutinio. Cambiarlo después dejaría las actas
+        // ya cargadas colgando de una elección que la campaña dice no tener. Al
+        // no estar en las reglas no llega a `validated()`, así que el `update()`
+        // del controlador ni lo ve.
+        $this->assertArrayNotHasKey('tipo_cargo', $this->reglasDeEdicion());
     }
 
     public function test_cada_cargo_valido_pasa_la_validacion(): void
@@ -174,9 +184,11 @@ class CargosDelTenantTest extends TestCase
 
         $tenant = Tenant::factory()->create(['tipo_cargo' => 'Concejo']);
 
+        // Desde la 0093 la edición ni siquiera discute el cargo: se ignora, así
+        // que la petición pasa y el cargo se queda como estaba. Cámara sigue
+        // siendo igual de imposible, por otro camino.
         $this->putJson("/api/v1/tenants/{$tenant->slug}", ['tipo_cargo' => 'Representante'])
-            ->assertStatus(422)
-            ->assertJsonValidationErrors('tipo_cargo');
+            ->assertStatus(200);
 
         $this->assertSame('Concejo', $tenant->fresh()->tipo_cargo);
     }

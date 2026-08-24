@@ -95,6 +95,28 @@ class E14Acta extends Model implements Auditable
     ];
 
     /**
+     * Cómo se llama cada elección cuando hay que decírsela a una persona.
+     *
+     * El enum es vocabulario técnico —`asamblea_departamental` no se le enseña a
+     * nadie—, y desde la 0093 hay mensajes que nombran dos elecciones a la vez
+     * («es de Gobernación y esta campaña escruta Alcaldía»). Vive aquí, junto al
+     * enum que traduce, para que no acabe habiendo una tabla de nombres por cada
+     * sitio que necesite escribir uno (Art. IX).
+     */
+    public static function nombreDe(?string $tipo): string
+    {
+        return match ($tipo) {
+            self::TIPO_ALCALDIA => 'Alcaldía',
+            self::TIPO_GOBERNACION => 'Gobernación',
+            self::TIPO_CONCEJO => 'Concejo',
+            self::TIPO_SENADO => 'Senado',
+            self::TIPO_ASAMBLEA => 'Asamblea Departamental',
+            null => 'ninguna elección',
+            default => ucfirst($tipo),
+        };
+    }
+
+    /**
      * ¿Este acta se cuenta por agrupaciones en vez de por candidatos?
      *
      * Es la pregunta que bifurca el cuadre, la ingesta y el consolidado, así que

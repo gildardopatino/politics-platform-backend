@@ -23,10 +23,14 @@ class E14ProyeccionController extends Controller
         private readonly EventoResolver $eventos,
     ) {}
 
+    /**
+     * La elección sale del tenant y no de la URL (Spec 0093).
+     */
     public function index(ProyeccionRequest $request): JsonResponse
     {
-        $evento = $this->eventos->delTenant(
-            $request->filled('event') ? $request->integer('event') : null
+        $evento = $this->eventos->deLaCampana(
+            $request->user()->tenant,
+            $request->filled('event') ? $request->integer('event') : null,
         );
 
         return response()->json($this->proyeccion->calcular($evento, $request->validated()));

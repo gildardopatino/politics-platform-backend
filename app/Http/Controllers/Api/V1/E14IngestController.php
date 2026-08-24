@@ -11,6 +11,7 @@ use App\Services\E14\ConsolidadoService;
 use App\Services\E14\E14ArchivoService;
 use App\Services\E14\E14ColaService;
 use App\Services\E14\E14IngestService;
+use App\Services\E14\EventoResolver;
 use App\Support\DatabaseExpressions;
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -30,6 +31,7 @@ class E14IngestController extends Controller
         private readonly ConsolidadoService $consolidado,
         private readonly E14ArchivoService $archivos,
         private readonly E14ColaService $cola,
+        private readonly EventoResolver $eventos,
     ) {}
 
     /**
@@ -52,12 +54,26 @@ class E14IngestController extends Controller
         );
     }
 
+    /**
+     * El listado y la cola de revisión.
+     *
+     * El `tipo` no se filtra por lo que pida el cliente sino por la elección del
+     * tenant (Spec 0093): una campaña sirve a una sola, así que un `?tipo=` de
+     * la URL solo servía para asomarse a otra. Una campaña sin elección (cargo
+     * `Otro`) no tiene actas que listar y recibe la lista vacía, no un error.
+     */
     public function index(Request $request): JsonResponse
     {
+        $tipo = $request->user()->tenant?->tipoEleccion();
+
         $actas = E14Acta::query()
             ->with('electoralEvent')
+            ->when(
+                $tipo !== null,
+                fn ($q) => $q->where('tipo', $tipo),
+                fn ($q) => $q->whereRaw('1 = 0'),
+            )
             ->when($request->filled('estado'), fn ($q) => $q->where('estado', $request->input('estado')))
-            ->when($request->filled('tipo'), fn ($q) => $q->where('tipo', $request->input('tipo')))
             ->when($request->filled('zona'), fn ($q) => $q->where('zona', $request->input('zona')))
             ->when($request->filled('puesto'), fn ($q) => $q->where('puesto', $request->input('puesto')))
             ->when($request->filled('mesa'), fn ($q) => $q->where('mesa', $request->input('mesa')))
@@ -132,11 +148,18 @@ class E14IngestController extends Controller
         ]);
     }
 
+    /**
+     * El consolidado de **la** elección de la campaña (Spec 0093).
+     *
+     * El `tipo` de la URL se sigue aceptando por compatibilidad pero no se lee:
+     * lo pone el tenant. Antes, sin `tipo`, sumaba todas las elecciones que la
+     * campaña tuviera cargadas —dos escrutinios distintos en un mismo total.
+     */
     public function consolidado(Request $request): JsonResponse
     {
         return response()->json($this->consolidado->calcular(
             $request->filled('electoral_event_id') ? (int) $request->input('electoral_event_id') : null,
-            $request->input('tipo'),
+            $this->eventos->tipoDeLaCampana($request->user()->tenant),
         ));
     }
 

@@ -3,6 +3,7 @@
 namespace App\Services\E14;
 
 use App\Models\E14Acta;
+use App\Models\E14ActaRechazada;
 use App\Models\E14Candidate;
 use App\Models\E14ListaPreferente;
 use App\Models\E14ListaResultado;
@@ -45,7 +46,106 @@ class E14IngestService
         private readonly CuadreService $cuadre,
         private readonly EventoResolver $eventos,
         private readonly PuestoResolver $puestos,
+        private readonly E14ColaService $cola,
     ) {}
+
+    /**
+     * Si el acta no es de la elección de esta campaña, la tira (Spec 0093).
+     *
+     * Un tenant sirve a **una** elección, así que un acta de otra no es un acta
+     * que haya que revisar: es un papel que no pinta nada aquí. Procesarla daría
+     * o basura —la lee el parser que no le toca— o un «no cuadró» que nadie
+     * puede explicar, y en los dos casos ensuciaría el consolidado. Se borra en
+     * duro, fila y archivo, con la misma máquina de la 0077.
+     *
+     * Tres reglas, en este orden:
+     *
+     * 1. **Ante la duda no se borra.** `eleccion_detectada` nula —o con un valor
+     *    que el enum no conoce— es un encabezado que no se pudo leer, no un
+     *    acta ajena. Un OCR flojo no puede tener permiso de borrado.
+     * 2. **Sin elección, sin rechazo.** Una campaña de cargo `Otro` no escruta,
+     *    así que no tiene con qué comparar; no se le borra nada.
+     * 3. **Queda constancia.** El acta y su PDF desaparecen, y lo único que
+     *    explica el hueco es el renglón de `e14_actas_rechazadas`.
+     *
+     * Va **antes** y **fuera** de la transacción de `registrarResultado()`: el
+     * borrado del archivo no se deshace con un rollback, y un rechazo no tiene
+     * nada que compartir con el camino normal.
+     *
+     * Devuelve el registro de rechazo, o `null` si el acta sigue su curso.
+     *
+     * @param  array<string, mixed>  $datos
+     */
+    public function rechazarPorEleccion(E14Acta $acta, array $datos): ?E14ActaRechazada
+    {
+        $esperada = $acta->tenant?->tipoEleccion();
+        $detectada = $this->eleccionDetectada($datos);
+
+        if ($esperada === null || $detectada === null || $detectada === $esperada) {
+            return null;
+        }
+
+        $motivo = 'El acta es de '.E14Acta::nombreDe($detectada)
+            .' y esta campaña escruta '.E14Acta::nombreDe($esperada)
+            .'; se eliminó junto con su archivo.';
+
+        $rechazo = $this->registrarRechazo($acta, $detectada, $esperada, $motivo);
+
+        $this->cola->eliminar($acta);
+
+        return $rechazo;
+    }
+
+    /**
+     * Qué elección dice el lector que traía impresa el acta, si se le entiende.
+     *
+     * Fuera del vocabulario del E-14 no hay elección: un valor desconocido vale
+     * lo mismo que ninguno —«no lo sé»— y por tanto no borra nada. Es la
+     * diferencia entre un lector viejo que ni manda la clave, uno que no supo
+     * leer el encabezado y uno que devolvió una palabra rara: los tres casos
+     * significan lo mismo para esta decisión.
+     *
+     * @param  array<string, mixed>  $datos
+     */
+    private function eleccionDetectada(array $datos): ?string
+    {
+        $detectada = $datos['eleccion_detectada'] ?? null;
+
+        return in_array($detectada, E14Acta::TIPOS, true) ? $detectada : null;
+    }
+
+    /**
+     * Deja constancia del rechazo. Idempotente por `(tenant, archivo)`.
+     *
+     * El mismo PDF vuelto a cargar y vuelto a rechazar actualiza su renglón en
+     * vez de acumular uno por intento (Art. VIII). Un acta sin archivo no tiene
+     * con qué deduplicarse, así que se inserta suelta: es un caso de borde —el
+     * acta llegó por la ingesta directa, sin PDF— y perder la constancia sería
+     * peor que tener dos.
+     */
+    private function registrarRechazo(E14Acta $acta, string $detectada, string $esperada, string $motivo): E14ActaRechazada
+    {
+        $datos = [
+            'electoral_event_id' => $acta->electoral_event_id,
+            'archivo_nombre' => $acta->archivo_nombre,
+            'eleccion_detectada' => $detectada,
+            'eleccion_esperada' => $esperada,
+            'motivo' => $motivo,
+        ];
+
+        if (blank($acta->archivo_hash)) {
+            return E14ActaRechazada::create([
+                ...$datos,
+                'tenant_id' => $acta->tenant_id,
+                'archivo_hash' => null,
+            ]);
+        }
+
+        return E14ActaRechazada::updateOrCreate(
+            ['tenant_id' => $acta->tenant_id, 'archivo_hash' => $acta->archivo_hash],
+            $datos,
+        );
+    }
 
     /**
      * @param  array<string, mixed>  $datos

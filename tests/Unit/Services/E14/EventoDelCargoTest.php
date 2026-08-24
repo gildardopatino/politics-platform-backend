@@ -110,7 +110,9 @@ class EventoDelCargoTest extends TestCase
     {
         // Si alguien añade una fila con un tipo que el E-14 no conoce, el
         // candidato se escribiría en una elección que ninguna acta va a poblar.
-        foreach (EventoResolver::TIPO_POR_CARGO as $cargo => $tipo) {
+        // El mapa vive en `Tenant` desde la 0093, pegado al enum de cargos que
+        // traduce; `tipoDelCargo()` es su atajo.
+        foreach (\App\Models\Tenant::ELECCION_POR_CARGO as $cargo => $tipo) {
             if ($tipo === null) {
                 continue;
             }

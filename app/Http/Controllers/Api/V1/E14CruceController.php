@@ -22,10 +22,15 @@ class E14CruceController extends Controller
         private readonly EventoResolver $eventos,
     ) {}
 
+    /**
+     * La elección sale del tenant y no de la URL (Spec 0093): una campaña sirve
+     * a una sola, así que aquí no hay nada que elegir.
+     */
     public function index(CruceRequest $request): JsonResponse
     {
-        $evento = $this->eventos->delTenant(
-            $request->filled('event') ? $request->integer('event') : null
+        $evento = $this->eventos->deLaCampana(
+            $request->user()->tenant,
+            $request->filled('event') ? $request->integer('event') : null,
         );
 
         return response()->json($this->cruce->calcular($evento, $request->validated()));

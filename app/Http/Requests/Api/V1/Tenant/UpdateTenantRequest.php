@@ -2,9 +2,7 @@
 
 namespace App\Http\Requests\Api\V1\Tenant;
 
-use App\Models\Tenant;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
 class UpdateTenantRequest extends FormRequest
 {
@@ -28,8 +26,15 @@ class UpdateTenantRequest extends FormRequest
         return [
             'slug' => 'sometimes|string|max:255|unique:tenants,slug,'.$tenantId,
             'nombre' => 'sometimes|string|max:255',
-            // Misma lista que el alta y que la columna (Spec 0084).
-            'tipo_cargo' => ['sometimes', Rule::in(Tenant::TIPOS_CARGO)],
+            // `tipo_cargo` **no está** y no es un olvido (Spec 0093): es la
+            // elección de la campaña, y de ella cuelga todo el escrutinio —las
+            // actas cargadas, la elección donde vive «mi candidato», el cruce,
+            // el consolidado—. Cambiarlo después dejaría un tenant de alcaldía
+            // con actas de alcaldía diciendo que es de concejo, y el sistema
+            // rechazándolas por no ser de «su» elección. Se fija al crear la
+            // campaña (superadmin) y ahí se queda; quien necesite otra elección
+            // abre otro tenant. Al no estar en las reglas, no llega a
+            // `validated()` y el `update()` del controlador no lo ve.
             'identificacion' => 'sometimes|string|max:50|unique:tenants,identificacion,'.$tenantId,
             'email_contacto' => 'sometimes|email|max:255',
             'phone_contacto' => 'nullable|string|max:30',

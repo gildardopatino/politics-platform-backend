@@ -47,6 +47,18 @@ class StoreE14ResultadoRequest extends FormRequest
                 E14Acta::ESTADO_REVISION_MANUAL,
             ])],
 
+            // La elección que el lector leyó **impresa en el encabezado**
+            // (Spec 0093). Es lo que decide si el acta es de esta campaña o de
+            // otra; `null` significa «no la pude leer», y entonces no se
+            // rechaza nada.
+            //
+            // Se valida como texto acotado y **no** con `Rule::in`: un valor que
+            // el enum no conozca se trata como «no lo sé» (spec §9), no como un
+            // error. Un 422 aquí dejaría al worker reintentando para siempre un
+            // acta que leyó bien salvo por una palabra, y el precio de la duda
+            // ya está decidido: ante la duda no se borra.
+            'eleccion_detectada' => 'sometimes|nullable|string|max:60',
+
             'departamento_code' => 'nullable|string|max:10',
             'departamento' => 'nullable|string|max:255',
             'municipio_code' => 'nullable|string|max:10',

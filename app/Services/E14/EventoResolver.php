@@ -2,6 +2,7 @@
 
 namespace App\Services\E14;
 
+use App\Models\E14Acta;
 use App\Models\ElectoralEvent;
 use App\Models\Tenant;
 use App\Scopes\TenantScope;
@@ -20,32 +21,6 @@ use Illuminate\Validation\ValidationException;
  */
 class EventoResolver
 {
-    /**
-     * De qué cargo del tenant es cada tipo de elección (Spec 0080).
-     *
-     * Los dos campos hablan idiomas distintos por historia: `tenants.tipo_cargo`
-     * es el enum del alta de campañas (capitalizado, sin tildes) y
-     * `electoral_events.tipo` es el vocabulario del E-14 (`E14Acta::TIPOS`).
-     * Traducir por texto —minúsculas y sin tildes— acertaría en tres casos y
-     * fallaría en los dos que importan: un **diputado** se elige en la
-     * `asamblea_departamental`, y un **congresista**, en el `senado`.
-     *
-     * Lo que vale `null` no se adivina: `Otro` no es un cargo de elección
-     * popular, y la Cámara de Representantes todavía no tiene tipo de acta. Con
-     * un cargo así no hay elección donde fijar el número, y quien pregunte
-     * recibe el aviso en vez de una escritura en la elección equivocada.
-     *
-     * @var array<string, string|null>
-     */
-    public const TIPO_POR_CARGO = [
-        'alcaldia' => 'alcaldia',
-        'gobernacion' => 'gobernacion',
-        'concejo' => 'concejo',
-        'diputado' => 'asamblea_departamental',
-        'congresista' => 'senado',
-        'otro' => null,
-    ];
-
     /**
      * @param  array<string, mixed>  $datos
      */
@@ -104,23 +79,70 @@ class EventoResolver
     }
 
     /**
-     * De qué elección se consulta, cuando quien pregunta la nombra por tipo
-     * (Spec 0092).
+     * Qué elección escruta esta campaña, o 422 si no escruta (Spec 0093).
      *
-     * `delTenant()` sin id devuelve la más reciente **del tenant**, sea de lo que
-     * sea. Eso vale para el cruce, que se abre sobre «la elección que estoy
-     * escrutando», pero no para una página que se abre eligiendo elección: una
-     * campaña con alcaldía y concejo cargados recibiría las estadísticas de la
-     * otra sin enterarse. Aquí el tipo acota, y el id —si viene— manda.
+     * Es el único sitio del que sale el tipo para el escrutinio: la carga, el
+     * cruce, el consolidado, las estadísticas y la proyección lo piden aquí en
+     * vez de leer un `?tipo=` de la URL. Un tenant sirve a **una** elección, así
+     * que dejar que el cliente eligiera cuál era, de hecho, la forma de mirar
+     * otra.
+     *
+     * Un cargo `Otro` no escruta y se dice: devolver la elección de al lado
+     * —o un vacío mudo— dejaría a quien pregunta creyendo que no hay actas.
+     */
+    public function tipoDeLaCampana(Tenant $tenant): string
+    {
+        $tipo = $tenant->tipoEleccion();
+
+        if ($tipo === null) {
+            throw ValidationException::withMessages([
+                'cargo' => 'La campaña no tiene un cargo de elección popular configurado '
+                    .'(«'.($tenant->tipo_cargo ?: 'sin cargo').'»), así que no hay escrutinio '
+                    .'que cargar ni consultar.',
+            ]);
+        }
+
+        return $tipo;
+    }
+
+    /**
+     * La elección de esta campaña, la única que sus pantallas pueden mirar
+     * (Spec 0093).
+     *
+     * Con `id` manda el id, pero **acotado**: una elección de otro tipo se
+     * rechaza en vez de servirse. Sin él se toma la más reciente del tipo del
+     * tenant. Es la diferencia con `delTenant()`, que devolvía la más reciente
+     * fuera cual fuera su tipo: una campaña de alcaldía con un evento de concejo
+     * cargado por error acababa viendo el cruce del concejo sin enterarse.
+     */
+    public function deLaCampana(Tenant $tenant, ?int $id = null): ElectoralEvent
+    {
+        $tipo = $this->tipoDeLaCampana($tenant);
+
+        $evento = $id !== null ? $this->delTenant($id) : $this->masRecienteDe($tipo);
+
+        if ($evento->tipo !== $tipo) {
+            throw ValidationException::withMessages([
+                'event' => 'Esa elección es de '.E14Acta::nombreDe($evento->tipo)
+                    .' y esta campaña escruta '.E14Acta::nombreDe($tipo).'.',
+            ]);
+        }
+
+        return $evento;
+    }
+
+    /**
+     * La más reciente de un tipo, o el aviso de que no hay ninguna (Spec 0092).
+     *
+     * `delTenant()` sin id devuelve la más reciente **del tenant**, sea de lo
+     * que sea; eso valía cuando el cruce se abría sobre «la última elección»,
+     * pero una campaña con dos cargadas recibía la que no era sin enterarse.
+     * Aquí el tipo acota — y desde la 0093 ese tipo es siempre el del tenant.
      *
      * Nunca se crea nada: consultar no es dar de alta.
      */
-    public function delTipo(string $tipo, ?int $id = null): ElectoralEvent
+    private function masRecienteDe(string $tipo): ElectoralEvent
     {
-        if ($id !== null) {
-            return $this->delTenant($id);
-        }
-
         // Con `TenantScope`: una elección de otra campaña sencillamente no
         // existe desde aquí.
         $evento = ElectoralEvent::query()
@@ -134,22 +156,23 @@ class EventoResolver
         }
 
         throw ValidationException::withMessages([
-            'tipo' => 'Todavía no hay ninguna elección de ese tipo en esta campaña.',
+            'event' => 'Todavía no hay ninguna elección de '.E14Acta::nombreDe($tipo)
+                .' cargada en esta campaña.',
         ]);
     }
 
     /**
      * El tipo de elección del cargo del tenant, o `null` si no mapea (Spec 0080).
      *
-     * Se normaliza la caja porque el enum de `tenants` se escribió capitalizado
-     * y no hay garantía de que un dato viejo lo respete; lo que NO se hace es
-     * inferir por parecido: fuera de la tabla, no hay tipo.
+     * El mapa vive en `Tenant::ELECCION_POR_CARGO` desde la 0093, pegado al enum
+     * de cargos que traduce: la 0093 lo convirtió en **la** elección del tenant
+     * —la que manda en toda la app— y tenerlo aquí lo dejaba escondido en un
+     * servicio del E-14. Esto se queda como el atajo que ya usan la 0080 y la
+     * 0082, no como una segunda tabla.
      */
     public function tipoDelCargo(?string $tipoCargo): ?string
     {
-        $clave = mb_strtolower(trim((string) $tipoCargo));
-
-        return self::TIPO_POR_CARGO[$clave] ?? null;
+        return Tenant::eleccionDelCargo($tipoCargo);
     }
 
     /**
@@ -209,13 +232,6 @@ class EventoResolver
 
     private function nombrePorDefecto(string $tipo): string
     {
-        return match ($tipo) {
-            'alcaldia' => 'Alcaldía',
-            'gobernacion' => 'Gobernación',
-            'concejo' => 'Concejo',
-            'senado' => 'Senado',
-            'asamblea_departamental' => 'Asamblea Departamental',
-            default => ucfirst($tipo),
-        };
+        return E14Acta::nombreDe($tipo);
     }
 }

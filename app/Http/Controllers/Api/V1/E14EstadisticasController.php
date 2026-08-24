@@ -23,10 +23,16 @@ class E14EstadisticasController extends Controller
         private readonly EventoResolver $eventos,
     ) {}
 
+    /**
+     * La elección sale del tenant y no de la URL (Spec 0093).
+     *
+     * Hasta la 0092 `tipo` era obligatorio aquí, porque la página se abría
+     * eligiendo elección. Ya no se elige: la campaña tiene una.
+     */
     public function index(EstadisticasRequest $request): JsonResponse
     {
-        $evento = $this->eventos->delTipo(
-            (string) $request->input('tipo'),
+        $evento = $this->eventos->deLaCampana(
+            $request->user()->tenant,
             $request->filled('event') ? $request->integer('event') : null,
         );
 

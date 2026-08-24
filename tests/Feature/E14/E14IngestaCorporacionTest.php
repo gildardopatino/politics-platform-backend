@@ -45,7 +45,9 @@ class E14IngestaCorporacionTest extends TestCase
         array $permisos = [Permissions::VIEW_E14, Permissions::MANAGE_E14],
         ?Tenant $tenant = null
     ): Tenant {
-        $tenant ??= Tenant::factory()->create();
+        // Una campaña de concejo: desde la 0093 el listado solo trae las actas
+        // de la elección de la campaña, y las de aquí son de corporación.
+        $tenant ??= Tenant::factory()->corporacion()->create();
         [$user, $token] = $this->createTenantWithUser($permisos, $tenant);
 
         $this->actingAsTenantUser($user, $token);

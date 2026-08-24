@@ -261,14 +261,17 @@ class E14EstadisticasTest extends TestCase
 
     // ------------------------------------------------ parámetros y permisos
 
-    public function test_el_tipo_es_obligatorio(): void
+    public function test_el_tipo_ya_no_se_pide_porque_lo_pone_la_campana(): void
     {
+        // Era obligatorio en la 0092: la página se abría eligiendo elección.
+        // Desde la 0093 la campaña tiene una sola y sale del tenant, así que
+        // preguntarlo era ofrecer mirar la de al lado.
         $tenant = $this->operador();
         $this->evento($tenant);
 
         $this->getJson('/api/v1/e14/estadisticas')
-            ->assertStatus(422)
-            ->assertJsonValidationErrors('tipo');
+            ->assertStatus(200)
+            ->assertJsonPath('meta.tipo', 'alcaldia');
     }
 
     public function test_el_tipo_invalido_se_rechaza(): void
@@ -323,12 +326,14 @@ class E14EstadisticasTest extends TestCase
             ->assertJsonPath('meta.total', 1);
     }
 
-    public function test_sin_eleccion_de_ese_tipo_lo_dice(): void
+    public function test_sin_ninguna_eleccion_cargada_lo_dice(): void
     {
         $this->operador();
 
+        // El `tipo` de la URL ya no elige nada (0093): la campaña es de
+        // alcaldía y todavía no tiene ninguna elección cargada.
         $this->getJson('/api/v1/e14/estadisticas?tipo=gobernacion')
             ->assertStatus(422)
-            ->assertJsonValidationErrors('tipo');
+            ->assertJsonValidationErrors('event');
     }
 }

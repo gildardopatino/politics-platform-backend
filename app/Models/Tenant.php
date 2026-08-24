@@ -40,6 +40,40 @@ class Tenant extends Model
         'Otro',
     ];
 
+    /**
+     * A qué elección del E-14 corresponde cada cargo (Spec 0093).
+     *
+     * **Un tenant sirve a una sola elección**, y esta tabla es la que lo dice:
+     * el producto se vende por uso, así que la campaña de un alcalde escruta
+     * alcaldía y nada más. De aquí sale el tipo que usan la carga, el cruce, el
+     * consolidado, las estadísticas y la proyección; ninguno lo vuelve a
+     * preguntar al cliente, porque un `?tipo=` en la URL era la forma de mirar
+     * —y de mezclar— la elección de otro.
+     *
+     * Vive pegada a `TIPOS_CARGO` porque son la misma decisión mirada dos veces,
+     * y una prueba comprueba que las dos listas cubren exactamente los mismos
+     * cargos: un cargo nuevo sin elección asignada dejaría el escrutinio mudo.
+     *
+     * Los dos idiomas no se traducen por texto: `tenants.tipo_cargo` es el enum
+     * del alta de campañas (capitalizado, sin tildes) y `E14Acta::TIPOS` es el
+     * vocabulario del papel. Traducir por parecido acertaría en tres casos y
+     * fallaría en los dos que importan — un **diputado** se elige en la
+     * `asamblea_departamental` y un **congresista** en el `senado`.
+     *
+     * `Otro` vale `null` a propósito: no es un cargo de elección popular, así
+     * que esa campaña **no tiene escrutinio**. No se le inventa un tipo.
+     *
+     * @var array<string, string|null>
+     */
+    public const ELECCION_POR_CARGO = [
+        'Gobernacion' => E14Acta::TIPO_GOBERNACION,
+        'Alcaldia' => E14Acta::TIPO_ALCALDIA,
+        'Concejo' => E14Acta::TIPO_CONCEJO,
+        'Congresista' => E14Acta::TIPO_SENADO,
+        'Diputado' => E14Acta::TIPO_ASAMBLEA,
+        'Otro' => null,
+    ];
+
     protected $fillable = [
         'slug',
         'nombre',
@@ -104,6 +138,35 @@ class Tenant extends Model
     public function getRouteKeyName(): string
     {
         return 'slug';
+    }
+
+    /**
+     * La elección de esta campaña, o `null` si no escruta (Spec 0093).
+     *
+     * Es **la** pregunta del escrutinio: de qué elección son las actas que esta
+     * campaña puede cargar, cruzar y consolidar. La respuesta sale del tenant y
+     * de ningún otro sitio; el `tipo` que llegue por la URL se ignora.
+     *
+     * `null` significa «esta campaña no escruta» (cargo `Otro`), no «todavía no
+     * se sabe»: quien lo reciba tiene que decirlo, no elegir una elección por él.
+     */
+    public function tipoEleccion(): ?string
+    {
+        return self::eleccionDelCargo($this->tipo_cargo);
+    }
+
+    /**
+     * Lo mismo a partir del cargo suelto, para quien todavía no tiene el modelo.
+     *
+     * Se normaliza la caja porque el enum se escribió capitalizado y no hay
+     * garantía de que un dato viejo lo respete; lo que **no** se hace es inferir
+     * por parecido: fuera de la tabla, no hay elección.
+     */
+    public static function eleccionDelCargo(?string $tipoCargo): ?string
+    {
+        $clave = mb_strtolower(trim((string) $tipoCargo));
+
+        return array_change_key_case(self::ELECCION_POR_CARGO)[$clave] ?? null;
     }
 
     /**

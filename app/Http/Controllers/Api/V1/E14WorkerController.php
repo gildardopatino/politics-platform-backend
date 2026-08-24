@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\E14\StoreE14ResultadoRequest;
+use App\Http\Resources\Api\V1\E14ActaRechazadaResource;
 use App\Http\Resources\Api\V1\E14ActaResource;
 use App\Models\E14Acta;
 use App\Scopes\TenantScope;
@@ -66,9 +67,24 @@ class E14WorkerController extends Controller
      *
      * Idempotente: reenviar el mismo resultado deja lo mismo. Un worker que
      * publica y se cae antes de leer la respuesta puede repetir sin miedo.
+     *
+     * Salvo que el acta no sea de esta elección (Spec 0093): el lector dice qué
+     * venía impreso en el encabezado y, si no es lo que esta campaña escruta, el
+     * acta se borra en duro —fila y archivo— y el acuse lo dice. Reenviar
+     * entonces da 404, que es el contrato que el worker ya tolera para un acta
+     * que dejó de existir.
      */
     public function resultado(StoreE14ResultadoRequest $request, E14Acta $acta): JsonResponse
     {
+        if ($rechazo = $this->ingesta->rechazarPorEleccion($acta, $request->validated())) {
+            return response()->json([
+                'data' => null,
+                'estado' => 'rechazada',
+                'rechazo' => new E14ActaRechazadaResource($rechazo),
+                'message' => $rechazo->motivo,
+            ]);
+        }
+
         $acta = $this->ingesta->registrarResultado($acta, $request->validated());
 
         return response()->json([

@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\V1\E14IngestController;
 use App\Http\Controllers\Api\V1\E14MetaController;
 use App\Http\Controllers\Api\V1\E14ProyeccionController;
 use App\Http\Controllers\Api\V1\E14PuestoController;
+use App\Http\Controllers\Api\V1\E14RechazoController;
 use App\Http\Controllers\Api\V1\E14RendimientoLideresController;
 use App\Http\Controllers\Api\V1\E14UploadController;
 use App\Http\Controllers\Api\V1\E14WorkerController;
@@ -139,6 +140,12 @@ Route::prefix('v1')->group(function () {
             Route::post('/actas/upload', [E14UploadController::class, 'upload'])->middleware('permission:manage_e14');
             Route::post('/actas/procesar', [E14UploadController::class, 'procesar'])->middleware('permission:manage_e14');
             Route::get('/resumen', [E14UploadController::class, 'resumen'])->middleware('permission:view_e14');
+
+            // Las actas que se rechazaron por ser de otra elección (Spec 0093).
+            // El acta y su PDF ya no existen; esto es la constancia que explica
+            // por qué desaparecieron.
+            Route::get('/rechazos', [E14RechazoController::class, 'index'])
+                ->middleware('permission:view_e14');
 
             // Volver a leer un acta (Spec 0077): la salida de la revisión
             // cuando el lector no transcribió nada y no hay casilla que
