@@ -43,8 +43,15 @@
 | GET | `/tenants` | Lista todos los tenants con paginación y filtros | Query: `filter[nombre], filter[tipo_cargo], filter[identificacion], sort, page` | `{ data: TenantResource[], links: {}, meta: {} }` |
 | POST | `/tenants` | Crea nuevo tenant | `{ slug: string, nombre: string, tipo_cargo: enum, identificacion: string, metadata?: object }` | `{ data: TenantResource, message: string }` |
 | GET | `/tenants/{id}` | Obtiene detalle de tenant con relaciones | - | `{ data: TenantResource }` |
-| PUT | `/tenants/{id}` | Actualiza tenant | `{ slug?: string, nombre?: string, tipo_cargo?: enum, identificacion?: string, metadata?: object }` | `{ data: TenantResource, message: string }` |
+| PUT | `/tenants/{id}` | Actualiza tenant | `{ slug?: string, nombre?: string, identificacion?: string, metadata?: object }` | `{ data: TenantResource, message: string }` |
 | DELETE | `/tenants/{id}` | Elimina tenant | - | `{ message: string }` |
+
+> **`tipo_cargo` es inmutable (Spec 0093).** Se fija al crear la campaña y `PUT`
+> **ya no lo acepta**: si llega, se ignora y el resto del cuerpo sí se aplica. Es
+> la elección de la campaña, y de ella cuelga todo el escrutinio —las actas
+> cargadas, la elección donde vive «mi candidato», el cruce—; cambiarlo dejaría a
+> la campaña rechazando sus propias actas por «ser de otra elección». Quien
+> necesite otra elección abre otra campaña. Ver `docs/E14_API.md`.
 
 ---
 

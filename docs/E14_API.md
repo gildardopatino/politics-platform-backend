@@ -239,6 +239,74 @@ entrada.
 
 ---
 
+## Una campaña, una elección (Spec 0093)
+
+El producto se vende **por uso**: cada tenant sirve a **una** elección. La
+campaña de un alcalde escruta alcaldía y nada más; quien necesite dos
+elecciones, dos tenants.
+
+Eso ya estaba en el modelo —`tenants.tipo_cargo` es obligatorio al crear la
+campaña— pero media API ofrecía además elegir el tipo: la carga lo pedía, el
+cruce, el consolidado y las estadísticas lo aceptaban por query. Ese parámetro
+era, de hecho, **la forma de mirar la elección de al lado**: bastaba con armar la
+petición a mano. La 0093 lo cerró en dos capas.
+
+### Capa 1 — el tipo sale del tenant
+
+**El mapa canónico vive en `Tenant::ELECCION_POR_CARGO`**, pegado a
+`Tenant::TIPOS_CARGO` porque son la misma decisión mirada dos veces; una prueba
+comprueba que las dos listas cubren exactamente los mismos cargos.
+`Tenant::tipoEleccion()` es su lectura desde el modelo.
+
+| `tenants.tipo_cargo` | elección E-14 |
+| --- | --- |
+| `Gobernacion` | `gobernacion` |
+| `Alcaldia` | `alcaldia` |
+| `Concejo` | `concejo` |
+| `Congresista` | `senado` |
+| `Diputado` | `asamblea_departamental` |
+| `Otro` | — (no escruta) |
+
+Consecuencias en el contrato:
+
+| Endpoint | Qué cambió |
+| --- | --- |
+| `POST /actas/upload` | **ya no lleva `tipo`**; lo pone la campaña |
+| `GET /actas` | filtra por la elección de la campaña; el `?tipo=` se ignora |
+| `GET /consolidado` | el `?tipo=` se ignora; antes, sin él, sumaba **todas** las elecciones cargadas |
+| `GET /estadisticas` | `tipo` pasó de obligatorio (0092) a ignorado |
+| `GET /cruce`, `GET /proyeccion` | abren sobre la elección de la campaña, no sobre «la más reciente del tenant» |
+| `PUT /tenants/{id}` | **ya no acepta `tipo_cargo`**: es inmutable |
+
+El `?tipo=` se **ignora**, no se rechaza: un 422 sería una invitación a seguir
+probando, y el punto es que no hay nada que probar. Con `?event=` sí hay error,
+porque ahí el cliente nombra algo concreto: una elección de otro tipo responde
+**422** en vez de servirse.
+
+**`tipo_cargo` es inmutable** porque de él cuelga todo el escrutinio —las actas
+ya cargadas, la elección donde vive «mi candidato», el cruce—. Cambiarlo dejaría
+a la campaña rechazando sus propias actas por «ser de otra elección».
+
+**Una campaña de cargo `Otro` no escruta.** No se le inventa un tipo: la carga
+responde 422 (`cargo`), lo mismo el cruce, el consolidado, las estadísticas y la
+proyección, y `GET /actas` devuelve la lista vacía —que es la respuesta honesta a
+«enséñame tus actas» cuando no hay ninguna que enseñar.
+
+### Capa 2 — el acta que no es de esta elección se rechaza
+
+Que el tipo lo ponga la campaña impide *elegir* mal, no impide *subir* un acta de
+otra elección. Por eso el lector devuelve `eleccion_detectada` —lo que leyó
+impreso en el encabezado del papel— al publicar el resultado, y el backend
+compara. Si no coincide, el acta **no se procesa**: se borra en duro, fila y
+archivo, y queda constancia. Ver
+[`POST /actas/{id}/resultado`](#post-actasidresultado--publicar-la-lectura-worker)
+y [`GET /rechazos`](#get-rechazos--las-actas-que-no-eran-de-esta-elección-spec-0093).
+
+**Ante la duda no se borra**: un encabezado ilegible llega como `null` y el acta
+sigue el flujo normal. Un OCR flojo no puede tener permiso de borrado.
+
+---
+
 ## Autenticación
 
 Dos clientes, dos credenciales, un solo middleware (`e14.auth`):
@@ -294,7 +362,7 @@ Sin credencial válida la API responde **401 y no escribe nada**.
 
 | Permiso | Qué habilita |
 | --- | --- |
-| `view_e14` | `GET /actas`, `GET /actas/{id}`, `GET /consolidado`, `GET /resumen`, `GET /eventos`, `GET /candidato`, `GET /cruce`, `GET /estadisticas`, `GET /rendimiento-lideres`, `GET /meta`, `GET /proyeccion`, `GET /puestos-por-conciliar` |
+| `view_e14` | `GET /actas`, `GET /actas/{id}`, `GET /consolidado`, `GET /resumen`, `GET /rechazos`, `GET /eventos`, `GET /candidato`, `GET /cruce`, `GET /estadisticas`, `GET /rendimiento-lideres`, `GET /meta`, `GET /proyeccion`, `GET /puestos-por-conciliar` |
 | `manage_e14` | `POST /actas`, `POST /actas/upload`, `POST /actas/procesar`, `POST /actas/siguiente`, `POST /actas/{id}/resultado`, `POST /actas/{id}/reprocesar`, `PUT /actas/{id}`, `DELETE /actas/{id}`, `PUT /candidato`, `PUT /meta`, `POST /puestos/fusionar` |
 
 Los tiene `admin` y `coordinator`; `viewer` solo `view_e14`. Sin el permiso, 403.
@@ -356,7 +424,9 @@ Los dos campos **no hablan el mismo idioma**: `tenants.tipo_cargo` es el enum de
 de campañas (capitalizado, sin tildes) y `electoral_events.tipo` es el vocabulario del
 E-14 (`E14Acta::TIPOS`). Traducir por texto acertaría en tres casos y fallaría en los
 dos que importan, así que la tabla es explícita y vive en un solo sitio,
-`EventoResolver::TIPO_POR_CARGO`:
+`Tenant::ELECCION_POR_CARGO` —pegada al enum de cargos que traduce desde la 0093, que
+la convirtió en **la** elección del tenant, la que manda en toda la app
+(`Tenant::tipoEleccion()`); `EventoResolver::tipoDelCargo()` es su atajo—:
 
 | `tenants.tipo_cargo` | `electoral_events.tipo` | Nota |
 | --- | --- | --- |
@@ -625,10 +695,17 @@ devuelve lo que leyó.
 
 | Campo | |
 | --- | --- |
-| `tipo` | requerido, uno de los cinco |
 | `archivo` | requerido, PDF (se valida el mimetype real, no la extensión) |
 | `electoral_event_id` | opcional |
 | `upload_batch_id` | opcional; si no viene, el servidor abre uno y lo devuelve |
+
+**Ya no lleva `tipo` (Spec 0093).** Hasta la 0071 lo elegía quien subía, porque
+el dato no está en un sitio fiable del papel; el precio era que nada impedía
+cargar un acta de otra elección y etiquetarla mal, y una etiqueta equivocada
+manda el acta al parser que no le toca. Ahora lo pone la campaña —una campaña,
+una elección— y lo que el papel diga de verdad lo comprueba el lector al leerlo.
+Un `tipo` que llegue en el cuerpo se ignora; una campaña de cargo `Otro` recibe
+**422** con el aviso de que no tiene escrutinio.
 
 **Subir es encolar (Spec 0072).** El acta nace en `pendiente` y el worker la
 toma sola. Antes nacía `cargada` y hacía falta un segundo paso; quien subía un
@@ -729,6 +806,7 @@ el worker acaba de leer:
   "departamento_code": "73", "departamento": "TOLIMA",
   "municipio_code": "73001", "municipio": "IBAGUE",
   "lugar": "INSTITUCION EDUCATIVA SAN JOSE",
+  "eleccion_detectada": "alcaldia",
   "fuente": "vision",
   "suma_declarada": 111, "votos_urna": 111, "votos_incinerados": 0, "votantes_e11": 111,
   "votos_blanco": 4, "votos_nulos": 4, "votos_no_marcados": 4,
@@ -757,6 +835,83 @@ segunda responde `200` con `estado: revision_manual` y el motivo apuntando al
 acta que ya tenía esa mesa — y **no** se le guarda la mesa leída, porque
 escribirla chocaría con el índice único que es justo lo que está avisando. La
 cola sigue y el consolidado no cuenta doble.
+
+### El acta de otra elección se rechaza (Spec 0093)
+
+`eleccion_detectada` es **la elección que el lector leyó impresa en el
+encabezado** del acta: uno de los cinco tipos, o `null` si no la pudo leer. Es la
+capa 2 de «una campaña, una elección»: la capa 1 impide *elegir* otra elección,
+esta impide *colar* un acta de otra.
+
+Al publicar, el backend compara con la elección de la campaña:
+
+| `eleccion_detectada` | Qué pasa |
+| --- | --- |
+| coincide con la de la campaña | flujo normal |
+| `null`, ausente, o un valor que el enum no conoce | flujo normal — **ante la duda no se borra** |
+| otra elección | **rechazo**: el acta y su PDF se borran en duro |
+
+El rechazo responde `200` con el acuse de que no se procesó:
+
+```json
+{
+  "data": null,
+  "estado": "rechazada",
+  "rechazo": {
+    "archivo_nombre": "acta-001.pdf",
+    "eleccion_detectada": "gobernacion", "eleccion_detectada_nombre": "Gobernación",
+    "eleccion_esperada": "alcaldia", "eleccion_esperada_nombre": "Alcaldía",
+    "motivo": "El acta es de Gobernación y esta campaña escruta Alcaldía; se eliminó junto con su archivo."
+  },
+  "message": "El acta es de Gobernación y esta campaña escruta Alcaldía; se eliminó junto con su archivo."
+}
+```
+
+Tres cosas que conviene tener claras:
+
+- **El borrado es duro y es el mismo de la 0077**: fila, resultados y archivo. Es
+  lo que libera el `archivo_hash` para que el mismo PDF pueda volver a entrar si
+  la detección se equivocó.
+- **Queda constancia.** Borrar en silencio sería inexplicable: alguien sube
+  ochenta PDFs, aparecen setenta y seis actas y nadie sabe qué pasó con las otras
+  cuatro. El renglón de `e14_actas_rechazadas` es la respuesta, y se lee con
+  [`GET /rechazos`](#get-rechazos--las-actas-que-no-eran-de-esta-elección-spec-0093).
+- **Es idempotente.** Reenviar el mismo resultado da `404` —el acta ya no
+  existe—, que es el contrato que el worker tolera desde la 0077. Y volver a
+  cargar y volver a rechazar el mismo PDF **actualiza** su renglón en vez de
+  acumular uno por intento: la constancia es única por `(tenant, archivo_hash)`.
+
+Un valor fuera del enum vale como duda a propósito. Rechazarlo con 422 dejaría al
+worker reintentando para siempre un acta que leyó bien salvo por una palabra, y el
+precio de equivocarse por exceso es un acta borrada sin vuelta atrás.
+
+### `GET /rechazos` — las actas que no eran de esta elección (Spec 0093)
+
+Permiso `view_e14`. Acotado por tenant. Del más reciente al más viejo,
+`per_page` 50 por defecto.
+
+```json
+{
+  "data": [
+    {
+      "id": 3,
+      "electoral_event_id": 7,
+      "archivo_nombre": "acta-001.pdf",
+      "archivo_hash": "9f2c…",
+      "eleccion_detectada": "gobernacion", "eleccion_detectada_nombre": "Gobernación",
+      "eleccion_esperada": "alcaldia", "eleccion_esperada_nombre": "Alcaldía",
+      "motivo": "El acta es de Gobernación y esta campaña escruta Alcaldía; se eliminó junto con su archivo.",
+      "created_at": "2026-08-24T10:12:00-05:00"
+    }
+  ],
+  "meta": { "total": 1, "current_page": 1, "last_page": 1, "per_page": 50 }
+}
+```
+
+**Sin PII** (Art. VII): el acta rechazada nunca se leyó, así que aquí no hay
+mesa, ni cifras, ni candidatos — solo metadatos del archivo y las dos
+elecciones. Las dos viajan en los dos idiomas: el enum, para agrupar o filtrar, y
+el nombre en español, para que la tabla se pinte sin llevar su propia traducción.
 
 ### Las constancias de los jurados (Spec 0073)
 
@@ -889,8 +1044,12 @@ de radicación, y dejarlo pasar metería los mismos votos dos veces en el total.
 
 ### `GET /actas` — listado y cola de revisión
 
-Permiso `view_e14`. Filtros: `estado`, `tipo`, `zona`, `puesto`, `mesa`,
+Permiso `view_e14`. Filtros: `estado`, `zona`, `puesto`, `mesa`,
 `electoral_event_id`, `per_page` (50 por defecto). Ordena por zona, puesto y mesa.
+
+**El `tipo` ya no se filtra: se impone** (Spec 0093). El listado trae las actas
+de la elección de la campaña y solo esas; un `?tipo=` en la URL se ignora. Una
+campaña de cargo `Otro` recibe la lista vacía.
 
 Filtros de ubicación (Spec 0074). Hay dos formas de preguntar por lo mismo
 porque son dos usos distintos:
@@ -948,12 +1107,16 @@ son `POST /actas/{id}/reprocesar` y `DELETE /actas/{id}`, descritas en
 
 ### `GET /consolidado`
 
-Votos por candidato **solo de las actas `procesada`**. Filtros:
-`electoral_event_id`, `tipo`.
+Votos por candidato **solo de las actas `procesada`**. Filtro:
+`electoral_event_id`.
 
-> Con `tipo` de corporación (`concejo`, `senado`, `asamblea_departamental`) la
-> respuesta es **de dos niveles** —por lista y por (lista, preferente)— y no la
-> de abajo. Ver [Corporación](#corporación-concejo-senado-asamblea-spec-0067).
+**El tipo lo pone la campaña** (Spec 0093): el `?tipo=` se sigue aceptando por
+compatibilidad pero no se lee. Antes, sin `tipo`, sumaba **todas** las elecciones
+que la campaña tuviera cargadas — dos escrutinios distintos en un mismo total.
+
+> Si la campaña es de corporación (`concejo`, `senado`, `asamblea_departamental`)
+> la respuesta es **de dos niveles** —por lista y por (lista, preferente)— y no
+> la de abajo. Ver [Corporación](#corporación-concejo-senado-asamblea-spec-0067).
 
 ```json
 {
@@ -1061,7 +1224,7 @@ siguiente llamada.
 
 | Parámetro | Por defecto | Qué hace |
 | --- | --- | --- |
-| `event` | la elección más reciente del tenant | de qué elección se cruza |
+| `event` | la elección **de la campaña** más reciente | de qué elección se cruza; una de otro tipo responde 422 (Spec 0093) |
 | `nivel` | `puesto` | `puesto` \| `mesa` |
 | `municipio` | — | coincidencia parcial sobre el municipio del puesto |
 | `voting_place` | — | el **id** si se eligió de la lista, o texto parcial del nombre |
@@ -1239,16 +1402,19 @@ miente.
 
 | Parámetro | Por defecto | Qué hace |
 | --- | --- | --- |
-| `tipo` | **obligatorio** | de qué elección: `alcaldia`, `gobernacion`, `concejo`, `senado`, `asamblea_departamental`. Sin él, 422 |
-| `event` | la más reciente **de ese tipo** en el tenant | fija la elección por id |
+| `tipo` | — | **se ignora** desde la 0093; lo pone la campaña |
+| `event` | la más reciente **de la elección de la campaña** | fija la elección por id; una de otro tipo responde 422 |
 | `municipio` | — | coincidencia parcial sobre el municipio del puesto |
 | `voting_place` | — | el **id** si se eligió de la lista, o texto parcial del nombre |
 | `incluir` | `voters` | `voters` \| `leads` \| `ambos` — qué cuenta como base |
 
-`nivel` **no** se acepta: la fila de este endpoint es siempre la mesa. Y `tipo` no
-tiene valor por defecto a propósito: una campaña puede tener alcaldía y concejo
-cargados a la vez, y «la última elección» sería una respuesta correcta a una
-pregunta que nadie hizo.
+`nivel` **no** se acepta: la fila de este endpoint es siempre la mesa.
+
+`tipo` era **obligatorio** en la 0092, porque la página se abría eligiendo
+elección y «la última» habría sido una respuesta correcta a una pregunta que
+nadie hizo. La 0093 respondió esa pregunta de otra forma: la campaña tiene una
+sola elección, así que preguntarlo era ofrecer mirar la de al lado. Se sigue
+aceptando para no romper a un cliente viejo, y no cambia la respuesta.
 
 ```json
 {
@@ -1431,7 +1597,7 @@ semáforo de todo el tablero, así que queda auditada (`owen-it`).
 
 | Parámetro | Por defecto | Qué hace |
 | --- | --- | --- |
-| `event` | la elección más reciente del tenant | de qué elección se proyecta |
+| `event` | la elección **de la campaña** más reciente | de qué elección se proyecta; una de otro tipo responde 422 (Spec 0093) |
 | `nivel` | `puesto` | `global` \| `municipio` \| `puesto` |
 | `municipio` | — | coincidencia parcial sobre el municipio del puesto |
 | `incluir` | `voters` | `voters` \| `leads` \| `ambos` — la misma base de la 0076 |
@@ -2161,6 +2327,22 @@ El override de la meta por puesto. **Que exista la fila es la meta**: no hay
 estado «cero por defecto», y quitarla borra el renglón. No hay tabla análoga para
 municipio ni zona — esas metas se agregan de sus puestos.
 
+### `e14_actas_rechazadas` (Spec 0093)
+`id`, `tenant_id`, `electoral_event_id?`, `archivo_nombre`, `archivo_hash`,
+`eleccion_detectada`, `eleccion_esperada`, `motivo`, `created_at`.
+Índice: `(tenant_id, created_at)`. Único: `(tenant_id, archivo_hash)`.
+
+La constancia de un acta que se borró por no ser de esta elección. No apunta a
+`e14_actas` —el acta ya no existe— y por eso copia el nombre y el hash del
+archivo en vez de referenciarlos. **Sin PII**: el acta rechazada nunca se leyó,
+así que aquí no hay mesa ni cifras. Solo `created_at`: un rechazo es un hecho con
+fecha, no una fila que se edite.
+
+El único por `(tenant_id, archivo_hash)` es lo que hace idempotente el rechazo:
+el mismo PDF vuelto a cargar y vuelto a rechazar actualiza su renglón. El hash
+puede ser nulo —un acta sin archivo— y varios nulos no colisionan ni en
+PostgreSQL ni en SQLite, así que esos casos conviven.
+
 ### `e14_candidates`
 `id`, `tenant_id`, `electoral_event_id`, `numero`, `nombre`, `agrupacion`,
 `cargo`, timestamps.
@@ -2300,3 +2482,8 @@ suma en el consolidado. Dos campañas pueden tener la misma zona/puesto/mesa sin
 pisarse: el índice único incluye `tenant_id`.
 
 Un `electoral_event_id` de otro tenant en el `POST` responde 422, no crea nada.
+
+Y desde la 0093 el **tipo de elección** también sale del tenant, nunca del
+cliente: un `?tipo=` ajeno no cambia la respuesta y un `?event=` de otra elección
+—aunque sea del mismo tenant— responde 422. `GET /rechazos` va acotado por
+`TenantScope` como todo lo demás.
