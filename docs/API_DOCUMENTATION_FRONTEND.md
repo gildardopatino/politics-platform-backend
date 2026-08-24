@@ -201,7 +201,12 @@ interface TenantResource {
   id: number;
   slug: string;
   nombre: string;
-  tipo_cargo: 'alcalde' | 'gobernador' | 'concejal' | 'diputado' | 'senador' | 'representante' | 'otro';
+  tipo_cargo: 'Gobernacion' | 'Alcaldia' | 'Concejo' | 'Congresista' | 'Diputado' | 'Otro';
+  // A qué elección del E-14 escruta la campaña (Spec 0093). Lo resuelve el
+  // servidor desde `tipo_cargo` (`Tenant::ELECCION_POR_CARGO`), y por eso el
+  // cliente no vuelve a escribir ese mapa: lo lee de `/me`. `Otro` → `null`,
+  // esa campaña no tiene escrutinio.
+  tipo_eleccion: 'gobernacion' | 'alcaldia' | 'concejo' | 'senado' | 'asamblea_departamental' | null;
   identificacion: string;
   metadata?: object;
   users_count?: number;

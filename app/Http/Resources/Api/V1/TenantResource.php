@@ -20,11 +20,21 @@ class TenantResource extends JsonResource
             'slug' => $this->slug,
             'nombre' => $this->nombre,
             'tipo_cargo' => $this->tipo_cargo,
+
+            // A qué elección del E-14 escruta esta campaña (Spec 0093).
+            //
+            // La traducción `tipo_cargo → tipo E-14` vive una sola vez, en
+            // `Tenant::ELECCION_POR_CARGO`, y viaja resuelta: el cliente quitó
+            // los selectores de tipo y necesita saber cuál es la suya sin
+            // volver a escribir el mapa (Art. IV). `null` en `Otro`, que no es
+            // cargo de elección popular y por eso no tiene escrutinio.
+            'tipo_eleccion' => $this->tipoEleccion(),
+
             'identificacion' => $this->identificacion,
             'email_contacto' => $this->email_contacto,
             'phone_contacto' => $this->phone_contacto,
             'metadata' => $this->metadata,
-            
+
             // Expiration information
             'start_date' => $this->start_date?->toISOString(),
             'expiration_date' => $this->expiration_date?->toISOString(),
@@ -32,23 +42,24 @@ class TenantResource extends JsonResource
             'is_expired' => $this->isExpired(),
             'is_not_started' => $this->isNotStarted(),
             'days_until_expiration' => $this->daysUntilExpiration(),
-            
+
             'users_count' => $this->whenCounted('users'),
             'meetings_count' => $this->whenCounted('meetings'),
             'campaigns_count' => $this->whenCounted('campaigns'),
-            
+
             // Messaging credits information
             'messaging_credits' => $this->when(
                 $this->relationLoaded('messagingCredit') && $this->messagingCredit,
                 function () {
                     $summary = $this->messagingCredit->getSummary();
+
                     return [
                         'emails' => [
                             'available' => $summary['emails']['available'],
                             'used' => $summary['emails']['used'],
                             'total_cost' => $summary['emails']['total_cost'],
                             'unit_price' => $summary['emails']['unit_price'],
-                            'percentage_used' => $summary['emails']['used'] > 0 
+                            'percentage_used' => $summary['emails']['used'] > 0
                                 ? round(($summary['emails']['used'] / ($summary['emails']['available'] + $summary['emails']['used'])) * 100, 2)
                                 : 0,
                         ],
@@ -80,7 +91,7 @@ class TenantResource extends JsonResource
                 $this->relationLoaded('whatsappInstances'),
                 $this->whatsappInstances->where('is_active', true)->count()
             ),
-            
+
             'created_at' => $this->created_at?->toISOString(),
             'updated_at' => $this->updated_at?->toISOString(),
         ];
