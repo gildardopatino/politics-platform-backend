@@ -68,16 +68,33 @@ class E14EsquemaColaTest extends TestCase
         $this->assertSame(3, E14Acta::withoutGlobalScope(TenantScope::class)->count());
     }
 
+    /**
+     * Cada elección con la campaña que la escruta (Spec 0093).
+     *
+     * Un tenant sirve a **una** elección, así que los cinco tipos ya no caben
+     * en la misma campaña: lo que se prueba es que la ingesta acepta las cinco
+     * formas del papel, una por campaña, no que una campaña pueda con todas.
+     *
+     * @var array<string, string>
+     */
+    private const CARGO_DE = [
+        E14Acta::TIPO_ALCALDIA => 'Alcaldia',
+        E14Acta::TIPO_GOBERNACION => 'Gobernacion',
+        E14Acta::TIPO_CONCEJO => 'Concejo',
+        E14Acta::TIPO_SENADO => 'Congresista',
+        E14Acta::TIPO_ASAMBLEA => 'Diputado',
+    ];
+
     public function test_la_ingesta_directa_acepta_los_cinco_tipos(): void
     {
-        $tenant = Tenant::factory()->create();
-        [$user, $token] = $this->createTenantWithUser(
-            [Permissions::VIEW_E14, Permissions::MANAGE_E14],
-            $tenant
-        );
-        $this->actingAsTenantUser($user, $token);
-
         foreach (E14Acta::TIPOS as $indice => $tipo) {
+            $tenant = Tenant::factory()->create(['tipo_cargo' => self::CARGO_DE[$tipo]]);
+            [$user, $token] = $this->createTenantWithUser(
+                [Permissions::VIEW_E14, Permissions::MANAGE_E14],
+                $tenant
+            );
+            $this->actingAsTenantUser($user, $token);
+
             // Cada familia trae su forma (Spec 0067): el uninominal, candidatos
             // sueltos y su suma declarada; la corporación, agrupaciones —y sin
             // suma declarada, que en su papel no existe.

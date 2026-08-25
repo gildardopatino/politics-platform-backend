@@ -662,6 +662,14 @@ justamente por eso: no vale reescribir tres lectores por un cambio de pantalla.
 Se queda como **lectura**: de aquí salen las elecciones con las que el cruce y el
 consolidado eligen de cuál se consulta. Ya no es la vía para configurar el candidato.
 
+> **Acotado al tipo de la campaña (Spec 0093).** Solo devuelve las elecciones cuyo
+> `tipo` es el de `Tenant::tipoEleccion()`. Una campaña de alcaldía con una jornada de
+> concejo cargada por error **no** la ve: ofrecerla era enseñar una opción que, al
+> elegirla, devuelve `422` («Esa elección es de Concejo y esta campaña escruta
+> Alcaldía») o una tabla vacía, porque el resto del módulo deriva el tipo del tenant.
+> Un `tipo_cargo` de `'Otro'` no escruta y recibe **`data: []`** con `200`, no un error:
+> es la ausencia del módulo, no una avería.
+
 > **Retirado en la 0080:** `PUT /eventos/{id}/candidato-propio` (0062). Era la única
 > forma de fijar candidato en una elección que no es la del cargo de la campaña, que es
 > justo lo que la 0080 elimina. Su sustituto es `PUT /candidato`. Un cliente que siga
@@ -1009,6 +1017,14 @@ entero no duplica un solo voto.
 
 `estado`, `suma_calculada` y `dif_nivelacion` se **aceptan pero se recalculan**.
 Se reciben para poder compararlos, que no es lo mismo que creerlos.
+
+> **El `tipo` tiene que ser el de la campaña (Spec 0093).** La elección a la que se
+> engancha el acta se resuelve —y se crea al vuelo si no existe— contra el tipo del
+> `tipo_cargo` del tenant. Un `tipo` distinto responde `422` (`errors.tipo`) en vez de
+> dar de alta una jornada fuera de la campaña, que después ninguna pantalla podría
+> mirar; un `electoral_event_id` que apunte a una elección de otro tipo responde `422`
+> (`errors.electoral_event_id`) aunque sea del mismo tenant. Una campaña de cargo
+> `'Otro'` no escruta: `422` con `errors.cargo`.
 
 **Acta ilegible.** Si el lector no pudo transcribirla, la publica igual con
 `estado: "revision_manual"`, sin cifras y con el motivo en `observacion`. Así la

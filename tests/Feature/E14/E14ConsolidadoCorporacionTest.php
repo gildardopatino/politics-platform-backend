@@ -267,7 +267,10 @@ class E14ConsolidadoCorporacionTest extends TestCase
 
     public function test_no_suma_las_actas_de_otra_campana(): void
     {
-        $ajeno = Tenant::factory()->create();
+        // La vecina también escruta concejo: si el aislamiento fallara, sus
+        // listas se sumarían a las de aquí. Un tenant de otro cargo no probaría
+        // nada — desde la 0093 sus actas ni siquiera podrían ser de concejo.
+        $ajeno = Tenant::factory()->corporacion()->create();
         $this->operador(tenant: $ajeno);
         $this->cargarActa('001');
 

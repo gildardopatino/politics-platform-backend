@@ -397,7 +397,9 @@ class E14IngestaCorporacionTest extends TestCase
 
     public function test_el_detalle_de_un_uninominal_no_trae_listas(): void
     {
-        $this->operador();
+        // Un acta de alcaldía pide una campaña de alcaldía (Spec 0093): la
+        // elección del acta es la de la campaña, no la elige quien publica.
+        $this->operador(tenant: Tenant::factory()->create(['tipo_cargo' => 'Alcaldia']));
 
         $this->postJson('/api/v1/e14/actas', [
             'tipo' => E14Acta::TIPO_ALCALDIA,
@@ -460,7 +462,10 @@ class E14IngestaCorporacionTest extends TestCase
 
     public function test_las_listas_de_otra_campana_no_se_ven(): void
     {
-        $ajeno = Tenant::factory()->create();
+        // Las dos campañas escrutan concejo: es lo que hace comparable el par
+        // de actas. Desde la 0093 un acta de corporación solo entra en una
+        // campaña de corporación.
+        $ajeno = Tenant::factory()->corporacion()->create();
         $this->operador(tenant: $ajeno);
         $this->postJson('/api/v1/e14/actas', $this->acta())->assertStatus(201);
 
@@ -490,7 +495,7 @@ class E14IngestaCorporacionTest extends TestCase
 
     public function test_un_acta_de_alcaldia_sigue_entrando_por_resultados(): void
     {
-        $this->operador();
+        $this->operador(tenant: Tenant::factory()->create(['tipo_cargo' => 'Alcaldia']));
 
         $this->postJson('/api/v1/e14/actas', [
             'tipo' => E14Acta::TIPO_ALCALDIA,

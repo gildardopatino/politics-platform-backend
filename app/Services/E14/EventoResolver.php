@@ -26,6 +26,14 @@ class EventoResolver
      */
     public function resolver(array $datos, int $tenantId): ElectoralEvent
     {
+        // Nada que se resuelva por aquí puede salirse de la elección de la
+        // campaña (Spec 0093). La carga ya fija el tipo desde el tenant, así
+        // que esto es defensa en profundidad: la puerta por la que una elección
+        // se **crea al vuelo** no puede dar de alta una jornada que después
+        // ninguna pantalla podrá mirar —todas derivan el tipo del `tipo_cargo`—
+        // y que dejaría al acta colgando de ella.
+        $esperado = $this->tipoDeLaCampanaDe($tenantId);
+
         if (! empty($datos['electoral_event_id'])) {
             // La búsqueda va con `TenantScope`: una elección de otro tenant
             // sencillamente no existe desde aquí.
@@ -37,10 +45,25 @@ class EventoResolver
                 ]);
             }
 
+            if ($evento->tipo !== $esperado) {
+                throw ValidationException::withMessages([
+                    'electoral_event_id' => 'Esa elección es de '.E14Acta::nombreDe($evento->tipo)
+                        .' y esta campaña escruta '.E14Acta::nombreDe($esperado).'.',
+                ]);
+            }
+
             return $evento;
         }
 
         $tipo = $datos['tipo'];
+
+        if ($tipo !== $esperado) {
+            throw ValidationException::withMessages([
+                'tipo' => 'Esta campaña escruta '.E14Acta::nombreDe($esperado)
+                    .' y el acta viene como '.E14Acta::nombreDe($tipo)
+                    .': no se da de alta una elección fuera de la campaña.',
+            ]);
+        }
 
         return ElectoralEvent::firstOrCreate(
             [
@@ -50,6 +73,26 @@ class EventoResolver
             ],
             ['fecha' => $datos['evento_fecha'] ?? null],
         );
+    }
+
+    /**
+     * El tipo de la campaña a partir de su id, para quien no tiene el modelo.
+     *
+     * La ingesta y la cola trabajan con `tenant_id` suelto —vienen del worker,
+     * no de una sesión—, así que se carga sin el scope: fuera de una petición no
+     * hay tenant en el contenedor y el filtro no encontraría la fila.
+     */
+    private function tipoDeLaCampanaDe(int $tenantId): string
+    {
+        $tenant = Tenant::withoutGlobalScopes()->find($tenantId);
+
+        if (! $tenant) {
+            throw ValidationException::withMessages([
+                'tenant' => 'La campaña indicada no existe.',
+            ]);
+        }
+
+        return $this->tipoDeLaCampana($tenant);
     }
 
     /**
