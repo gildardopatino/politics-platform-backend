@@ -344,7 +344,7 @@ a la API. Reglas y mensajes en `CHECKIN_CAMPOS_DINAMICOS.md`.
 **Qué es «nuevo».** Esta reunión es la **primera asistencia de esa persona en la
 campaña**, ordenando por `checked_in_at` y, a igualdad, por id. No es «no estaba
 en `voters`»: alguien puede llevar años en la base electoral —cargado por los
-webhooks de Registraduría, por ejemplo— y pisar su primera reunión hoy, y eso es
+consulta de Registraduría, por ejemplo— y pisar su primera reunión hoy, y eso es
 justo el crecimiento que se quiere medir.
 
 El orden importa: la misma persona cuenta como **nueva** en la reunión donde

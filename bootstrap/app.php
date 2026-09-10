@@ -33,9 +33,6 @@ return Application::configure(basePath: dirname(__DIR__))
             // admin (ver App\Http\Middleware\EnsureRole).
             'permission' => \Spatie\Permission\Middleware\PermissionMiddleware::class,
             'role' => \App\Http\Middleware\EnsureRole::class,
-            // Webhook de Registraduría: autentica por secreto de tenant y fija
-            // `current_tenant_id` sin que haya sesión (Spec 0030).
-            'webhook.registraduria' => \App\Http\Middleware\VerifyRegistraduriaWebhook::class,
             // Escrutinio E-14 (Spec 0061): autentica el panel por JWT y el
             // lector de actas por token de servicio, y deja en ambos casos un
             // usuario autenticado para que el resto de la cadena sea la misma.

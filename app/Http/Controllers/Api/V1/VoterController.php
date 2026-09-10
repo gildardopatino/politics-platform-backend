@@ -8,14 +8,11 @@ use App\Http\Requests\Api\V1\Voter\UpdateVoterRequest;
 use App\Http\Resources\Api\V1\VoterResource;
 use App\Jobs\Registraduria\ConsultarPuestoVotacionJob;
 use App\Models\Voter;
-use App\Models\VotingPlace;
 use App\Services\DocumentVerificationService;
 use App\Services\E14\PuestoResolver;
 use App\Traits\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Validator;
-use Illuminate\Validation\Rule;
 
 class VoterController extends Controller
 {
@@ -278,112 +275,6 @@ class VoterController extends Controller
     }
 
     /**
-     * Webhook (n8n): votantes pendientes de consulta en Registraduría.
-     *
-     * Autenticado por el secreto del tenant (`webhook.registraduria`), que ya
-     * dejó `current_tenant_id` enlazado: la consulta va acotada por
-     * `TenantScope`. Antes se saltaba el scope y repartía hasta 100 cédulas de
-     * cualquier campaña a quien supiera la URL (Spec 0030).
-     *
-     * Devuelve un array crudo —forma estable para el consumidor— con `id` y
-     * `cedula` y nada más: los `$appends` del modelo colaban además un
-     * `full_name` vacío y un `location_type` nulo.
-     */
-    public function pendientesRegistraduria(Request $request): JsonResponse
-    {
-        $voters = Voter::query()
-            ->select('id', 'cedula')
-            ->whereNull('departamento_votacion')
-            ->limit(100)
-            ->get()
-            ->map(fn (Voter $voter) => [
-                'id' => $voter->id,
-                'cedula' => $voter->cedula,
-            ]);
-
-        return response()->json($voters);
-    }
-
-    /**
-     * Webhook (n8n): escribe la información electoral de un votante.
-     *
-     * `id` se valida contra los votantes **del tenant del secreto**, así que un
-     * id de otra campaña se rechaza igual que uno inexistente: el webhook no
-     * sirve para averiguar qué ids tiene la competencia.
-     *
-     * La respuesta es un acuse mínimo. Antes devolvía `$voter->fresh()`, el
-     * modelo completo con nombres, correo, teléfono, dirección y `tenant_id`
-     * (Spec 0030).
-     */
-    public function actualizarRegistraduria(Request $request): JsonResponse
-    {
-        $tenantId = app('current_tenant_id');
-
-        $validator = Validator::make($request->all(), [
-            'id' => [
-                'required', 'integer',
-                Rule::exists('voters', 'id')
-                    ->where(fn ($q) => $q->where('tenant_id', $tenantId)->whereNull('deleted_at')),
-            ],
-            'departamento_votacion' => 'required|string|max:255',
-            'municipio_votacion' => 'required|string|max:255',
-            'puesto_votacion' => 'required|string|max:255',
-            'direccion_votacion' => 'nullable|string|max:500',
-            'mesa_votacion' => 'nullable|integer',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
-        }
-
-        $data = $validator->validated();
-
-        // El mismo resolver que el E-14 (Spec 0075): alias del tenant → catálogo
-        // normalizado → alta. `voting_places` sigue siendo un catálogo global
-        // compartido entre campañas; lo que cambió es que ya no se le añade un
-        // renglón por cada diferencia de tildes o de espacios.
-        //
-        // `refrescar()` porque la instancia puede venir de una petición anterior
-        // —el router memoiza el controlador dentro de un proceso— y una fusión
-        // hecha hace un momento tiene que contar ya.
-        $this->puestos->refrescar();
-
-        $puestoId = $this->puestos->resolverRegistraduria(
-            $data['departamento_votacion'],
-            $data['municipio_votacion'],
-            $data['puesto_votacion'],
-        );
-
-        $this->sembrarDireccionDelPuesto($puestoId, $data['direccion_votacion'] ?? null);
-
-        // Acotado por `TenantScope`; la regla `exists` de arriba ya lo garantiza,
-        // esto es la segunda cerradura.
-        $voter = Voter::find($data['id']);
-
-        if (! $voter) {
-            return response()->json(['success' => false, 'message' => 'Votante no encontrado.'], 404);
-        }
-
-        $voter->update([
-            'departamento_votacion' => $data['departamento_votacion'],
-            'municipio_votacion' => $data['municipio_votacion'],
-            'puesto_votacion' => $data['puesto_votacion'],
-            'direccion_votacion' => $data['direccion_votacion'] ?? null,
-            'mesa_votacion' => $data['mesa_votacion'] ?? null,
-            'voting_place_id' => $puestoId,
-        ]);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Información de registraduría actualizada correctamente.',
-            'data' => [
-                'id' => $voter->id,
-                'updated' => true,
-            ],
-        ]);
-    }
-
-    /**
      * Deriva `voting_place_id` de la ubicación tecleada (Spec 0075).
      *
      * **Solo busca, nunca crea**: un nombre de puesto escrito en un formulario no
@@ -425,24 +316,5 @@ class VoterController extends Controller
         );
 
         return $data;
-    }
-
-    /**
-     * Completa la dirección del puesto que acabó de resolverse (Spec 0075).
-     *
-     * El resolver decide **identidad** —a qué renglón del catálogo pertenece este
-     * nombre— y no atributos, así que la dirección se rellena aquí. Solo si está
-     * vacía: el catálogo es global y la dirección que ya tenga un puesto pudo
-     * ponerla otra campaña o un acta, y no se pisa con la de este webhook.
-     */
-    private function sembrarDireccionDelPuesto(?int $puestoId, ?string $direccion): void
-    {
-        if ($puestoId === null || blank($direccion)) {
-            return;
-        }
-
-        VotingPlace::where('id', $puestoId)
-            ->whereNull('direccion_votacion')
-            ->update(['direccion_votacion' => $direccion]);
     }
 }

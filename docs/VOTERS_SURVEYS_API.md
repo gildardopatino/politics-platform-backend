@@ -28,7 +28,7 @@ Este módulo maneja el registro de votantes (sincronizados desde asistentes de r
 5. [Preguntas de Encuestas (Survey Questions)](#preguntas-de-encuestas)
 6. [Llamadas (Calls)](#llamadas-calls)
 7. [Puestos de votación](#puestos-de-votación)
-8. [Webhooks de Registraduría](#webhooks-de-registraduría)
+8. [Consulta de Registraduría](#consulta-de-registraduría)
 9. [Sincronización Automática](#sincronización-automática)
 
 ---
@@ -1286,8 +1286,8 @@ Al crear un votante sin `tipo_votante_id`, el controlador pone **`1` en duro**
 ⚠️ **No hay ninguna ruta CRUD.** `VotingPlaceController` solo expone
 `POST /voting-place/generate-image` y `POST /voting-place/send-whatsapp`, ambas
 **públicas** y fuera del alcance de la Spec 0011. La tabla `voting_places` se
-alimenta **únicamente** desde el webhook de Registraduría
-(`VotingPlace::firstOrCreate`), y no se puede consultar ni corregir por API.
+alimenta **únicamente** desde la consulta de Registraduría y las actas E-14
+(vía `PuestoResolver`), y no se puede consultar ni corregir por API.
 
 ⚠️ `VotingPlace` tampoco usa `HasTenant` ni tiene `tenant_id`: es otro catálogo
 global compartido por todas las campañas.
@@ -1296,7 +1296,7 @@ global compartido por todas las campañas.
 
 | Dónde | Qué es |
 | --- | --- |
-| `voting_places` + `voters.voting_place_id` | la tabla, poblada por el webhook |
+| `voting_places` + `voters.voting_place_id` | la tabla, poblada por la consulta de Registraduría y las actas E-14 |
 | `voters.puesto_votacion` (texto) | lo que agrupa `voters-by-voting-place` |
 
 `GET /voters-by-voting-place` —lo que consume el frontend— agrupa por el **texto**
@@ -1316,24 +1316,26 @@ el resto del país sale en `votantes_externos`, sin agrupar. Quien no tiene
 
 ---
 
-## Webhooks de Registraduría
+## Consulta de Registraduría
 
-Dos rutas para n8n, **autenticadas con un secreto por tenant** en la cabecera
-`X-Registraduria-Secret` (Spec 0030). Contrato completo, generación del secreto
-y códigos de rechazo en `VOTER_SYNC_SYSTEM.md`, sección «Webhooks de
-Registraduría».
+**Ya no hay rutas.** Hasta la Spec 0091 había dos webhooks públicos que n8n
+llamaba (`GET .../registraduria/pendientes` y `POST .../registraduria/actualizar`),
+autenticados con un secreto por tenant desde la Spec 0030. La 0091 invirtió el
+flujo y los retiró: hoy responden **404**.
 
-| Ruta | Qué hace |
+Ahora es Laravel quien llama de salida a `platform-politics-registraduria` desde
+una cola, cuando un votante nace **sin** puesto de votación. Nada de esto es
+superficie de API: ni rutas nuevas, ni permisos nuevos, ni cambios de contrato en
+`/voters`.
+
+| Pieza | Qué hace |
 | --- | --- |
-| `GET /api/v1/webhook/political/registraduria/pendientes` | hasta 100 votantes **del tenant del secreto** sin `departamento_votacion`; devuelve `id` y `cedula` |
-| `POST /api/v1/webhook/political/registraduria/actualizar` | escribe el puesto de votación de **un votante del tenant**; responde un acuse `{id, updated}` |
+| `ConsultarPuestoVotacionJob` | se encola al nacer un votante sin puesto |
+| `voters:consultar-puestos {--tenant=} {--limit=}` | backfill manual; reemplaza al viejo `pendientes` |
 
-`throttle:60,1` delante de la verificación. Sin secreto → 401; vigencia vencida
-→ 403; un `id` de otra campaña → 422, el mismo que uno inexistente.
-
-Hasta la 0030 ambas eran **públicas y sin filtro de tenant** —repartían cédulas
-de todas las campañas y dejaban escribir en sus votantes—. La historia está en
-`VOTER_SYNC_SYSTEM.md`.
+El flujo completo —configuración, contrato del servicio Python, idempotencia,
+aislamiento multi-tenant y qué cambió respecto a n8n— está en
+`VOTER_SYNC_SYSTEM.md`, sección «Consulta de Registraduría (Spec 0091)».
 
 ---
 

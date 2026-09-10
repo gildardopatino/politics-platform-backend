@@ -61,7 +61,7 @@ JWT via `tymon/jwt-auth`; the `api` guard uses the `jwt` driver. `User implement
 - `tenant` → `EnsureTenant` — establishes tenant context (see above).
 - `tenant.active` → `CheckTenantExpiration` — blocks expired tenants.
 
-Route structure: public routes first (login, password reset, public meeting check-in by QR, MercadoPago + registraduria webhooks, landing page public reads, voting-place image gen). Then `jwt.auth` group wrapping a `superadmin` subgroup and a `['tenant','tenant.active']` subgroup that holds the bulk of the app.
+Route structure: public routes first (login, password reset, public meeting check-in by QR, MercadoPago webhook, landing page public reads, voting-place image gen). Then `jwt.auth` group wrapping a `superadmin` subgroup and a `['tenant','tenant.active']` subgroup that holds the bulk of the app.
 
 **Middleware order is load-bearing.** `bootstrap/app.php` declares an explicit `$middleware->priority([...])` so a tenant route runs `throttle → jwt.auth → tenant → tenant.active → SubstituteBindings → …`. Without it, `SubstituteBindings` (from the `api` group) resolved implicit route bindings *before* `EnsureTenant` bound `current_tenant_id`, so `TenantScope` did not filter and `GET/PUT/DELETE /<resource>/{id}` returned another tenant's records. Keep any new auth/tenant middleware ahead of `SubstituteBindings` in that list, and see `docs/TESTING.md` before changing it — `tests/Feature/Middleware/MiddlewarePriorityTest.php` pins the order.
 
@@ -80,7 +80,8 @@ Standard Laravel layering, namespaced by API version:
 - **MercadoPago** (`mercadopago/dx-php`) — messaging-credit purchases; webhook is public, payment routes authenticated.
 - **WhatsApp via Evolution API** — `WhatsAppNotificationService`, per-tenant `TenantWhatsAppInstance`. (Migrated off an older provider — see `docs/WHATSAPP_*`.)
 - **Wasabi / S3** (`league/flysystem-aws-s3-v3`) — tenant file/image storage via `WasabiStorageService`; QR codes, logos, voting-place images.
-- **n8n webhooks** — outbound for transactional email / password reset; inbound registraduria voter-sync webhooks (public routes).
+- **n8n webhooks** — outbound only, for transactional email / password reset. The inbound registraduria voter-sync webhooks were removed in Spec 0091.
+- **Registraduría** (`platform-politics-registraduria`, a separate FastAPI service) — outbound, queued: `ConsultarPuestoVotacionJob` resolves a voter's polling station when they are created without one. See `docs/VOTER_SYNC_SYSTEM.md`.
 - **Social media sync** — `SocialMediaSyncService` + `SyncSocialMediaJob` pull Twitter/Facebook/Instagram/YouTube feeds for landing pages.
 - **Sentry** — error reporting wired in `bootstrap/app.php`.
 

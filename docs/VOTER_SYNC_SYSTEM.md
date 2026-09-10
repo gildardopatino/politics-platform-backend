@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | Check-in de reunión | crea o liga la persona por cédula | `App\Services\AttendanceService` (Spec 0022) |
 | Comando programado | recorre `meeting_attendees` y rellena huecos | `voters:sync`, dos veces al día |
-| Webhooks de Registraduría | escribe el puesto de votación | rutas públicas, ver abajo |
+| Consulta de Registraduría | escribe el puesto de votación | cola de salida al servicio Python, ver abajo (Spec 0091) |
 
 > **Actualizado por la Spec 0022.** La sincronización asistente → votante ya no
 > vive en `MeetingAttendeeObserver` con su propia copia de la lógica: el observer
@@ -17,8 +17,14 @@
 > dos votantes distintos. Lo que sigue describiendo este documento —qué campos se
 > rellenan y cuándo se marca `has_multiple_records`— se conserva igual.
 
-> **Contrato observado (Spec 0011).** Los webhooks están verificados con
-> `tests/Feature/Voters/RegistraduriaWebhookCharacterizationTest.php`.
+> **Actualizado por la Spec 0091.** La tercera vía dejó de ser un par de
+> webhooks públicos que n8n llamaba: ahora es Laravel quien llama de salida al
+> servicio de scraping, en cola. Las rutas de n8n ya no existen.
+
+> **Contrato observado.** Las pruebas de caracterización de los webhooks
+> (Spec 0011) se fueron con ellos en la 0091. El flujo que los reemplaza está
+> cubierto por `tests/Unit/Services/Registraduria/` y
+> `tests/Feature/Voters/ConsultarPuestoVotacionJobTest.php`.
 
 ---
 
@@ -414,7 +420,7 @@ Los tres caminos de escritura del votante pasan por el mismo
 
 | Camino | Qué hace | Por qué |
 | --- | --- | --- |
-| Webhook Registraduría | `resolverRegistraduria()` — **find-or-create** normalizado | es el censo oficial de dónde vota esa persona: si el puesto no está en el catálogo, lo que falta es el renglón (igual que el acta E-14) |
+| Consulta de Registraduría (`RegistraduriaSyncService`, Spec 0091) | `resolverRegistraduria()` — **find-or-create** normalizado | es el censo oficial de dónde vota esa persona: si el puesto no está en el catálogo, lo que falta es el renglón (igual que el acta E-14) |
 | `POST /voters` (alta manual) | `buscarPorNombre()` — **solo busca** | un nombre tecleado en un formulario no da de alta un puesto en el catálogo **global**; si no resuelve queda nulo y lo recoge la conciliación de la 0062 |
 | `PUT/PATCH /voters/{id}` | `buscarPorNombre()` — **solo busca**, y recalcula | el id es función de la ubicación con la que **queda** el votante |
 
@@ -436,135 +442,161 @@ Reglas que valen para los tres:
 
 ---
 
-## Webhooks de Registraduría
+## Consulta de Registraduría (Spec 0091)
 
-Dos rutas para que n8n complete la información electoral de los votantes.
-**Autenticadas con un secreto por tenant** desde la Spec 0030 (antes eran
-públicas; ver «Historia» al final de la sección).
+Cuando un votante nace **sin puesto de votación**, Laravel llama de salida a
+`platform-politics-registraduria` —un servicio FastAPI que scrapea la
+Registraduría— y escribe el resultado. Es *push* y bajo demanda: el dato llega
+poco después del check-in, no en el siguiente lote nocturno.
 
-### Autenticación
+**Hasta la Spec 0091 esto lo hacía n8n al revés**: preguntaba por los pendientes
+(`GET .../registraduria/pendientes`) y escribía de vuelta
+(`POST .../registraduria/actualizar`), autenticándose con un secreto por tenant.
+Esas dos rutas, su middleware, el comando `registraduria:secret` y la columna
+`tenants.registraduria_secret_hash` **ya no existen**. Ver «Historia» al final.
 
-Cada campaña tiene **su propio secreto**, que viaja en la cabecera:
+### El camino completo
 
 ```
-X-Registraduria-Secret: <64 caracteres>
+Nace un votante sin puesto
+   │  (check-in de reunión / alta manual)
+   ▼
+ConsultarPuestoVotacionJob::despacharSiFalta()      ← punto único de encolado
+   │  ¿hay servicio configurado? ¿le falta el puesto?
+   ▼  cola
+ConsultarPuestoVotacionJob
+   │  enlaza current_tenant_id · guarda de idempotencia
+   ▼
+RegistraduriaClient::consultar(cedula)              → POST /api/consultar
+   │
+   ├─ encontrado   → RegistraduriaSyncService::aplicar()  → PuestoResolver → voters
+   ├─ no_encontrado→ termina bien, sin reintentar
+   └─ fallo        → excepción → la cola reintenta (60 s, 300 s)
 ```
 
-El secreto **autentica e identifica a la vez**: no hay campo de tenant en el
-payload que un atacante pueda elegir, y una fuga compromete una campaña, no la
-plataforma. Al validarlo, el middleware `webhook.registraduria` enlaza
-`current_tenant_id`, así que el resto de la petición está acotada por
-`TenantScope` igual que las rutas con sesión.
+### Configuración
 
-En la tabla `tenants` solo se guarda el **SHA-256** del secreto
-(`registraduria_secret_hash`), no el secreto: quien lea la base no puede firmar
-peticiones. Sin sal a propósito —son 64 caracteres aleatorios, no hay
-diccionario que atacar— para que la búsqueda sea por índice y no un recorrido de
-todos los tenants.
+```env
+REGISTRADURIA_SERVICE_URL=http://127.0.0.1:8100
+REGISTRADURIA_SERVICE_TOKEN=<el API_TOKEN del .env de ese servicio>
+REGISTRADURIA_SERVICE_TIMEOUT=320
+```
 
-#### Generar o rotar el secreto
+**Sin `REGISTRADURIA_SERVICE_URL` la integración está apagada**: no se encola
+nada y nadie sale a la red. Es el estado por defecto y el de la suite de pruebas
+(que corre la cola en `sync`). El techo de 320 s cubre el peor caso del servicio
+—120 s del intento gratis más 180 s del intento con 2Captcha— con margen.
+
+El servicio se levanta en su propio repo:
 
 ```bash
-php artisan registraduria:secret {id-o-slug-del-tenant}
-php artisan registraduria:secret mi-campania --rotate
+uvicorn app:app --host 127.0.0.1 --port 8100
 ```
 
-Imprime el valor en claro **una sola vez**. Si se pierde, hay que rotarlo y
-reconfigurar n8n. Rotar invalida el anterior de inmediato.
+Necesita **un worker de cola corriendo** (`php artisan queue:work`), o los Jobs
+se quedan encolados sin ejecutarse.
 
-La columna es **nullable**: un tenant recién creado no tiene secreto y **no
-puede sincronizar** hasta que se le genere. Es el estado seguro por defecto.
+### Las piezas
 
-#### Respuestas de rechazo
-
-| Situación | Código | `error` |
-| --- | --- | --- |
-| Falta la cabecera o viene vacía | 401 | `WEBHOOK_SECRET_MISSING` |
-| El secreto no es de nadie (o el tenant fue borrado) | 401 | `WEBHOOK_SECRET_INVALID` |
-| Vigencia de la campaña expirada | 403 | `TENANT_EXPIRED` |
-| Vigencia aún no iniciada | 403 | `TENANT_NOT_STARTED` |
-| Más de 60 peticiones por minuto e IP | 429 | — |
-
-El `throttle:60,1` va **delante** de la verificación para que el secreto no se
-pueda tantear a fuerza bruta.
-
-> ⚠️ **Configuración de n8n.** Antes bastaba una llamada para obtener los
-> pendientes de **toda** la plataforma. Ahora el flujo es **por campaña**: n8n
-> necesita una credencial por tenant y debe recorrerlas. Es la consecuencia
-> directa de acotar por tenant, y es intencional.
-
-### `GET /api/v1/webhook/political/registraduria/pendientes`
-
-Devuelve un **array crudo**, sin envoltorio ni paginación, con hasta **100**
-votantes **del tenant del secreto** que no tienen `departamento_votacion`.
-
-```json
-[ { "id": 12, "cedula": "71000001" } ]
-```
-
-Solo `id` y `cedula`. (Antes se colaban además un `full_name` vacío y un
-`location_type` nulo por los `$appends` del modelo, pese al `select`.)
-
-Sin cursor ni paginación: la única forma de avanzar es actualizar los primeros
-100 y volver a llamar.
-
-### `POST /api/v1/webhook/political/registraduria/actualizar`
-
-| Campo | Regla |
+| Clase | Qué hace |
 | --- | --- |
-| `id` | requerido, entero, **debe ser un votante del tenant del secreto** |
-| `departamento_votacion` | requerido, máx 255 |
-| `municipio_votacion` | requerido, máx 255 |
-| `puesto_votacion` | requerido, máx 255 |
-| `direccion_votacion` | opcional, máx 500 |
-| `mesa_votacion` | opcional, **entero** |
+| `App\Services\Registraduria\RegistraduriaClient` | Único sitio que conoce el contrato del servicio Python (URL, token, claves en mayúsculas). Devuelve un `ResultadoConsulta` con los datos ya traducidos a columnas de `voters`. |
+| `App\Services\Registraduria\ResultadoConsulta` | Los tres desenlaces, distinguidos: `esEncontrado()`, `esNoEncontrado()`, `esFallo()`. |
+| `App\Services\Registraduria\RegistraduriaSyncService` | Escribe los cinco campos + `voting_place_id` vía `PuestoResolver`. Es la lógica que vivía en `VoterController@actualizarRegistraduria`. |
+| `App\Jobs\Registraduria\ConsultarPuestoVotacionJob` | Orquesta: enlaza tenant, comprueba idempotencia, consulta, aplica. |
+| `App\Console\Commands\ConsultarPuestosVotantes` | Backfill `voters:consultar-puestos`. |
 
-Escribe los cinco campos en el votante y liga `voters.voting_place_id` al puesto
-**canónico** del catálogo, resuelto por el mismo `PuestoResolver` que usa el E-14
-(Spec 0075): **alias del tenant → catálogo normalizado → alta**. Normalizado =
-insensible a mayúsculas, acentos y espacios de más, así que «Ibagué / colegio san
-simón » y «IBAGUE / COLEGIO SAN SIMON» son el **mismo** renglón.
+### Contrato del servicio Python
 
-Puede **crear** el renglón si no existe (con departamento presente, que la
-validación exige): la consulta de Registraduría es el censo oficial de dónde vota
-esa persona, así que si el puesto no está en el catálogo lo que falta es el
-renglón. Es la misma regla que el acta E-14 (`resolverActa`). La contraria —el alta
-y la edición manual— **solo busca**; ver «Los tres caminos» más abajo.
-
-La **dirección del puesto** se completa solo si el renglón no la tenía: el catálogo
-es global y la dirección que ya tenga pudo ponerla otra campaña.
-
-> **Hasta la Spec 0075** esta ruta tenía su propio `VotingPlace::firstOrCreate`
-> sobre el texto **crudo**, y ahí estaba el cabo suelto de la 0062: dos grafías del
-> mismo colegio creaban **dos** renglones, el acta apuntaba al canónico y el
-> votante al duplicado, y el cruce por `voting_place_id` fallaba **en silencio**.
-> Peor que un nulo: el resolver de respaldo por nombre solo rescata los
-> `voting_place_id` nulos, así que un id equivocado no-nulo nunca caía en él.
-
-Un `id` de otra campaña se rechaza **igual que uno inexistente** —mismo código y
-mismo cuerpo—, así que el webhook no sirve para averiguar qué ids tiene la
-competencia.
+`POST /api/consultar`, con `Authorization: Bearer <token>`:
 
 ```json
-{ "success": true,
-  "message": "Información de registraduría actualizada correctamente.",
-  "data": { "id": 12, "updated": true } }
+{ "documento": "14398737" }
 ```
 
-**Acuse mínimo**: ni PII ni `tenant_id`. Errores: **422** con
-`{ success: false, errors: {...} }`.
+```json
+{ "estado": "encontrado", "via": "stealth",
+  "datos": [ { "NUIP": "...", "DEPARTAMENTO": "TOLIMA", "MUNICIPIO": "IBAGUE",
+               "PUESTO": "COLEGIO SAN SIMON", "DIRECCION": "...", "MESA": "12" } ] }
+```
 
-⚠️ `mesa_votacion` se valida como **entero** aunque `voters.mesa_votacion` sea
-`string(20)` y el formulario interno la acepte como texto: una mesa «12A» se
-rechaza aquí. Sigue abierto en `known-issues.md`.
+| `estado` | HTTP | Cómo lo trata Laravel |
+| --- | --- | --- |
+| `encontrado` | 200 | escribe el puesto |
+| `no_encontrado` | 200 | **no es fallo**: termina bien y no reintenta |
+| `captcha_fallido` | 502 | fallo → reintenta con backoff |
+| `error` | 502 / 504 | fallo → reintenta con backoff |
+| — | 401 | fallo (token mal configurado) |
 
-⚠️ La rama que devuelve `404 «Votante no encontrado»` es **inalcanzable**: la
-regla `exists` corta antes con un 422. Se conserva como segunda cerradura.
+`via` (`stealth` \| `2captcha`) es telemetría de coste: dice qué camino resolvió.
+
+### Por qué `no_encontrado` no se reintenta
+
+Cada consulta puede acabar pagando un reCAPTCHA en 2Captcha. Que la
+Registraduría diga «no tengo esa cédula» es una **respuesta legítima**, no un
+error de transporte: reintentarla es pagar por volver a oír lo mismo. El votante
+se queda sin puesto y solo se vuelve a intentar si alguien corre el backfill.
+
+### Idempotencia — dónde se decide consultar
+
+La regla vive en **un solo sitio**, `ConsultarPuestoVotacionJob::despacharSiFalta()`,
+y se comprueba **dos veces**: al encolar y otra vez dentro del Job, porque entre
+una cosa y la otra el puesto pudo llegar por otra vía (un acta, una edición a
+mano, o el Job gemelo de dos check-in simultáneos de la misma cédula).
+
+Un votante «tiene puesto» si `departamento_votacion` no está vacío **o**
+`voting_place_id` no es nulo. Con cualquiera de los dos, la consulta no aportaría
+nada.
+
+### Dónde se engancha el encolado
+
+| Vía | Dónde |
+| --- | --- |
+| Check-in público de reunión y alta de asistentes desde el panel (Spec 0022) | `AttendanceService::crearVotante()` — el punto por donde nacen **todos** los votantes de ese flujo, incluido el que crea `MeetingAttendeeObserver` |
+| Alta manual del votante | `VoterController@store` |
+
+No está repartido por cada copia de la lógica: son los dos únicos sitios donde
+nace un votante por acción de un usuario.
+
+### Multi-tenant (Art. III)
+
+En la cola **no hay petición** que enlace `current_tenant_id`, así que lo enlaza
+el Job antes de tocar datos y lo restaura al salir (el worker es un proceso
+largo: dejarlo puesto convertiría el ámbito de un trabajo en el del siguiente).
+
+Por eso el Job lleva **el id y el tenant, no el modelo**: con `SerializesModels`,
+el votante se recargaría en el worker sin ámbito y `TenantScope` no filtraría.
+Al buscarlo dentro del ámbito enlazado, un id de otra campaña sencillamente no
+aparece. Lo mismo vale para `PuestoResolver`, que sin tenant enlazado usaría los
+**alias de la campaña equivocada**.
+
+### Seguridad (Art. VII)
+
+- La **cédula no va a los logs en claro**: se enmascara (`14****37`), igual que
+  en el servicio Python. Tampoco entra en los mensajes de excepción del Job.
+- `REGISTRADURIA_SERVICE_TOKEN` solo por `.env`. La clave de 2Captcha vive
+  únicamente en el `.env` del servicio Python; Laravel nunca la ve.
+- El servicio escucha en `127.0.0.1`: expóngalo solo a la red donde vive el
+  backend.
+- La respuesta no trae más PII que la ubicación del puesto, y `NUIP` **no** se
+  escribe de vuelta: la identidad del votante no la fija un scraper.
+
+### Cambios de comportamiento respecto a n8n
+
+- **`mesa_votacion` «12A» ya no se pierde.** El viejo webhook la validaba como
+  entero (`nullable|integer`) mientras la columna siempre fue `string(20)`, así
+  que rechazaba la petición entera. Al retirar el webhook se retira esa
+  validación. (Cierra el punto abierto en `known-issues.md`.)
+- **El departamento ya no es obligatorio.** Sin él el resolver no puede dar de
+  alta un renglón nuevo —es parte de la clave natural del catálogo—, pero sí
+  casar con uno existente. Antes la validación cortaba la petición entera.
+- **Ya no hay superficie pública.** No queda ninguna ruta que autenticar por
+  secreto de tenant.
 
 ### Historia — qué se cerró y por qué
 
-Hasta la Spec 0030 las dos rutas estaban **fuera del grupo `jwt.auth`**, sin
-token, sin firma y sin `throttle`, y consultaban con
+Hasta la Spec 0030 las dos rutas de n8n estaban **fuera del grupo `jwt.auth`**,
+sin token, sin firma y sin `throttle`, y consultaban con
 `withoutGlobalScope(TenantScope::class)`:
 
 1. `pendientes` **repartía hasta 100 cédulas de cualquier campaña** a quien
@@ -576,10 +608,22 @@ token, sin firma y sin `throttle`, y consultaban con
    apellidos, correo, teléfono, dirección y `tenant_id`.
 
 Encadenando (1) → (3) se podía vaciar la base de votantes de **todas** las
-campañas sin autenticarse. Lo caracterizó la Spec 0011 y lo cerró la 0030.
+campañas sin autenticarse. Lo caracterizó la Spec 0011 y lo cerró la 0030 con un
+secreto por tenant. La Spec 0091 retira las rutas enteras: una superficie pública
+que escribe en `voters` deja de ser un riesgo cuando deja de existir.
 
-Pruebas: `tests/Feature/Voters/RegistraduriaWebhookSecurityTest.php` (contrato
-de seguridad) y `RegistraduriaWebhookCharacterizationTest.php` (lo que hacen).
+La Spec 0075, por su parte, quitó a esa ruta su `VotingPlace::firstOrCreate`
+sobre el texto **crudo**, que era el cabo suelto de la 0062: dos grafías del mismo
+colegio creaban **dos** renglones, el acta apuntaba al canónico y el votante al
+duplicado, y el cruce por `voting_place_id` fallaba **en silencio** —peor que un
+nulo, porque el resolver de respaldo por nombre solo rescata los nulos—. Ese
+invariante sobrevive intacto en `RegistraduriaSyncService`.
+
+Pruebas: `tests/Unit/Services/Registraduria/` (cliente y guardado),
+`tests/Feature/Voters/ConsultarPuestoVotacionJobTest.php` (idempotencia y
+aislamiento), `EncoladoConsultaPuestoTest.php` (cuándo se encola),
+`RetiroWebhooksRegistraduriaTest.php` (que el retiro no se deshaga) y
+`tests/Feature/Console/ConsultarPuestosVotantesTest.php` (backfill).
 
 ---
 
@@ -587,10 +631,23 @@ de seguridad) y `RegistraduriaWebhookCharacterizationTest.php` (lo que hacen).
 
 | Comando | Clase | Programado |
 | --- | --- | --- |
-| `registraduria:secret {tenant} [--rotate]` | `GenerateRegistraduriaSecret` | no (manual, Spec 0030) |
+| `voters:consultar-puestos {--tenant=} {--limit=}` | `ConsultarPuestosVotantes` | no (manual, Spec 0091) |
 | `voters:sync {--tenant=}` | `SyncVotersFromAttendees` | sí, `twiceDaily(6, 18)` en `routes/console.php` |
 | `voters:sync-attendees {--tenant-id=}` | `SyncAttendeesToVoters` | no |
 | `voters:reapuntar-voting-place {--tenant=}` | `ReapuntarVotingPlaceVotantes` | no (manual, Spec 0075) |
+
+`voters:consultar-puestos` **encola** una consulta de Registraduría por cada
+votante sin puesto. Reemplaza al `GET .../registraduria/pendientes` de n8n: el
+disparo normal ya es automático al nacer el votante, así que esto es la red de
+seguridad —los votantes anteriores a la Spec 0091 y los que se quedaron sin
+resolver mientras el servicio estuvo caído más de lo que duran los reintentos—.
+
+`--limit` es un **tope de gasto de toda la corrida**, no una paginación ni un
+límite por campaña: cada consulta puede acabar pagando un reCAPTCHA. Es
+idempotente (no encola a quien ya tiene puesto), así que una segunda corrida no
+repite a los ya resueltos. Sin servicio configurado **falla** en vez de encolar
+en silencio trabajos que solo pueden fallar.
+
 
 `voters:reapuntar-voting-place` re-resuelve `voters.voting_place_id` con el resolver
 normalizado, corrigiendo los duplicados que dejó el `firstOrCreate` crudo anterior a

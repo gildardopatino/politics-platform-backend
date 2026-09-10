@@ -2,11 +2,12 @@
 
 namespace Tests\Feature\Voters;
 
-use App\Models\E14PuestoAlias;
 use App\Models\Tenant;
 use App\Models\Voter;
 use App\Models\VotingPlace;
 use App\Scopes\TenantScope;
+use App\Services\E14\PuestoResolver;
+use App\Services\Registraduria\RegistraduriaSyncService;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
@@ -14,26 +15,30 @@ use Tests\TestCase;
  * La captura del votante resuelve al puesto canónico (Spec 0075).
  *
  * La 0062 dejó el cruce colgando de un cabo suelto: el lado E-14 resolvía el
- * puesto por nombre **normalizado** (más los alias del tenant) y el webhook del
- * votante casaba por igualdad exacta de cadenas con su propio `firstOrCreate`. Dos
+ * puesto por nombre **normalizado** (más los alias del tenant) y el votante
+ * casaba por igualdad exacta de cadenas con su propio `firstOrCreate`. Dos
  * grafías del mismo colegio creaban dos renglones del catálogo, el acta apuntaba a
  * uno y el votante al otro, y el cruce por `voting_place_id` **fallaba en
  * silencio** — peor que un nulo, porque el resolver de respaldo solo rescata los
  * nulos y un id equivocado no-nulo nunca cae en él.
  *
- * Aquí se fija que las tres escrituras del votante pasan por el mismo
+ * Aquí se fija que las escrituras del votante pasan por el mismo
  * `PuestoResolver`, con la asimetría que la spec decidió:
  *
- * - **webhook** (Registraduría = censo oficial) → find-or-create normalizado;
+ * - **Registraduría** (censo oficial) → find-or-create normalizado;
  * - **alta/edición manual** (texto tecleado) → solo buscar, nunca crear.
+ *
+ * El lado de Registraduría se probaba contra el webhook de n8n, que la Spec 0091
+ * retiró; ahora entra por `RegistraduriaSyncService`, y sus casos en detalle
+ * viven en `Tests\Unit\Services\Registraduria\RegistraduriaSyncServiceTest`. Lo
+ * que queda aquí de ese lado es lo que ninguna prueba unitaria puede fijar: que
+ * el votante y el acta acaban **en la misma fila del cruce**.
  */
 class VotanteVotingPlaceTest extends TestCase
 {
     private const CANONICO = 'COLEGIO SAN SIMON';
 
     private Tenant $tenant;
-
-    private string $secreto;
 
     protected function setUp(): void
     {
@@ -42,12 +47,6 @@ class VotanteVotingPlaceTest extends TestCase
         Http::preventStrayRequests();
 
         $this->tenant = Tenant::factory()->create();
-        $this->secreto = $this->tenant->generarSecretoRegistraduria();
-    }
-
-    private function conSecreto(): static
-    {
-        return $this->withHeader('X-Registraduria-Secret', $this->secreto);
     }
 
     /** Un renglón del catálogo global, como el que crea un acta. */
@@ -66,136 +65,28 @@ class VotanteVotingPlaceTest extends TestCase
     }
 
     /**
+     * Lo que la Spec 0091 escribe cuando el servicio resuelve el puesto.
+     *
      * @param  array<string, mixed>  $cambios
      */
-    private function webhook(Voter $votante, array $cambios = []): \Illuminate\Testing\TestResponse
+    private function registraduria(Voter $votante, array $cambios = []): void
     {
-        return $this->conSecreto()->postJson(
-            '/api/v1/webhook/political/registraduria/actualizar',
-            array_replace([
-                'id' => $votante->id,
-                'departamento_votacion' => 'TOLIMA',
-                'municipio_votacion' => 'IBAGUE',
-                'puesto_votacion' => self::CANONICO,
-                'mesa_votacion' => 5,
-            ], $cambios)
-        );
-    }
+        app()->instance('current_tenant_id', $votante->tenant_id);
 
-    /** Fusión decidida por el tenant: «este nombre va a este puesto». */
-    private function fusionar(Tenant $tenant, string $municipio, string $puesto, VotingPlace $destino): void
-    {
-        E14PuestoAlias::withoutGlobalScope(TenantScope::class)->create([
-            'tenant_id' => $tenant->id,
-            'clave' => \App\Services\E14\PuestoResolver::clave($municipio, $puesto),
-            'voting_place_id' => $destino->id,
-            'municipio' => $municipio,
-            'puesto' => $puesto,
-        ]);
-    }
-
-    // ============================================================ webhook
-
-    public function test_el_webhook_casa_al_canonico_aunque_llegue_otra_grafia(): void
-    {
-        $canonico = $this->puestoDelCatalogo();
-        $votante = $this->votante();
-
-        // La misma escuela con otra grafía: minúsculas, tilde y un espacio de más.
-        $this->webhook($votante, [
-            'municipio_votacion' => 'Ibagué',
-            'puesto_votacion' => 'colegio san simón ',
-        ])->assertStatus(200)->assertJsonPath('data.updated', true);
-
-        $this->assertSame($canonico->id, $votante->fresh()->voting_place_id);
-        // El catálogo global no crece por una diferencia de tildes.
-        $this->assertSame(1, VotingPlace::count());
-    }
-
-    public function test_el_webhook_crea_el_puesto_cuando_no_existe(): void
-    {
-        $votante = $this->votante();
-
-        // Registraduría es el censo oficial: si el puesto no está en el catálogo,
-        // lo que falta es el renglón. Misma regla que el acta (`resolverActa`).
-        $this->webhook($votante)->assertStatus(200);
-
-        $puesto = VotingPlace::sole();
-
-        $this->assertSame(self::CANONICO, $puesto->puesto_votacion);
-        $this->assertSame($puesto->id, $votante->fresh()->voting_place_id);
-    }
-
-    public function test_el_webhook_conserva_la_direccion_del_puesto_que_crea(): void
-    {
-        $votante = $this->votante();
-
-        // La dirección del puesto alimenta la imagen que se manda al votante:
-        // resolver por nombre no puede costarnos ese dato.
-        $this->webhook($votante, ['direccion_votacion' => 'CALLE 10 # 5-20'])->assertStatus(200);
-
-        $this->assertSame('CALLE 10 # 5-20', VotingPlace::sole()->direccion_votacion);
-    }
-
-    public function test_el_webhook_respeta_la_fusion_que_hizo_la_campana(): void
-    {
-        $canonico = $this->puestoDelCatalogo();
-        $variante = $this->puestoDelCatalogo(['puesto_votacion' => 'COL. SAN SIMON']);
-        $this->fusionar($this->tenant, 'IBAGUE', 'COL. SAN SIMON', $canonico);
-
-        $votante = $this->votante();
-
-        // Alguien ya dijo que las dos grafías son el mismo colegio: el webhook no
-        // puede volver a separarlas.
-        $this->webhook($votante, ['puesto_votacion' => 'COL. SAN SIMON'])->assertStatus(200);
-
-        $this->assertSame($canonico->id, $votante->fresh()->voting_place_id);
-        $this->assertNotSame($variante->id, $votante->fresh()->voting_place_id);
-    }
-
-    public function test_la_fusion_de_una_campana_no_resuelve_la_de_otra(): void
-    {
-        $canonico = $this->puestoDelCatalogo();
-        $variante = $this->puestoDelCatalogo(['puesto_votacion' => 'COL. SAN SIMON']);
-
-        // Solo esta campaña fusionó. La otra sigue con las dos grafías separadas.
-        $this->fusionar($this->tenant, 'IBAGUE', 'COL. SAN SIMON', $canonico);
-
-        $ajeno = Tenant::factory()->create();
-        $secretoAjeno = $ajeno->generarSecretoRegistraduria();
-        $votanteAjeno = $this->votante($ajeno);
-
-        $this->withHeader('X-Registraduria-Secret', $secretoAjeno)
-            ->postJson('/api/v1/webhook/political/registraduria/actualizar', [
-                'id' => $votanteAjeno->id,
-                'departamento_votacion' => 'TOLIMA',
-                'municipio_votacion' => 'IBAGUE',
-                'puesto_votacion' => 'COL. SAN SIMON',
-            ])->assertStatus(200);
-
-        $suyo = Voter::withoutGlobalScope(TenantScope::class)->find($votanteAjeno->id);
-
-        $this->assertSame($variante->id, $suyo->voting_place_id);
-        $this->assertNotSame($canonico->id, $suyo->voting_place_id);
-    }
-
-    public function test_el_payload_del_webhook_sigue_exigiendo_departamento(): void
-    {
-        $votante = $this->votante();
-
-        // Por eso la rama «no crea sin departamento» del resolver no se alcanza
-        // desde esta ruta: la validación corta antes. Se prueba abajo, directa.
-        $this->conSecreto()->postJson('/api/v1/webhook/political/registraduria/actualizar', [
-            'id' => $votante->id,
-            'departamento_votacion' => '',
+        app(RegistraduriaSyncService::class)->aplicar($votante, array_replace([
+            'departamento_votacion' => 'TOLIMA',
             'municipio_votacion' => 'IBAGUE',
             'puesto_votacion' => self::CANONICO,
-        ])->assertStatus(422);
+            'direccion_votacion' => null,
+            'mesa_votacion' => '5',
+        ], $cambios));
     }
+
+    // ================================================== resolver autoritativo
 
     public function test_el_resolver_autoritativo_no_crea_puesto_sin_departamento(): void
     {
-        $resolver = app(\App\Services\E14\PuestoResolver::class);
+        $resolver = app(PuestoResolver::class);
 
         // El departamento es parte de la clave natural del catálogo y no se
         // rellena con un placeholder: coherente con `resolverActa`.
@@ -213,19 +104,6 @@ class VotanteVotingPlaceTest extends TestCase
         $resolver->refrescar();
 
         $this->assertSame($canonico->id, $resolver->resolverRegistraduria(null, 'ibague', 'Colegio San Simón'));
-        $this->assertSame(1, VotingPlace::count());
-    }
-
-    public function test_reprocesar_el_mismo_webhook_no_duplica_ni_cambia_el_id(): void
-    {
-        $votante = $this->votante();
-
-        $this->webhook($votante)->assertStatus(200);
-        $primerId = $votante->fresh()->voting_place_id;
-
-        $this->webhook($votante)->assertStatus(200);
-
-        $this->assertSame($primerId, $votante->fresh()->voting_place_id);
         $this->assertSame(1, VotingPlace::count());
     }
 
@@ -291,7 +169,14 @@ class VotanteVotingPlaceTest extends TestCase
     {
         $canonico = $this->puestoDelCatalogo();
         $this->puestoDelCatalogo(['puesto_votacion' => 'COL. SAN SIMON']);
-        $this->fusionar($this->tenant, 'IBAGUE', 'COL. SAN SIMON', $canonico);
+
+        \App\Models\E14PuestoAlias::withoutGlobalScope(TenantScope::class)->create([
+            'tenant_id' => $this->tenant->id,
+            'clave' => PuestoResolver::clave('IBAGUE', 'COL. SAN SIMON'),
+            'voting_place_id' => $canonico->id,
+            'municipio' => 'IBAGUE',
+            'puesto' => 'COL. SAN SIMON',
+        ]);
 
         $this->operador();
 
@@ -399,12 +284,12 @@ class VotanteVotingPlaceTest extends TestCase
 
     // ================================================= coherencia del cruce
 
-    public function test_el_votante_del_webhook_casa_con_el_acta_en_el_cruce(): void
+    public function test_el_votante_de_registraduria_casa_con_el_acta_en_el_cruce(): void
     {
         $votante = $this->votante();
 
-        // El acta llega con una grafía y el webhook con otra: el cruce tiene que
-        // verlos en la **misma** fila, sin depender del resolver de respaldo.
+        // El acta llega con una grafía y la Registraduría con otra: el cruce tiene
+        // que verlos en la **misma** fila, sin depender del resolver de respaldo.
         [$user, $token] = $this->createTenantWithUser(
             [\App\Support\Permissions::VIEW_E14, \App\Support\Permissions::MANAGE_E14],
             $this->tenant
@@ -437,11 +322,11 @@ class VotanteVotingPlaceTest extends TestCase
             ->where('tenant_id', $this->tenant->id)
             ->update(['candidato_propio_numero' => 2]);
 
-        $this->webhook($votante, [
+        $this->registraduria($votante, [
             'municipio_votacion' => 'Ibagué',
             'puesto_votacion' => 'colegio san simón ',
-            'mesa_votacion' => 5,
-        ])->assertStatus(200);
+            'mesa_votacion' => '5',
+        ]);
 
         $this->actingAsTenantUser($user, $token);
 

@@ -75,15 +75,10 @@ Route::prefix('v1')->group(function () {
 
     // Public routes
     Route::post('/login', [AuthController::class, 'login']);
-    // Webhooks de Registraduría (n8n). Eran públicos y sin filtro de tenant:
-    // repartían cédulas de todas las campañas y dejaban escribir en sus
-    // votantes (Spec 0030). Ahora el secreto por tenant de la cabecera
-    // `X-Registraduria-Secret` autentica e identifica; el throttle va delante
-    // para que ese secreto no se pueda tantear a fuerza bruta.
-    Route::middleware(['throttle:60,1', 'webhook.registraduria'])->group(function () {
-        Route::get('/webhook/political/registraduria/pendientes', [VoterController::class, 'pendientesRegistraduria']);
-        Route::post('/webhook/political/registraduria/actualizar', [VoterController::class, 'actualizarRegistraduria']);
-    });
+    // Aquí vivían los dos webhooks de Registraduría de n8n (Spec 0030). Se
+    // retiraron en la Spec 0091: el flujo se invirtió y ahora es Laravel quien
+    // llama al servicio de scraping, en cola, cuando un votante nace sin puesto.
+    // No queda superficie pública que autenticar por secreto de tenant.
     // Password reset (forgot + reset via n8n email webhook)
     Route::post('/password/forgot', [PasswordResetController::class, 'forgot']);
     Route::post('/password/reset', [PasswordResetController::class, 'reset']);
