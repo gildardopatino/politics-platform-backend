@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Jobs\Registraduria\ConsultarPuestoVotacionJob;
 use App\Models\Meeting;
 use App\Models\MeetingAttendee;
 use App\Models\TipoVotante;
@@ -291,7 +292,7 @@ class AttendanceService
         }
 
         try {
-            return Voter::create([
+            $votante = Voter::create([
                 'tenant_id' => $tenantId,
                 'cedula' => $cedula,
                 'nombres' => $datos['nombres'] ?? '',
@@ -305,6 +306,15 @@ class AttendanceService
                 'tipo_votante_id' => $this->tipoVotantePorDefecto(),
                 'created_by' => $createdBy,
             ]);
+
+            // Este es el punto por donde nace TODO votante del flujo 0022 —el
+            // check-in público y el alta de asistentes desde el panel, que pasa
+            // por `vincularVotante`—, así que el encolado va aquí y no repartido
+            // por cada vía (Spec 0091). El Job decide si hace falta: nace sin
+            // puesto, así que normalmente sí.
+            ConsultarPuestoVotacionJob::despacharSiFalta($votante);
+
+            return $votante;
         } catch (QueryException $e) {
             // `voters` tiene UNIQUE(tenant_id, cedula): si dos check-in de la
             // misma persona entran a la vez, uno pierde la carrera y se queda

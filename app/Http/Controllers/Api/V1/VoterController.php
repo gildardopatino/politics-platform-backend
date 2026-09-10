@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Voter\StoreVoterRequest;
 use App\Http\Requests\Api\V1\Voter\UpdateVoterRequest;
 use App\Http\Resources\Api\V1\VoterResource;
+use App\Jobs\Registraduria\ConsultarPuestoVotacionJob;
 use App\Models\Voter;
 use App\Models\VotingPlace;
 use App\Services\DocumentVerificationService;
@@ -66,6 +67,11 @@ class VoterController extends Controller
         $voter = Voter::create(array_merge($data, [
             'created_by' => auth()->id(),
         ]));
+
+        // La otra vía por la que nace un votante (la primera es el flujo
+        // asistente→votante de la 0022). Si el formulario ya traía el puesto, el
+        // Job no se encola: la regla vive dentro de `despacharSiFalta` (Spec 0091).
+        ConsultarPuestoVotacionJob::despacharSiFalta($voter);
 
         $voter->load(['barrio', 'corregimiento', 'vereda', 'meeting', 'tipoVotante']);
 

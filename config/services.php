@@ -66,4 +66,26 @@ return [
         'access_token' => env('MERCADOPAGO_ACCESS_TOKEN'),
     ],
 
+    /*
+    | Registraduría (Spec 0091). El scraping vive en su propio repo
+    | (`platform-politics-registraduria`, FastAPI) y Laravel lo llama **de
+    | salida** cuando un votante nace sin puesto de votación. Reemplaza a n8n,
+    | que hacía lo contrario: preguntaba por los pendientes y escribía de vuelta.
+    |
+    | `url` vacía apaga la integración entera: no se encola ningún Job y el
+    | cliente responde «no configurado» sin salir a la red. Es el estado por
+    | defecto —y el de la suite de pruebas, que corre con la cola en `sync`—,
+    | así que un despliegue sin el servicio levantado no rompe el alta de
+    | votantes: simplemente no resuelve el puesto.
+    |
+    | El techo de tiempo por defecto (320 s) cubre el peor caso del servicio:
+    | 120 s del intento stealth + 180 s del intento con 2Captcha, más margen.
+    | Cortar antes dejaría el trabajo pago tirado a mitad y pagando igual.
+    */
+    'registraduria' => [
+        'url' => env('REGISTRADURIA_SERVICE_URL'),
+        'token' => env('REGISTRADURIA_SERVICE_TOKEN'),
+        'timeout' => (int) env('REGISTRADURIA_SERVICE_TIMEOUT', 320),
+    ],
+
 ];
