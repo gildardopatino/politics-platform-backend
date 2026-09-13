@@ -136,6 +136,11 @@ class MeetingController extends Controller
     {
         $meeting->load(['planner', 'logisticsResponsible', 'template', 'attendees', 'commitments', 'department', 'municipality', 'commune', 'barrio', 'corregimiento', 'vereda', 'activeReminder', 'resourceAllocations.items.resourceItem']);
 
+        // El detalle expone attendees_count/commitments_count vía whenCounted:
+        // sin loadCount las tarjetas del modal caen a 0 aunque la tabla (index,
+        // withCount) muestre el total real.
+        $meeting->loadCount(['attendees', 'commitments', 'resourceAllocations']);
+
         return response()->json([
             'data' => new MeetingResource($meeting),
         ]);

@@ -18,6 +18,7 @@ class DatabaseSeeder extends Seeder
             SuperAdminSeeder::class,
             RolesAndPermissionsSeeder::class,
             GeographySeeder::class,
+            VotingPlacesSeeder::class, // Catálogo oficial de puestos (RNEC) con geolocalización
             PrioritySeeder::class,
             // Datos de referencia que `voters` necesita (FK NOT NULL): faltaba y
             // por eso no se podía sembrar ningún votante (Spec 0003).
