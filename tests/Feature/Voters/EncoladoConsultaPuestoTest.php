@@ -7,121 +7,122 @@ use App\Models\Meeting;
 use App\Models\Tenant;
 use App\Models\TipoVotante;
 use App\Models\Voter;
+use App\Models\VotingPlace;
 use App\Scopes\TenantScope;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 /**
- * El disparo automático de la consulta (Spec 0091, Parte B · RF-B4).
+ * Cuándo se encola la consulta de Registraduría (Spec 0091).
  *
- * n8n preguntaba «¿quién falta?» cada tanto; ahora el momento es el nacimiento
- * del votante. El enganche está en **un solo sitio** —el observer del modelo—,
- * así que da igual por dónde nazca: check-in de reunión (Spec 0022), alta manual
- * o comando de sincronización.
+ * El disparador es el que describe `VOTER_SYNC_SYSTEM.md`: cuando alguien
+ * registra personas en una reunión, sus cédulas caen en `voters`. Ese es el
+ * momento de resolver el puesto — **sin bloquear el check-in**, que es lo que
+ * hace que vaya en cola y no en la petición.
  *
- * Y solo si nace **sin** puesto: quien llega con la ubicación tecleada no gasta
- * una consulta.
+ * El encolado vive en un solo sitio (`despacharSiFalta`) y aquí se comprueba que
+ * las dos vías por las que nace un votante pasan por él, y que la regla de coste
+ * se respeta: quien nace **con** puesto no se consulta.
  */
 class EncoladoConsultaPuestoTest extends TestCase
 {
-    private const URL = 'http://127.0.0.1:8100';
-
     private Tenant $tenant;
+
+    private Meeting $meeting;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        Http::preventStrayRequests();
+        config()->set('services.registraduria.url', 'http://127.0.0.1:8100');
+
         // El recurso en línea del check-in (PISAMI) es una API externa.
-        Http::fake(['*pisami*' => Http::response('', 500)]);
+        Http::preventStrayRequests();
+        Http::fake(['*' => Http::response('', 500)]);
 
         Queue::fake();
 
-        config()->set('services.registraduria.url', self::URL);
-        config()->set('services.registraduria.token', 'token-de-prueba');
-
         $this->tenant = Tenant::factory()->create();
+        $this->meeting = Meeting::factory()->forTenant($this->tenant)->create(['qr_code' => 'QR-0091']);
+
+        TipoVotante::firstOrCreate(['descripcion' => 'Elector']);
+    }
+
+    private function checkIn(array $datos): \Illuminate\Testing\TestResponse
+    {
+        return $this->postJson('/api/v1/meetings/check-in/QR-0091', $datos);
     }
 
     private function operador(): void
     {
-        TipoVotante::firstOrCreate(['descripcion' => 'Elector']);
-
         [$user, $token] = $this->createTenantWithUser(['view_voters'], $this->tenant);
 
         $this->actingAsTenantUser($user, $token);
     }
 
-    private function assertEncolado(Voter $votante): void
+    private function assertEncolaPara(Voter $votante): void
     {
         Queue::assertPushed(
             ConsultarPuestoVotacionJob::class,
             fn (ConsultarPuestoVotacionJob $job) => $job->voterId === $votante->id
-                && $job->tenantId === $votante->tenant_id
+                && $job->tenantId === $this->tenant->id
         );
     }
 
-    // ============================================================= nace sin puesto
+    // ------------------------------------------------- flujo de reunión (0022)
 
-    public function test_un_votante_nuevo_sin_puesto_encola_la_consulta(): void
+    public function test_un_votante_nacido_en_una_reunion_encola_la_consulta(): void
     {
-        $votante = Voter::factory()->forTenant($this->tenant)->create([
-            'departamento_votacion' => null,
-            'voting_place_id' => null,
-        ]);
-
-        $this->assertEncolado($votante);
-    }
-
-    public function test_el_check_in_de_una_reunion_encola_la_consulta(): void
-    {
-        Meeting::factory()->forTenant($this->tenant)->create(['qr_code' => 'QR-0091']);
-
-        $this->postJson('/api/v1/meetings/check-in/QR-0091', [
-            'cedula' => '71000001',
-            'nombres' => 'Ana',
-            'apellidos' => 'Restrepo',
+        $this->checkIn([
+            'cedula' => '14398737',
+            'nombres' => 'ANA',
+            'apellidos' => 'GOMEZ',
         ])->assertStatus(201);
 
         $votante = Voter::withoutGlobalScope(TenantScope::class)->sole();
 
-        $this->assertEncolado($votante);
+        $this->assertEncolaPara($votante);
     }
 
-    public function test_el_alta_manual_sin_ubicacion_encola_la_consulta(): void
-    {
-        $this->operador();
-
-        $this->postJson('/api/v1/voters', [
-            'cedula' => '1110002222',
-            'nombres' => 'ANA',
-            'apellidos' => 'GOMEZ',
-        ])->assertStatus(201);
-
-        $this->assertEncolado(Voter::withoutGlobalScope(TenantScope::class)->sole());
-    }
-
-    // ============================================================= nace con puesto
-
-    public function test_un_votante_que_nace_con_puesto_no_encola_nada(): void
+    public function test_un_asistente_que_ya_era_votante_no_vuelve_a_consultarse(): void
     {
         Voter::factory()->forTenant($this->tenant)->create([
+            'cedula' => '14398737',
             'departamento_votacion' => 'TOLIMA',
-            'municipio_votacion' => 'IBAGUE',
-            'puesto_votacion' => 'COLEGIO SAN SIMON',
         ]);
+
+        // El check-in lo encuentra en vez de crearlo: no nace nadie, no se
+        // consulta nada.
+        $this->checkIn(['cedula' => '14398737', 'nombres' => 'ANA', 'apellidos' => 'GOMEZ'])
+            ->assertStatus(201);
 
         Queue::assertNotPushed(ConsultarPuestoVotacionJob::class);
     }
 
-    public function test_el_alta_manual_con_ubicacion_tecleada_no_encola(): void
+    // -------------------------------------------------------------- alta manual
+
+    public function test_el_alta_manual_sin_puesto_encola_la_consulta(): void
     {
         $this->operador();
 
         $this->postJson('/api/v1/voters', [
-            'cedula' => '1110002222',
+            'cedula' => '14398737',
+            'nombres' => 'ANA',
+            'apellidos' => 'GOMEZ',
+        ])->assertStatus(201);
+
+        $this->assertEncolaPara(Voter::withoutGlobalScope(TenantScope::class)->sole());
+    }
+
+    public function test_el_alta_manual_con_puesto_tecleado_no_encola_nada(): void
+    {
+        $this->operador();
+
+        // Quien captura ya sabe dónde vota esta persona: gastar una consulta
+        // —que puede acabar pagando un reCAPTCHA— sería tirar el dinero.
+        $this->postJson('/api/v1/voters', [
+            'cedula' => '14398737',
             'nombres' => 'ANA',
             'apellidos' => 'GOMEZ',
             'departamento_votacion' => 'TOLIMA',
@@ -132,35 +133,39 @@ class EncoladoConsultaPuestoTest extends TestCase
         Queue::assertNotPushed(ConsultarPuestoVotacionJob::class);
     }
 
-    // ================================================================= no dispara
-
-    public function test_editar_un_votante_no_encola_otra_consulta(): void
+    public function test_tampoco_encola_si_el_formulario_resolvio_el_puesto_del_catalogo(): void
     {
-        $votante = Voter::factory()->forTenant($this->tenant)->create([
-            'departamento_votacion' => null,
-            'voting_place_id' => null,
+        VotingPlace::create([
+            'departamento_votacion' => 'TOLIMA',
+            'municipio_votacion' => 'IBAGUE',
+            'puesto_votacion' => 'COLEGIO SAN SIMON',
         ]);
 
-        Queue::assertPushed(ConsultarPuestoVotacionJob::class, 1);
+        $this->operador();
 
-        $votante->update(['telefono' => '3001112233']);
+        $this->postJson('/api/v1/voters', [
+            'cedula' => '14398737',
+            'nombres' => 'ANA',
+            'apellidos' => 'GOMEZ',
+            'municipio_votacion' => 'IBAGUE',
+            'puesto_votacion' => 'COLEGIO SAN SIMON',
+        ])->assertStatus(201);
 
-        // El disparo es el nacimiento, no cada escritura: si no, cada edición
-        // volvería a pagar una consulta.
-        Queue::assertPushed(ConsultarPuestoVotacionJob::class, 1);
+        Queue::assertNotPushed(ConsultarPuestoVotacionJob::class);
     }
+
+    // ------------------------------------------------------ integración apagada
 
     public function test_sin_servicio_configurado_no_se_encola_nada(): void
     {
+        // Estado por defecto (y el de la suite): llenar la cola de trabajos que
+        // solo pueden fallar no ayuda a nadie.
         config()->set('services.registraduria.url', null);
 
-        Voter::factory()->forTenant($this->tenant)->create([
-            'departamento_votacion' => null,
-            'voting_place_id' => null,
-        ]);
+        $this->checkIn(['cedula' => '14398737', 'nombres' => 'ANA', 'apellidos' => 'GOMEZ'])
+            ->assertStatus(201);
 
-        // Estado por defecto mientras el servicio Python no esté arriba: el flujo
-        // queda apagado en vez de llenar la cola de trabajos que van a fallar.
-        Queue::assertNothingPushed();
+        $this->assertSame(1, Voter::withoutGlobalScope(TenantScope::class)->count());
+        Queue::assertNotPushed(ConsultarPuestoVotacionJob::class);
     }
 }

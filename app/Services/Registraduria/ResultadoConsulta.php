@@ -3,50 +3,54 @@
 namespace App\Services\Registraduria;
 
 /**
- * Lo que devuelve el servicio de Registraduría, ya clasificado (Spec 0091).
+ * Lo que devolvió una consulta a la Registraduría (Spec 0091).
  *
- * Tres desenlaces, y la diferencia importa para la cola: `no_encontrado` **no**
- * es un fallo —la Registraduría respondió y esa cédula no está en el censo—, así
- * que no tiene sentido reintentarlo; un fallo (servicio caído, reto no superado)
- * sí se reintenta.
+ * Existe para que quien llama no tenga que interpretar códigos HTTP ni el
+ * `estado` que manda el servicio Python: los tres desenlaces se tratan distinto
+ * y confundirlos cuesta dinero o datos.
+ *
+ * - **encontrado** → hay puesto que escribir.
+ * - **no encontrado** → la Registraduría no tiene esa cédula. **No es un
+ *   fallo**: reintentarlo es pagar 2Captcha por volver a oír que no existe.
+ * - **fallo** → el servicio no respondió o respondió mal. Aquí sí se reintenta.
+ *
+ * El `motivo` del fallo es para el log, y por eso es un código corto y no un
+ * mensaje: nunca lleva la cédula (Art. VII).
  */
 final class ResultadoConsulta
 {
-    public const ENCONTRADO = 'encontrado';
+    private const ENCONTRADO = 'encontrado';
 
-    public const NO_ENCONTRADO = 'no_encontrado';
+    private const NO_ENCONTRADO = 'no_encontrado';
 
-    public const FALLO = 'fallo';
+    private const FALLO = 'fallo';
 
     /**
-     * @param  array<int, array<string, mixed>>  $datos
+     * @param  array<string, mixed>  $datos  ya traducido a nombres de columna de `voters`
      */
     private function __construct(
-        public readonly string $estado,
-        public readonly ?string $via = null,
+        private readonly string $estado,
         public readonly array $datos = [],
+        public readonly ?string $via = null,
         public readonly ?string $motivo = null,
     ) {}
 
     /**
-     * @param  array<int, array<string, mixed>>  $datos
+     * @param  array<string, mixed>  $datos
      */
     public static function encontrado(array $datos, ?string $via = null): self
     {
-        return new self(self::ENCONTRADO, $via, $datos);
+        return new self(self::ENCONTRADO, $datos, $via);
     }
 
     public static function noEncontrado(?string $via = null): self
     {
-        return new self(self::NO_ENCONTRADO, $via);
+        return new self(self::NO_ENCONTRADO, via: $via);
     }
 
-    /**
-     * El motivo es para el log: llega ya saneado de PII.
-     */
     public static function fallo(string $motivo): self
     {
-        return new self(self::FALLO, null, [], $motivo);
+        return new self(self::FALLO, motivo: $motivo);
     }
 
     public function esEncontrado(): bool
@@ -59,20 +63,8 @@ final class ResultadoConsulta
         return $this->estado === self::NO_ENCONTRADO;
     }
 
-    public function haFallado(): bool
+    public function esFallo(): bool
     {
         return $this->estado === self::FALLO;
-    }
-
-    /**
-     * La primera fila del resultado: una cédula vota en un solo puesto.
-     *
-     * @return array<string, mixed>|null
-     */
-    public function primerRegistro(): ?array
-    {
-        $primero = $this->datos[0] ?? null;
-
-        return is_array($primero) && $primero !== [] ? $primero : null;
     }
 }

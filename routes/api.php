@@ -77,6 +77,10 @@ Route::prefix('v1')->group(function () {
 
     // Public routes
     Route::post('/login', [AuthController::class, 'login']);
+    // Aquí vivían los dos webhooks de Registraduría de n8n (Spec 0030). Se
+    // retiraron en la Spec 0091: el flujo se invirtió y ahora es Laravel quien
+    // llama al servicio de scraping, en cola, cuando un votante nace sin puesto.
+    // No queda superficie pública que autenticar por secreto de tenant.
     // Password reset (forgot + reset via n8n email webhook)
     Route::post('/password/forgot', [PasswordResetController::class, 'forgot']);
     Route::post('/password/reset', [PasswordResetController::class, 'reset']);

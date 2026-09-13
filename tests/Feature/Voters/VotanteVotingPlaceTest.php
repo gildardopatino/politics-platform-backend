@@ -2,11 +2,12 @@
 
 namespace Tests\Feature\Voters;
 
-use App\Models\E14PuestoAlias;
 use App\Models\Tenant;
 use App\Models\Voter;
 use App\Models\VotingPlace;
 use App\Scopes\TenantScope;
+use App\Services\E14\PuestoResolver;
+use App\Services\Registraduria\RegistraduriaSyncService;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
@@ -14,23 +15,24 @@ use Tests\TestCase;
  * La captura del votante resuelve al puesto canónico (Spec 0075).
  *
  * La 0062 dejó el cruce colgando de un cabo suelto: el lado E-14 resolvía el
- * puesto por nombre **normalizado** (más los alias del tenant) y la escritura del
- * votante casaba por igualdad exacta de cadenas con su propio `firstOrCreate`. Dos
+ * puesto por nombre **normalizado** (más los alias del tenant) y el votante
+ * casaba por igualdad exacta de cadenas con su propio `firstOrCreate`. Dos
  * grafías del mismo colegio creaban dos renglones del catálogo, el acta apuntaba a
  * uno y el votante al otro, y el cruce por `voting_place_id` **fallaba en
  * silencio** — peor que un nulo, porque el resolver de respaldo solo rescata los
  * nulos y un id equivocado no-nulo nunca cae en él.
  *
- * Aquí se fija que las tres escrituras del votante pasan por el mismo
+ * Aquí se fija que las escrituras del votante pasan por el mismo
  * `PuestoResolver`, con la asimetría que la spec decidió:
  *
- * - **Registraduría** (el censo oficial) → find-or-create normalizado;
+ * - **Registraduría** (censo oficial) → find-or-create normalizado;
  * - **alta/edición manual** (texto tecleado) → solo buscar, nunca crear.
  *
- * Desde la Spec 0091 el lado autoritativo ya no entra por el webhook de n8n sino
- * por la cola (`RegistraduriaSyncService`); sus invariantes se prueban en
- * `tests/Unit/Services/Registraduria/RegistraduriaSyncServiceTest.php` y aquí
- * queda lo que cruza capas: el resolver puro, la captura manual y el cruce.
+ * El lado de Registraduría se probaba contra el webhook de n8n, que la Spec 0091
+ * retiró; ahora entra por `RegistraduriaSyncService`, y sus casos en detalle
+ * viven en `Tests\Unit\Services\Registraduria\RegistraduriaSyncServiceTest`. Lo
+ * que queda aquí de ese lado es lo que ninguna prueba unitaria puede fijar: que
+ * el votante y el acta acaban **en la misma fila del cruce**.
  */
 class VotanteVotingPlaceTest extends TestCase
 {
@@ -63,44 +65,28 @@ class VotanteVotingPlaceTest extends TestCase
     }
 
     /**
-     * Lo que hoy escribe el lado autoritativo: la cola de la Spec 0091 aplicando
-     * lo que devolvió el servicio de Registraduría. Antes era el webhook de n8n;
-     * el guardado es el mismo (`RegistraduriaSyncService`).
+     * Lo que la Spec 0091 escribe cuando el servicio resuelve el puesto.
      *
-     * @param  array<string, mixed>  $cambios  claves del contrato del servicio
+     * @param  array<string, mixed>  $cambios
      */
     private function registraduria(Voter $votante, array $cambios = []): void
     {
         app()->instance('current_tenant_id', $votante->tenant_id);
 
-        app(\App\Services\Registraduria\RegistraduriaSyncService::class)->aplicar(
-            $votante,
-            \App\Services\Registraduria\RegistraduriaSyncService::mapear(array_replace([
-                'DEPARTAMENTO' => 'TOLIMA',
-                'MUNICIPIO' => 'IBAGUE',
-                'PUESTO' => self::CANONICO,
-                'MESA' => '5',
-            ], $cambios))
-        );
+        app(RegistraduriaSyncService::class)->aplicar($votante, array_replace([
+            'departamento_votacion' => 'TOLIMA',
+            'municipio_votacion' => 'IBAGUE',
+            'puesto_votacion' => self::CANONICO,
+            'direccion_votacion' => null,
+            'mesa_votacion' => '5',
+        ], $cambios));
     }
 
-    /** Fusión decidida por el tenant: «este nombre va a este puesto». */
-    private function fusionar(Tenant $tenant, string $municipio, string $puesto, VotingPlace $destino): void
-    {
-        E14PuestoAlias::withoutGlobalScope(TenantScope::class)->create([
-            'tenant_id' => $tenant->id,
-            'clave' => \App\Services\E14\PuestoResolver::clave($municipio, $puesto),
-            'voting_place_id' => $destino->id,
-            'municipio' => $municipio,
-            'puesto' => $puesto,
-        ]);
-    }
-
-    // ======================================== el lado autoritativo (Registraduría)
+    // ================================================== resolver autoritativo
 
     public function test_el_resolver_autoritativo_no_crea_puesto_sin_departamento(): void
     {
-        $resolver = app(\App\Services\E14\PuestoResolver::class);
+        $resolver = app(PuestoResolver::class);
 
         // El departamento es parte de la clave natural del catálogo y no se
         // rellena con un placeholder: coherente con `resolverActa`.
@@ -183,7 +169,14 @@ class VotanteVotingPlaceTest extends TestCase
     {
         $canonico = $this->puestoDelCatalogo();
         $this->puestoDelCatalogo(['puesto_votacion' => 'COL. SAN SIMON']);
-        $this->fusionar($this->tenant, 'IBAGUE', 'COL. SAN SIMON', $canonico);
+
+        \App\Models\E14PuestoAlias::withoutGlobalScope(TenantScope::class)->create([
+            'tenant_id' => $this->tenant->id,
+            'clave' => PuestoResolver::clave('IBAGUE', 'COL. SAN SIMON'),
+            'voting_place_id' => $canonico->id,
+            'municipio' => 'IBAGUE',
+            'puesto' => 'COL. SAN SIMON',
+        ]);
 
         $this->operador();
 
@@ -295,8 +288,8 @@ class VotanteVotingPlaceTest extends TestCase
     {
         $votante = $this->votante();
 
-        // El acta llega con una grafía y Registraduría con otra: el cruce tiene que
-        // verlos en la **misma** fila, sin depender del resolver de respaldo.
+        // El acta llega con una grafía y la Registraduría con otra: el cruce tiene
+        // que verlos en la **misma** fila, sin depender del resolver de respaldo.
         [$user, $token] = $this->createTenantWithUser(
             [\App\Support\Permissions::VIEW_E14, \App\Support\Permissions::MANAGE_E14],
             $this->tenant
@@ -330,9 +323,9 @@ class VotanteVotingPlaceTest extends TestCase
             ->update(['candidato_propio_numero' => 2]);
 
         $this->registraduria($votante, [
-            'MUNICIPIO' => 'Ibagué',
-            'PUESTO' => 'colegio san simón ',
-            'MESA' => '5',
+            'municipio_votacion' => 'Ibagué',
+            'puesto_votacion' => 'colegio san simón ',
+            'mesa_votacion' => '5',
         ]);
 
         $this->actingAsTenantUser($user, $token);

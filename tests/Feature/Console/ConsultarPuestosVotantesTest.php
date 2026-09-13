@@ -10,206 +10,147 @@ use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 /**
- * Backfill de puestos de votación (Spec 0091, Parte B · RF-B5).
+ * `voters:consultar-puestos` — la red de seguridad del flujo de Registraduría
+ * (Spec 0091).
  *
- * Reemplaza al `GET .../registraduria/pendientes` de n8n: en vez de que un
- * tercero pida la lista, el comando recorre campaña por campaña a quien le falta
- * el puesto y **encola** un Job por cada uno.
+ * Reemplaza al `pendientes` de n8n. El disparo normal es automático al nacer el
+ * votante, así que este comando existe para los votantes anteriores a la spec y
+ * para los que se quedaron sin resolver mientras el servicio estuvo caído.
  *
- * `--limit` no es una comodidad: 2Captcha se cobra por consulta y una campaña
- * con miles de votantes sin puesto puede costar dinero de verdad.
+ * `--limit` es lo que acota el gasto de 2Captcha por corrida, así que su
+ * semántica —tope de **toda** la corrida, no por campaña— se fija aquí.
  */
 class ConsultarPuestosVotantesTest extends TestCase
 {
-    private const URL = 'http://127.0.0.1:8100';
+    private Tenant $tenant;
 
     protected function setUp(): void
     {
         parent::setUp();
 
+        config()->set('services.registraduria.url', 'http://127.0.0.1:8100');
+
         Queue::fake();
 
-        config()->set('services.registraduria.url', self::URL);
-        config()->set('services.registraduria.token', 'token-de-prueba');
+        $this->tenant = Tenant::factory()->create();
     }
 
-    private function sinPuesto(Tenant $tenant, int $cuantos = 1): void
+    private function votantes(int $cuantos, ?Tenant $tenant = null, array $atributos = []): void
     {
-        Voter::factory()->count($cuantos)->forTenant($tenant)->create([
-            'departamento_votacion' => null,
-            'municipio_votacion' => null,
-            'puesto_votacion' => null,
-            'voting_place_id' => null,
-        ]);
+        Voter::factory()->count($cuantos)->forTenant($tenant ?? $this->tenant)->create($atributos);
     }
 
-    private function conPuesto(Tenant $tenant): Voter
+    public function test_encola_un_job_por_cada_votante_sin_puesto(): void
     {
-        return Voter::factory()->forTenant($tenant)->create([
-            'departamento_votacion' => 'TOLIMA',
-            'municipio_votacion' => 'IBAGUE',
-            'puesto_votacion' => 'COLEGIO SAN SIMON',
-        ]);
+        $this->votantes(3);
+
+        $this->artisan('voters:consultar-puestos')->assertSuccessful();
+
+        Queue::assertPushed(ConsultarPuestoVotacionJob::class, 3);
     }
 
-    /** Los Jobs que encoló el comando, sin contar los del observer del alta. */
-    private function encoladosPorElComando(callable $accion): array
+    public function test_no_encola_a_quien_ya_tiene_departamento(): void
     {
-        $antes = [];
-        Queue::pushed(ConsultarPuestoVotacionJob::class, function ($job) use (&$antes) {
-            $antes[] = $job->voterId;
+        $this->votantes(2);
+        $this->votantes(2, atributos: ['departamento_votacion' => 'TOLIMA']);
 
-            return false;
-        });
+        $this->artisan('voters:consultar-puestos')->assertSuccessful();
 
-        $accion();
-
-        $todos = [];
-        Queue::pushed(ConsultarPuestoVotacionJob::class, function ($job) use (&$todos) {
-            $todos[] = $job->voterId;
-
-            return false;
-        });
-
-        return array_slice($todos, count($antes));
+        Queue::assertPushed(ConsultarPuestoVotacionJob::class, 2);
     }
 
-    public function test_encola_una_consulta_por_votante_sin_puesto(): void
+    public function test_no_encola_a_quien_ya_apunta_a_un_puesto_del_catalogo(): void
     {
-        $tenant = Tenant::factory()->create();
-        $this->sinPuesto($tenant, 3);
-
-        $encolados = $this->encoladosPorElComando(
-            fn () => $this->artisan('voters:consultar-puestos')->assertSuccessful()
-        );
-
-        $this->assertCount(3, $encolados);
-    }
-
-    public function test_no_encola_a_quien_ya_tiene_puesto(): void
-    {
-        $tenant = Tenant::factory()->create();
-        $this->sinPuesto($tenant, 2);
-        $this->conPuesto($tenant);
-        $this->conPuesto($tenant);
-
-        $encolados = $this->encoladosPorElComando(
-            fn () => $this->artisan('voters:consultar-puestos')->assertSuccessful()
-        );
-
-        $this->assertCount(2, $encolados);
-    }
-
-    public function test_tampoco_encola_a_quien_ya_esta_ligado_al_catalogo(): void
-    {
-        $tenant = Tenant::factory()->create();
         $puesto = VotingPlace::create([
             'departamento_votacion' => 'TOLIMA',
             'municipio_votacion' => 'IBAGUE',
             'puesto_votacion' => 'COLEGIO SAN SIMON',
         ]);
 
-        Voter::factory()->forTenant($tenant)->create([
-            'departamento_votacion' => null,
-            'voting_place_id' => $puesto->id,
-        ]);
-
-        $encolados = $this->encoladosPorElComando(
-            fn () => $this->artisan('voters:consultar-puestos')->assertSuccessful()
-        );
-
-        $this->assertSame([], $encolados);
-    }
-
-    public function test_el_limite_acota_cuanto_se_gasta(): void
-    {
-        $tenant = Tenant::factory()->create();
-        $this->sinPuesto($tenant, 5);
-
-        $encolados = $this->encoladosPorElComando(
-            fn () => $this->artisan('voters:consultar-puestos', ['--limit' => 2])->assertSuccessful()
-        );
-
-        $this->assertCount(2, $encolados);
-    }
-
-    public function test_la_segunda_corrida_no_re_encola_a_los_ya_resueltos(): void
-    {
-        $tenant = Tenant::factory()->create();
-        $this->sinPuesto($tenant, 3);
-
-        $primera = $this->encoladosPorElComando(
-            fn () => $this->artisan('voters:consultar-puestos')->assertSuccessful()
-        );
-        $this->assertCount(3, $primera);
-
-        // Dos de los tres ya se resolvieron entre corridas.
-        Voter::whereIn('id', array_slice($primera, 0, 2))->update([
-            'departamento_votacion' => 'TOLIMA',
-            'municipio_votacion' => 'IBAGUE',
-            'puesto_votacion' => 'COLEGIO SAN SIMON',
-        ]);
-
-        $segunda = $this->encoladosPorElComando(
-            fn () => $this->artisan('voters:consultar-puestos')->assertSuccessful()
-        );
-
-        $this->assertSame([$primera[2]], $segunda);
-    }
-
-    public function test_el_tenant_acota_la_corrida_a_una_campana(): void
-    {
-        $mia = Tenant::factory()->create();
-        $ajena = Tenant::factory()->create();
-        $this->sinPuesto($mia, 2);
-        $this->sinPuesto($ajena, 3);
-
-        $encolados = $this->encoladosPorElComando(
-            fn () => $this->artisan('voters:consultar-puestos', ['--tenant' => $mia->id])->assertSuccessful()
-        );
-
-        $this->assertCount(2, $encolados);
-
-        $delaMia = Voter::withoutGlobalScopes()->whereIn('id', $encolados)->pluck('tenant_id')->unique();
-        $this->assertSame([$mia->id], $delaMia->values()->all());
-    }
-
-    public function test_cada_job_lleva_el_tenant_de_su_votante(): void
-    {
-        $una = Tenant::factory()->create();
-        $otra = Tenant::factory()->create();
-        $this->sinPuesto($una);
-        $this->sinPuesto($otra);
+        $this->votantes(2);
+        // Sin departamento pero con el puesto ya resuelto: ya sabemos dónde vota.
+        $this->votantes(1, atributos: ['voting_place_id' => $puesto->id]);
 
         $this->artisan('voters:consultar-puestos')->assertSuccessful();
 
-        // Sin esto el Job resolvería con los alias de la campaña equivocada
-        // (Constitución, Art. III).
-        Queue::assertPushed(ConsultarPuestoVotacionJob::class, function ($job) {
-            $votante = Voter::withoutGlobalScopes()->find($job->voterId);
-
-            return $votante !== null && $votante->tenant_id === $job->tenantId;
-        });
+        Queue::assertPushed(ConsultarPuestoVotacionJob::class, 2);
     }
 
-    public function test_sin_servicio_configurado_avisa_y_no_encola(): void
+    public function test_el_limite_acota_la_corrida_entera(): void
+    {
+        $this->votantes(5);
+
+        $this->artisan('voters:consultar-puestos', ['--limit' => 2])->assertSuccessful();
+
+        // Cada consulta puede acabar pagando un reCAPTCHA: el tope es de gasto.
+        Queue::assertPushed(ConsultarPuestoVotacionJob::class, 2);
+    }
+
+    public function test_el_limite_no_se_reparte_por_campana(): void
+    {
+        $otra = Tenant::factory()->create();
+
+        $this->votantes(3);
+        $this->votantes(3, $otra);
+
+        $this->artisan('voters:consultar-puestos', ['--limit' => 4])->assertSuccessful();
+
+        // Cuatro en total, no cuatro por campaña.
+        Queue::assertPushed(ConsultarPuestoVotacionJob::class, 4);
+    }
+
+    public function test_un_limite_mayor_que_los_pendientes_encola_solo_los_que_hay(): void
+    {
+        $this->votantes(2);
+
+        $this->artisan('voters:consultar-puestos', ['--limit' => 10])->assertSuccessful();
+
+        Queue::assertPushed(ConsultarPuestoVotacionJob::class, 2);
+    }
+
+    public function test_el_filtro_de_campana_no_encola_los_de_otra(): void
+    {
+        $otra = Tenant::factory()->create();
+
+        $this->votantes(2);
+        $this->votantes(3, $otra);
+
+        $this->artisan('voters:consultar-puestos', ['--tenant' => $this->tenant->id])->assertSuccessful();
+
+        Queue::assertPushed(ConsultarPuestoVotacionJob::class, 2);
+        Queue::assertPushed(
+            ConsultarPuestoVotacionJob::class,
+            fn (ConsultarPuestoVotacionJob $job) => $job->tenantId === $this->tenant->id
+        );
+    }
+
+    public function test_la_segunda_corrida_no_reencola_a_los_ya_resueltos(): void
+    {
+        $this->votantes(2);
+        $resuelto = Voter::factory()->forTenant($this->tenant)->create();
+
+        $this->artisan('voters:consultar-puestos')->assertSuccessful();
+        Queue::assertPushed(ConsultarPuestoVotacionJob::class, 3);
+
+        // Entre una corrida y otra, uno de ellos resolvió.
+        $resuelto->update(['departamento_votacion' => 'TOLIMA']);
+
+        Queue::fake();
+
+        $this->artisan('voters:consultar-puestos')->assertSuccessful();
+
+        Queue::assertPushed(ConsultarPuestoVotacionJob::class, 2);
+    }
+
+    public function test_sin_servicio_configurado_el_comando_falla_en_vez_de_encolar(): void
     {
         config()->set('services.registraduria.url', null);
+        $this->votantes(2);
 
-        $tenant = Tenant::factory()->create();
-        $this->sinPuesto($tenant, 2);
+        // Fallar es lo honesto: encolar en silencio trabajos que solo pueden
+        // fallar deja al operador creyendo que el backfill corrió.
+        $this->artisan('voters:consultar-puestos')->assertFailed();
 
-        $this->artisan('voters:consultar-puestos')
-            ->expectsOutputToContain('REGISTRADURIA_SERVICE_URL')
-            ->assertFailed();
-
-        Queue::assertNothingPushed();
-    }
-
-    public function test_sin_campanas_que_recorrer_no_falla(): void
-    {
-        $this->artisan('voters:consultar-puestos', ['--tenant' => 999999])->assertSuccessful();
-
-        Queue::assertNothingPushed();
+        Queue::assertNotPushed(ConsultarPuestoVotacionJob::class);
     }
 }

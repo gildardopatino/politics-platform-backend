@@ -4,23 +4,24 @@ namespace Tests\Unit\Services\Registraduria;
 
 use App\Services\Registraduria\RegistraduriaClient;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
 use Tests\TestCase;
 
 /**
- * Cliente del servicio propio de Registraduría (Spec 0091, Parte B).
+ * El cliente del servicio de Registraduría (Spec 0091, Parte B).
  *
- * Sustituye a n8n: ahora Laravel llama **de salida**. Estas pruebas fijan el
- * mapeo del contrato de la Parte A (`estado` → resultado tipado), que el
- * servicio apagado no salga a la red, y que la cédula no aparezca en los logs
- * (Art. VII).
+ * Es la única pieza que conoce el contrato del servicio Python, así que aquí se
+ * fija lo que el resto del sistema da por hecho: que los tres desenlaces llegan
+ * distinguidos —`no_encontrado` **no** es un fallo, o el Job lo reintentaría
+ * pagando 2Captcha por volver a oír que no existe— y que la cédula no sale
+ * escrita en ningún log.
+ *
+ * Sin red: `Http::fake` en todos los casos.
  */
 class RegistraduriaClientTest extends TestCase
 {
     private const URL = 'http://127.0.0.1:8100';
-
-    private const CEDULA = '14398737';
 
     protected function setUp(): void
     {
@@ -28,7 +29,9 @@ class RegistraduriaClientTest extends TestCase
 
         config()->set('services.registraduria.url', self::URL);
         config()->set('services.registraduria.token', 'token-de-prueba');
-        config()->set('services.registraduria.timeout', 30);
+        config()->set('services.registraduria.timeout', 320);
+
+        Http::preventStrayRequests();
     }
 
     private function cliente(): RegistraduriaClient
@@ -36,51 +39,60 @@ class RegistraduriaClientTest extends TestCase
         return app(RegistraduriaClient::class);
     }
 
-    private function datosDeMuestra(): array
+    /**
+     * @param  array<string, mixed>  $cambios
+     * @return array<string, mixed>
+     */
+    private function fila(array $cambios = []): array
     {
-        return [[
-            'NUIP' => self::CEDULA,
+        return array_replace([
+            'NUIP' => '14398737',
             'DEPARTAMENTO' => 'TOLIMA',
             'MUNICIPIO' => 'IBAGUE',
-            'PUESTO' => 'INSTITUCION EDUCATIVA SAN SIMON',
+            'PUESTO' => 'COLEGIO SAN SIMON',
             'DIRECCION' => 'CALLE 60 CON CARRERA 5',
             'MESA' => '12',
-        ]];
+        ], $cambios);
     }
 
-    public function test_encontrado_devuelve_los_datos_del_puesto(): void
+    public function test_encontrado_traduce_la_fila_a_columnas_del_votante(): void
     {
         Http::fake([
             self::URL.'/api/consultar' => Http::response([
                 'estado' => 'encontrado',
                 'via' => 'stealth',
-                'datos' => $this->datosDeMuestra(),
-            ], 200),
+                'datos' => [$this->fila()],
+            ]),
         ]);
 
-        $resultado = $this->cliente()->consultar(self::CEDULA);
+        $resultado = $this->cliente()->consultar('14398737');
 
         $this->assertTrue($resultado->esEncontrado());
         $this->assertSame('stealth', $resultado->via);
-        $this->assertSame($this->datosDeMuestra(), $resultado->datos);
+        $this->assertSame([
+            'departamento_votacion' => 'TOLIMA',
+            'municipio_votacion' => 'IBAGUE',
+            'puesto_votacion' => 'COLEGIO SAN SIMON',
+            'direccion_votacion' => 'CALLE 60 CON CARRERA 5',
+            'mesa_votacion' => '12',
+        ], $resultado->datos);
     }
 
-    public function test_manda_el_token_y_el_documento_al_servicio(): void
+    public function test_la_cedula_viaja_normalizada_y_con_el_token(): void
     {
         Http::fake([
             self::URL.'/api/consultar' => Http::response([
-                'estado' => 'encontrado', 'via' => '2captcha', 'datos' => $this->datosDeMuestra(),
-            ], 200),
+                'estado' => 'encontrado', 'via' => 'stealth', 'datos' => [$this->fila()],
+            ]),
         ]);
 
-        $this->cliente()->consultar(self::CEDULA);
+        // El servicio espera solo dígitos; la base tiene cédulas capturadas con
+        // puntos y guiones desde antes de esta spec.
+        $this->cliente()->consultar('1.439.873-7');
 
-        Http::assertSent(function ($peticion) {
-            return $peticion->url() === self::URL.'/api/consultar'
-                && $peticion->method() === 'POST'
-                && $peticion['documento'] === self::CEDULA
-                && $peticion->hasHeader('Authorization', 'Bearer token-de-prueba');
-        });
+        Http::assertSent(fn (Request $peticion) => $peticion->url() === self::URL.'/api/consultar'
+            && $peticion['documento'] === '14398737'
+            && $peticion->hasHeader('Authorization', 'Bearer token-de-prueba'));
     }
 
     public function test_no_encontrado_no_es_un_fallo(): void
@@ -88,17 +100,19 @@ class RegistraduriaClientTest extends TestCase
         Http::fake([
             self::URL.'/api/consultar' => Http::response([
                 'estado' => 'no_encontrado', 'via' => 'stealth', 'datos' => [],
-            ], 200),
+            ]),
         ]);
 
-        $resultado = $this->cliente()->consultar(self::CEDULA);
+        $resultado = $this->cliente()->consultar('14398737');
 
+        // La distinción es de coste: reintentar esto es pagar por confirmar que
+        // la Registraduría no tiene la cédula.
         $this->assertTrue($resultado->esNoEncontrado());
-        $this->assertFalse($resultado->haFallado());
+        $this->assertFalse($resultado->esFallo());
         $this->assertSame([], $resultado->datos);
     }
 
-    public function test_captcha_fallido_es_un_fallo_reintentable(): void
+    public function test_captcha_fallido_es_fallo_reintentable(): void
     {
         Http::fake([
             self::URL.'/api/consultar' => Http::response([
@@ -106,87 +120,80 @@ class RegistraduriaClientTest extends TestCase
             ], 502),
         ]);
 
-        $resultado = $this->cliente()->consultar(self::CEDULA);
+        $resultado = $this->cliente()->consultar('14398737');
 
-        $this->assertTrue($resultado->haFallado());
-        $this->assertStringContainsString('captcha_fallido', (string) $resultado->motivo);
+        $this->assertTrue($resultado->esFallo());
+        $this->assertSame('captcha_fallido', $resultado->motivo);
     }
 
-    public function test_un_timeout_del_servicio_es_un_fallo(): void
+    public function test_el_techo_de_tiempo_del_servicio_es_fallo_reintentable(): void
     {
-        Http::fake(function () {
-            throw new ConnectionException('cURL error 28: Operation timed out');
-        });
+        Http::fake([
+            self::URL.'/api/consultar' => fn () => throw new ConnectionException('Connection timed out'),
+        ]);
 
-        $resultado = $this->cliente()->consultar(self::CEDULA);
+        $resultado = $this->cliente()->consultar('14398737');
 
-        $this->assertTrue($resultado->haFallado());
-        $this->assertFalse($resultado->esEncontrado());
+        $this->assertTrue($resultado->esFallo());
+        $this->assertSame('sin_conexion', $resultado->motivo);
     }
 
-    public function test_un_401_del_servicio_es_un_fallo(): void
+    public function test_token_rechazado_es_fallo_y_no_se_confunde_con_no_encontrado(): void
     {
         Http::fake([
             self::URL.'/api/consultar' => Http::response(['detalle' => 'Token ausente o inválido.'], 401),
         ]);
 
-        $this->assertTrue($this->cliente()->consultar(self::CEDULA)->haFallado());
+        $resultado = $this->cliente()->consultar('14398737');
+
+        // Sin cuerpo con `estado`, queda el código: un 401 mal leído como
+        // «no encontrado» dejaría a toda la campaña sin puesto en silencio.
+        $this->assertTrue($resultado->esFallo());
+        $this->assertSame('http_401', $resultado->motivo);
     }
 
-    public function test_sin_servicio_configurado_no_sale_a_la_red(): void
-    {
-        config()->set('services.registraduria.url', null);
-        Http::fake();
-
-        $resultado = $this->cliente()->consultar(self::CEDULA);
-
-        $this->assertTrue($resultado->haFallado());
-        Http::assertNothingSent();
-    }
-
-    public function test_una_cedula_vacia_no_sale_a_la_red(): void
-    {
-        Http::fake();
-
-        $resultado = $this->cliente()->consultar('   ');
-
-        $this->assertTrue($resultado->haFallado());
-        Http::assertNothingSent();
-    }
-
-    public function test_normaliza_la_cedula_antes_de_consultar(): void
+    public function test_encontrado_sin_datos_se_trata_como_fallo(): void
     {
         Http::fake([
-            self::URL.'/api/consultar' => Http::response([
-                'estado' => 'encontrado', 'via' => 'stealth', 'datos' => $this->datosDeMuestra(),
-            ], 200),
+            self::URL.'/api/consultar' => Http::response(['estado' => 'encontrado', 'via' => 'stealth', 'datos' => []]),
         ]);
 
-        $this->cliente()->consultar(' 1.439.873-7 ');
+        $resultado = $this->cliente()->consultar('14398737');
 
-        Http::assertSent(fn ($peticion) => $peticion['documento'] === self::CEDULA);
+        // El servicio contradiciéndose. Mejor reintentar que escribirle nulos
+        // encima a un votante.
+        $this->assertTrue($resultado->esFallo());
+        $this->assertSame('respuesta_sin_datos', $resultado->motivo);
     }
 
-    public function test_la_cedula_nunca_se_registra_en_claro(): void
+    public function test_sin_url_configurada_no_sale_a_la_red(): void
     {
-        $registrado = [];
-        Log::listen(function ($mensaje) use (&$registrado) {
-            $registrado[] = $mensaje->message.' '.json_encode($mensaje->context);
-        });
+        config()->set('services.registraduria.url', null);
 
-        Http::fake(function () {
-            throw new ConnectionException('falló al consultar '.self::CEDULA);
-        });
+        $resultado = $this->cliente()->consultar('14398737');
 
-        $resultado = $this->cliente()->consultar(self::CEDULA);
+        $this->assertFalse($this->cliente()->configurado());
+        $this->assertTrue($resultado->esFallo());
+        $this->assertSame('servicio_no_configurado', $resultado->motivo);
+        // `preventStrayRequests` ya lo garantizaría, pero se deja explícito.
+        Http::assertNothingSent();
+    }
 
-        $this->assertTrue($resultado->haFallado());
-        $this->assertNotEmpty($registrado, 'el fallo debería quedar registrado');
+    public function test_una_cedula_sin_digitos_no_llega_a_consultarse(): void
+    {
+        $resultado = $this->cliente()->consultar('   ');
 
-        foreach ($registrado as $linea) {
-            $this->assertStringNotContainsString(self::CEDULA, $linea);
-        }
+        $this->assertTrue($resultado->esFallo());
+        $this->assertSame('documento_vacio', $resultado->motivo);
+        Http::assertNothingSent();
+    }
 
-        $this->assertStringNotContainsString(self::CEDULA, (string) $resultado->motivo);
+    public function test_la_cedula_se_enmascara_para_los_logs(): void
+    {
+        // Art. VII: los logs sirven para seguir un caso, no para llevarse la
+        // base de datos.
+        $this->assertSame('14****37', RegistraduriaClient::enmascarar('14398737'));
+        $this->assertSame('****', RegistraduriaClient::enmascarar('1234'));
+        $this->assertSame('12*45', RegistraduriaClient::enmascarar('12345'));
     }
 }

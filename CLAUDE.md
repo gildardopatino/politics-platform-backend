@@ -86,8 +86,8 @@ Standard Laravel layering, namespaced by API version:
 - **MercadoPago** (`mercadopago/dx-php`) — messaging-credit purchases; webhook is public, payment routes authenticated.
 - **WhatsApp via Evolution API** — `WhatsAppNotificationService`, per-tenant `TenantWhatsAppInstance`. (Migrated off an older provider — see `docs/WHATSAPP_*`.)
 - **Wasabi / S3** (`league/flysystem-aws-s3-v3`) — tenant file/image storage via `WasabiStorageService`; QR codes, logos, voting-place images.
-- **n8n webhooks** — outbound for transactional email / password reset. (The inbound registraduria voter-sync webhooks were removed in Spec 0091.)
-- **Registraduría service** — outbound to `platform-politics-registraduria` (own repo, FastAPI) to resolve a voter's polling station; queued via `ConsultarPuestoVotacionJob`, config under `services.registraduria`. See `docs/VOTER_SYNC_SYSTEM.md`.
+- **n8n webhooks** — outbound only, for transactional email / password reset. The inbound registraduria voter-sync webhooks were removed in Spec 0091.
+- **Registraduría** (`platform-politics-registraduria`, a separate FastAPI service) — outbound, queued: `ConsultarPuestoVotacionJob` resolves a voter's polling station when they are created without one. See `docs/VOTER_SYNC_SYSTEM.md`.
 - **Social media sync** — `SocialMediaSyncService` + `SyncSocialMediaJob` pull Twitter/Facebook/Instagram/YouTube feeds for landing pages.
 - **Sentry** — error reporting wired in `bootstrap/app.php`.
 

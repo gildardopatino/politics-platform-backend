@@ -67,18 +67,25 @@ return [
     ],
 
     /*
-    | Servicio propio de consulta a la Registraduría (Spec 0091, Parte A).
+    | Registraduría (Spec 0091). El scraping vive en su propio repo
+    | (`platform-politics-registraduria`, FastAPI) y Laravel lo llama **de
+    | salida** cuando un votante nace sin puesto de votación. Reemplaza a n8n,
+    | que hacía lo contrario: preguntaba por los pendientes y escribía de vuelta.
     |
-    | Reemplaza a n8n: Laravel llama de salida cuando un votante no tiene puesto.
-    | Sin `url` configurada el flujo queda **apagado** —no se encola nada y el
-    | cliente no sale a la red—, que es el estado por defecto en pruebas y en una
-    | instalación que todavía no levantó el servicio Python.
+    | `url` vacía apaga la integración entera: no se encola ningún Job y el
+    | cliente responde «no configurado» sin salir a la red. Es el estado por
+    | defecto —y el de la suite de pruebas, que corre con la cola en `sync`—,
+    | así que un despliegue sin el servicio levantado no rompe el alta de
+    | votantes: simplemente no resuelve el puesto.
+    |
+    | El techo de tiempo por defecto (320 s) cubre el peor caso del servicio:
+    | 120 s del intento stealth + 180 s del intento con 2Captcha, más margen.
+    | Cortar antes dejaría el trabajo pago tirado a mitad y pagando igual.
     */
     'registraduria' => [
         'url' => env('REGISTRADURIA_SERVICE_URL'),
         'token' => env('REGISTRADURIA_SERVICE_TOKEN'),
-        // El camino pago (2Captcha) tarda ~15-60 s; el techo va holgado.
-        'timeout' => (int) env('REGISTRADURIA_SERVICE_TIMEOUT', 300),
+        'timeout' => (int) env('REGISTRADURIA_SERVICE_TIMEOUT', 320),
     ],
 
 ];

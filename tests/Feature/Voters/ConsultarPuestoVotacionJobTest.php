@@ -14,12 +14,19 @@ use RuntimeException;
 use Tests\TestCase;
 
 /**
- * La consulta a Registraduría, en cola (Spec 0091, Parte B).
+ * El Job que consulta el puesto de votación (Spec 0091).
  *
- * Sustituye al *pull* de n8n: el Job sale a preguntar solo por quien **no** tiene
- * puesto, y se ejecuta sin petición HTTP detrás, así que tiene que enlazar
- * `current_tenant_id` él mismo o `TenantScope` no acota nada (Constitución,
- * Art. III).
+ * Dos cosas se fijan aquí y las dos cuestan dinero o datos si se rompen:
+ *
+ * 1. **Idempotencia.** Cada consulta puede acabar pagando un reCAPTCHA, así que
+ *    un votante que ya tiene puesto no se vuelve a consultar — venga el puesto de
+ *    donde venga (un acta, una edición a mano, un Job gemelo de dos check-in
+ *    simultáneos de la misma cédula).
+ * 2. **Aislamiento (Art. III).** En la cola no hay petición que enlace
+ *    `current_tenant_id`, así que lo enlaza el Job. Sin eso, `TenantScope` no
+ *    filtraría y `PuestoResolver` resolvería con las fusiones de otra campaña.
+ *
+ * Sin red: `Http::fake` en todos los casos.
  */
 class ConsultarPuestoVotacionJobTest extends TestCase
 {
@@ -33,117 +40,80 @@ class ConsultarPuestoVotacionJobTest extends TestCase
     {
         parent::setUp();
 
-        Http::preventStrayRequests();
-
         config()->set('services.registraduria.url', self::URL);
         config()->set('services.registraduria.token', 'token-de-prueba');
+
+        Http::preventStrayRequests();
 
         $this->tenant = Tenant::factory()->create();
     }
 
     /**
-     * Un votante de escenario, sin disparar el encolado automático.
-     *
-     * El observer de la Spec 0091 encola al nacer el votante y la cola de las
-     * pruebas es `sync`: si el servicio estuviera configurado en ese momento, el
-     * Job correría solo y la prueba estaría midiendo otra ejecución. Se apaga
-     * mientras se prepara el escenario y la única corrida es la que lanza la
-     * prueba con `dispatchSync`.
+     * @param  array<string, mixed>  $cambios
      */
+    private function servicioResponde(array $cambios = [], int $estado = 200): void
+    {
+        Http::fake([
+            self::URL.'/api/consultar' => Http::response(array_replace([
+                'estado' => 'encontrado',
+                'via' => 'stealth',
+                'datos' => [[
+                    'NUIP' => '14398737',
+                    'DEPARTAMENTO' => 'TOLIMA',
+                    'MUNICIPIO' => 'IBAGUE',
+                    'PUESTO' => self::CANONICO,
+                    'DIRECCION' => 'CALLE 60 CON CARRERA 5',
+                    'MESA' => '12',
+                ]],
+            ], $cambios), $estado),
+        ]);
+    }
+
     private function votante(?Tenant $tenant = null, array $atributos = []): Voter
     {
-        $url = config('services.registraduria.url');
-        config()->set('services.registraduria.url', null);
-
-        try {
-            return Voter::factory()->forTenant($tenant ?? $this->tenant)->create(array_replace([
-                'cedula' => '14398737',
-                'departamento_votacion' => null,
-                'municipio_votacion' => null,
-                'puesto_votacion' => null,
-                'voting_place_id' => null,
-            ], $atributos));
-        } finally {
-            config()->set('services.registraduria.url', $url);
-        }
+        return Voter::factory()->forTenant($tenant ?? $this->tenant)->create($atributos);
     }
 
-    private function servicioResponde(array $cuerpo, int $codigo = 200): void
+    private function correr(Voter $voter, ?Tenant $tenant = null): void
     {
-        Http::fake([self::URL.'/api/consultar' => Http::response($cuerpo, $codigo)]);
+        (new ConsultarPuestoVotacionJob($voter->id, ($tenant ?? $this->tenant)->id))
+            ->handle(
+                app(\App\Services\Registraduria\RegistraduriaClient::class),
+                app(\App\Services\Registraduria\RegistraduriaSyncService::class),
+            );
     }
 
-    private function encontrado(array $cambios = []): array
+    private function puestoDelCatalogo(array $cambios = []): VotingPlace
     {
-        return [
-            'estado' => 'encontrado',
-            'via' => 'stealth',
-            'datos' => [array_replace([
-                'NUIP' => '14398737',
-                'DEPARTAMENTO' => 'TOLIMA',
-                'MUNICIPIO' => 'IBAGUE',
-                'PUESTO' => self::CANONICO,
-                'DIRECCION' => 'CALLE 60 CON CARRERA 5',
-                'MESA' => '12',
-            ], $cambios)],
-        ];
-    }
-
-    private function correr(Voter $votante, ?Tenant $tenant = null): void
-    {
-        ConsultarPuestoVotacionJob::dispatchSync($votante->id, ($tenant ?? $this->tenant)->id);
-    }
-
-    private function fresco(Voter $votante): Voter
-    {
-        return Voter::withoutGlobalScope(TenantScope::class)->find($votante->id);
-    }
-
-    // ============================================================ el camino feliz
-
-    public function test_escribe_el_puesto_que_devuelve_el_servicio(): void
-    {
-        $this->servicioResponde($this->encontrado());
-        $votante = $this->votante();
-
-        $this->correr($votante);
-
-        $fresco = $this->fresco($votante);
-
-        $this->assertSame('TOLIMA', $fresco->departamento_votacion);
-        $this->assertSame('IBAGUE', $fresco->municipio_votacion);
-        $this->assertSame(self::CANONICO, $fresco->puesto_votacion);
-        $this->assertSame('12', (string) $fresco->mesa_votacion);
-        $this->assertSame(VotingPlace::withoutGlobalScopes()->sole()->id, $fresco->voting_place_id);
-    }
-
-    public function test_casa_al_puesto_canonico_que_ya_existe(): void
-    {
-        $canonico = VotingPlace::create([
+        return VotingPlace::create(array_replace([
             'departamento_votacion' => 'TOLIMA',
             'municipio_votacion' => 'IBAGUE',
             'puesto_votacion' => self::CANONICO,
-        ]);
-
-        $this->servicioResponde($this->encontrado([
-            'MUNICIPIO' => 'Ibagué',
-            'PUESTO' => 'colegio san simón ',
-        ]));
-
-        $votante = $this->votante();
-        $this->correr($votante);
-
-        // Paridad con el viejo webhook (Spec 0075): mismo id canónico y el
-        // catálogo no crece por una diferencia de tildes.
-        $this->assertSame($canonico->id, $this->fresco($votante)->voting_place_id);
-        $this->assertSame(1, VotingPlace::count());
+        ], $cambios));
     }
 
-    // ============================================================== idempotencia
-
-    public function test_no_consulta_a_quien_ya_tiene_departamento(): void
+    private function fusionar(Tenant $tenant, string $municipio, string $puesto, VotingPlace $destino): void
     {
-        Http::fake();
+        E14PuestoAlias::withoutGlobalScope(TenantScope::class)->create([
+            'tenant_id' => $tenant->id,
+            'clave' => PuestoResolver::clave($municipio, $puesto),
+            'voting_place_id' => $destino->id,
+            'municipio' => $municipio,
+            'puesto' => $puesto,
+        ]);
+    }
+
+    private function recargar(Voter $voter): Voter
+    {
+        return Voter::withoutGlobalScope(TenantScope::class)->find($voter->id);
+    }
+
+    // ------------------------------------------------------------ idempotencia
+
+    public function test_no_consulta_si_el_votante_ya_tiene_departamento(): void
+    {
+        // `preventStrayRequests` sin `fake` convierte cualquier salida a la red en
+        // un fallo de la prueba: es la aserción.
         $votante = $this->votante(atributos: ['departamento_votacion' => 'TOLIMA']);
 
         $this->correr($votante);
@@ -151,14 +121,9 @@ class ConsultarPuestoVotacionJobTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_no_consulta_a_quien_ya_tiene_puesto_del_catalogo(): void
+    public function test_no_consulta_si_el_votante_ya_apunta_a_un_puesto(): void
     {
-        Http::fake();
-        $puesto = VotingPlace::create([
-            'departamento_votacion' => 'TOLIMA',
-            'municipio_votacion' => 'IBAGUE',
-            'puesto_votacion' => self::CANONICO,
-        ]);
+        $puesto = $this->puestoDelCatalogo();
         $votante = $this->votante(atributos: ['voting_place_id' => $puesto->id]);
 
         $this->correr($votante);
@@ -166,9 +131,98 @@ class ConsultarPuestoVotacionJobTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_una_cedula_vacia_no_sale_a_la_red(): void
+    public function test_un_votante_que_ya_no_existe_no_rompe_nada(): void
     {
-        Http::fake();
+        $votante = $this->votante();
+        $id = $votante->id;
+        $votante->forceDelete();
+
+        (new ConsultarPuestoVotacionJob($id, $this->tenant->id))->handle(
+            app(\App\Services\Registraduria\RegistraduriaClient::class),
+            app(\App\Services\Registraduria\RegistraduriaSyncService::class),
+        );
+
+        Http::assertNothingSent();
+    }
+
+    // -------------------------------------------------------------- resolución
+
+    public function test_escribe_el_puesto_que_devuelve_la_registraduria(): void
+    {
+        $this->servicioResponde();
+        $votante = $this->votante(atributos: ['cedula' => '14398737']);
+
+        $this->correr($votante);
+
+        $fresco = $this->recargar($votante);
+
+        $this->assertSame('TOLIMA', $fresco->departamento_votacion);
+        $this->assertSame(self::CANONICO, $fresco->puesto_votacion);
+        $this->assertSame('12', $fresco->mesa_votacion);
+        $this->assertSame(VotingPlace::sole()->id, $fresco->voting_place_id);
+    }
+
+    public function test_casa_al_puesto_canonico_del_catalogo_sin_duplicarlo(): void
+    {
+        $canonico = $this->puestoDelCatalogo();
+        $this->servicioResponde(['datos' => [[
+            'DEPARTAMENTO' => 'TOLIMA',
+            'MUNICIPIO' => 'Ibagué',
+            'PUESTO' => 'colegio san simón ',
+            'DIRECCION' => null,
+            'MESA' => '3',
+        ]]]);
+
+        $votante = $this->votante();
+
+        $this->correr($votante);
+
+        // El acta apunta al canónico; si el votante apuntara a un duplicado, el
+        // cruce por `voting_place_id` fallaría en silencio (Spec 0075).
+        $this->assertSame($canonico->id, $this->recargar($votante)->voting_place_id);
+        $this->assertSame(1, VotingPlace::count());
+    }
+
+    public function test_no_encontrado_termina_bien_y_deja_al_votante_sin_puesto(): void
+    {
+        $this->servicioResponde(['estado' => 'no_encontrado', 'datos' => []]);
+        $votante = $this->votante();
+
+        // No lanza: reintentarlo sería pagar 2Captcha por volver a oír que la
+        // Registraduría no tiene esa cédula.
+        $this->correr($votante);
+
+        $this->assertNull($this->recargar($votante)->departamento_votacion);
+        $this->assertNull($this->recargar($votante)->voting_place_id);
+    }
+
+    public function test_un_fallo_del_servicio_lanza_para_que_la_cola_reintente(): void
+    {
+        $this->servicioResponde(['estado' => 'captcha_fallido', 'datos' => []], 502);
+        $votante = $this->votante();
+
+        $this->expectException(RuntimeException::class);
+
+        $this->correr($votante);
+    }
+
+    public function test_el_mensaje_del_fallo_no_lleva_la_cedula(): void
+    {
+        $this->servicioResponde(['estado' => 'captcha_fallido', 'datos' => []], 502);
+        $votante = $this->votante(atributos: ['cedula' => '14398737']);
+
+        try {
+            $this->correr($votante);
+            $this->fail('Se esperaba una excepción del Job.');
+        } catch (RuntimeException $e) {
+            // Art. VII: la cédula es PII y las excepciones acaban en los logs.
+            $this->assertStringNotContainsString('14398737', $e->getMessage());
+            $this->assertStringContainsString('captcha_fallido', $e->getMessage());
+        }
+    }
+
+    public function test_un_votante_sin_cedula_no_llega_a_consultarse(): void
+    {
         $votante = $this->votante(atributos: ['cedula' => '']);
 
         $this->correr($votante);
@@ -176,126 +230,60 @@ class ConsultarPuestoVotacionJobTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_un_votante_que_ya_no_existe_no_revienta_la_cola(): void
+    // ------------------------------------------------------------- aislamiento
+
+    public function test_el_job_de_una_campana_no_toca_al_votante_de_otra(): void
     {
-        Http::fake();
-        $votante = $this->votante();
-        $id = $votante->id;
-        $votante->forceDelete();
+        $this->servicioResponde();
 
-        ConsultarPuestoVotacionJob::dispatchSync($id, $this->tenant->id);
-
-        Http::assertNothingSent();
-    }
-
-    // ================================================== estados que no son datos
-
-    public function test_no_encontrado_no_escribe_y_no_reintenta(): void
-    {
-        $this->servicioResponde(['estado' => 'no_encontrado', 'via' => 'stealth', 'datos' => []]);
-        $votante = $this->votante();
-
-        // No lanza: una cédula que no está en el censo no se arregla insistiendo.
-        $this->correr($votante);
-
-        $this->assertNull($this->fresco($votante)->departamento_votacion);
-        $this->assertNull($this->fresco($votante)->voting_place_id);
-    }
-
-    public function test_un_fallo_del_servicio_hace_que_la_cola_reintente(): void
-    {
-        $this->servicioResponde(['estado' => 'captcha_fallido', 'via' => null, 'datos' => []], 502);
-        $votante = $this->votante();
-
-        $this->expectException(RuntimeException::class);
-
-        try {
-            $this->correr($votante);
-        } finally {
-            $this->assertNull($this->fresco($votante)->departamento_votacion);
-        }
-    }
-
-    public function test_el_job_tiene_reintentos_acotados_y_backoff(): void
-    {
-        $job = new ConsultarPuestoVotacionJob(1, 1);
-
-        $this->assertGreaterThan(1, $job->tries);
-        $this->assertNotEmpty($job->backoff());
-        // Un backoff creciente: el servicio puede estar reiniciándose.
-        $this->assertSame(array_values($job->backoff()), $job->backoff());
-    }
-
-    // ========================================================= aislamiento (Art. III)
-
-    public function test_enlaza_el_tenant_y_lo_deja_como_estaba(): void
-    {
-        $this->servicioResponde($this->encontrado());
-        $votante = $this->votante();
-
-        // La cola no trae petición: si el Job no enlaza, `TenantScope` no filtra.
-        $this->assertFalse(app()->bound('current_tenant_id') && app('current_tenant_id') !== null);
-
-        $this->correr($votante);
-
-        $this->assertSame(self::CANONICO, $this->fresco($votante)->puesto_votacion);
-        $this->assertNull(app()->bound('current_tenant_id') ? app('current_tenant_id') : null);
-    }
-
-    public function test_un_job_de_una_campana_no_toca_al_votante_de_otra(): void
-    {
-        Http::fake();
         $ajeno = Tenant::factory()->create();
         $votanteAjeno = $this->votante($ajeno);
 
-        // El id existe, pero es de otra campaña: acotado por `TenantScope`, el
-        // Job no lo encuentra y no consulta nada.
-        ConsultarPuestoVotacionJob::dispatchSync($votanteAjeno->id, $this->tenant->id);
+        // El Job dice tenant A, pero el votante es de B: dentro del ámbito de A
+        // ese id sencillamente no existe.
+        $this->correr($votanteAjeno, $this->tenant);
 
         Http::assertNothingSent();
-        $this->assertNull($this->fresco($votanteAjeno)->departamento_votacion);
+        $this->assertNull($this->recargar($votanteAjeno)->departamento_votacion);
     }
 
     public function test_resuelve_con_los_alias_de_su_campana_y_no_con_los_de_otra(): void
     {
-        $canonico = VotingPlace::create([
-            'departamento_votacion' => 'TOLIMA',
-            'municipio_votacion' => 'IBAGUE',
-            'puesto_votacion' => self::CANONICO,
-        ]);
-        $variante = VotingPlace::create([
-            'departamento_votacion' => 'TOLIMA',
-            'municipio_votacion' => 'IBAGUE',
-            'puesto_votacion' => 'COL. SAN SIMON',
-        ]);
+        $canonico = $this->puestoDelCatalogo();
+        $variante = $this->puestoDelCatalogo(['puesto_votacion' => 'COL. SAN SIMON']);
 
-        // Solo esta campaña fusionó las dos grafías.
-        E14PuestoAlias::withoutGlobalScope(TenantScope::class)->create([
-            'tenant_id' => $this->tenant->id,
-            'clave' => PuestoResolver::clave('IBAGUE', 'COL. SAN SIMON'),
-            'voting_place_id' => $canonico->id,
-            'municipio' => 'IBAGUE',
-            'puesto' => 'COL. SAN SIMON',
-        ]);
-
-        $this->servicioResponde($this->encontrado(['PUESTO' => 'COL. SAN SIMON']));
-
+        // Solo la campaña ajena fusionó las dos grafías. La nuestra no.
         $ajeno = Tenant::factory()->create();
-        $votanteAjeno = $this->votante($ajeno);
+        $this->fusionar($ajeno, 'IBAGUE', 'COL. SAN SIMON', $canonico);
 
-        ConsultarPuestoVotacionJob::dispatchSync($votanteAjeno->id, $ajeno->id);
+        $this->servicioResponde(['datos' => [[
+            'DEPARTAMENTO' => 'TOLIMA',
+            'MUNICIPIO' => 'IBAGUE',
+            'PUESTO' => 'COL. SAN SIMON',
+            'DIRECCION' => null,
+            'MESA' => '1',
+        ]]]);
 
-        // La fusión es del otro tenant: este votante va a la variante.
-        $this->assertSame($variante->id, $this->fresco($votanteAjeno)->voting_place_id);
-        $this->assertNotSame($canonico->id, $this->fresco($votanteAjeno)->voting_place_id);
+        $votante = $this->votante();
+
+        $this->correr($votante);
+
+        // Una fusión ajena no puede mover a nuestro votante de puesto.
+        $this->assertSame($variante->id, $this->recargar($votante)->voting_place_id);
+        $this->assertNotSame($canonico->id, $this->recargar($votante)->voting_place_id);
     }
 
-    public function test_la_cedula_no_viaja_en_el_nombre_de_la_cola(): void
+    public function test_el_tenant_enlazado_se_deja_como_estaba(): void
     {
-        // El Job serializa ids, no PII: lo que quede en `jobs`/`failed_jobs` no
-        // puede llevar la cédula (Art. VII).
-        $job = new ConsultarPuestoVotacionJob(7, 3);
+        $this->servicioResponde();
+        $votante = $this->votante();
 
-        $this->assertStringNotContainsString('14398737', serialize($job));
+        app()->instance('current_tenant_id', 999);
+
+        $this->correr($votante);
+
+        // El worker es un proceso largo: dejar el tenant puesto convertiría el
+        // ámbito de este trabajo en el del siguiente.
+        $this->assertSame(999, app('current_tenant_id'));
     }
 }

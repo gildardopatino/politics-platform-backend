@@ -1352,7 +1352,7 @@ nulo se mapean **por nombre**; los que ni así resuelven van a
 nombre.
 
 > **Desde la Spec 0075** las tres escrituras del votante —alta manual, edición y
-> webhook de Registraduría— resuelven `voting_place_id` con **este mismo**
+> consulta de Registraduría— resuelven `voting_place_id` con **este mismo**
 > `PuestoResolver`, así que el camino normal es el match exacto por id y el mapeo
 > por nombre queda como red de seguridad para datos viejos y para `leads`. Antes el
 > webhook casaba por igualdad exacta de cadenas con su propio `firstOrCreate`: dos
@@ -2456,7 +2456,7 @@ revisar después de una corrección manual.
 ### Por qué mesa y puesto van por código y no por FK
 
 `voting_places` existe, pero es un catálogo **global sin `tenant_id`** que solo se
-llena cuando el webhook de Registraduría reporta un puesto, con tres cadenas de
+llena cuando la consulta de Registraduría reporta un puesto, con tres cadenas de
 texto libre como clave natural y sin relación con `departments`/`municipalities`.
 Y **mesa no existe como entidad**: es una columna de texto en `voters` y `leads`.
 Colgar el escrutinio de ahí sería apoyarlo en datos que ningún proceso garantiza.

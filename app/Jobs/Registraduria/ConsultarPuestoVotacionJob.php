@@ -3,38 +3,28 @@
 namespace App\Jobs\Registraduria;
 
 use App\Models\Voter;
-use App\Services\Registraduria\Cedula;
 use App\Services\Registraduria\RegistraduriaClient;
 use App\Services\Registraduria\RegistraduriaSyncService;
-use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 /**
- * Consulta el puesto de votación de un votante y lo guarda (Spec 0091).
+ * Resuelve el puesto de votación de un votante contra la Registraduría (Spec 0091).
  *
- * Sustituye al *pull* de n8n (Spec 0030): en vez de que un tercero pregunte
- * quién falta y escriba por webhook, es la campaña la que sale a consultar —en
- * cola, porque la consulta tarda segundos y no puede colgar un check-in.
+ * Va en cola y no en la petición porque la consulta tarda segundos —más si entra
+ * 2Captcha— y el disparador natural es un check-in de reunión, que no puede
+ * quedarse esperando a un scraper (Art. VI).
  *
- * Tres cosas lo gobiernan:
- *
- * 1. **Tenant explícito.** Un Job no trae petición, así que `EnsureTenant` no
- *    corrió y `TenantScope` no filtraría: el `tenant_id` viaja en el Job y se
- *    enlaza aquí (Constitución, Art. III). Sin eso el resolver usaría los alias
- *    de la campaña equivocada.
- * 2. **Guarda de idempotencia.** Si el votante ya tiene puesto, termina sin
- *    consultar: dos check-in casi simultáneos de la misma persona encolan dos
- *    Jobs y solo el primero gasta la consulta.
- * 3. **`no_encontrado` no es un fallo.** Esa cédula no está en el censo;
- *    insistir no la va a poner. Solo los fallos técnicos se reintentan.
- *
- * Se serializan **ids**, nunca la cédula: lo que quede en `jobs`/`failed_jobs`
- * no lleva PII (Art. VII).
+ * Lleva **el id y el tenant, no el modelo**: `SerializesModels` recargaría al
+ * votante en el worker, donde no hay petición que enlace `current_tenant_id`, y
+ * `TenantScope` no filtraría. Aquí el tenant se enlaza a mano y el votante se
+ * busca **dentro** de ese ámbito, así que un id de otra campaña simplemente no
+ * aparece (Art. III).
  */
 class ConsultarPuestoVotacionJob implements ShouldQueue
 {
@@ -42,72 +32,101 @@ class ConsultarPuestoVotacionJob implements ShouldQueue
 
     public int $tries = 3;
 
-    /**
-     * Holgado sobre el techo del cliente (300 s): el camino con 2Captcha del
-     * servicio Python puede tardar.
-     */
-    public int $timeout = 360;
-
     public function __construct(
         public readonly int $voterId,
         public readonly int $tenantId,
     ) {}
 
     /**
-     * Reintentos espaciados: si el servicio está reiniciándose, insistir cada
-     * segundo no ayuda.
+     * Un minuto, luego cinco. El servicio suele caerse por estar apagado o por
+     * un reto que no pasó, y ninguna de las dos cosas se arregla insistiendo
+     * rápido. Agotados los intentos, el votante queda para el próximo backfill.
      *
      * @return array<int, int>
      */
     public function backoff(): array
     {
-        return [60, 300, 900];
+        return [60, 300];
+    }
+
+    /**
+     * El único sitio que decide si hay que consultar por un votante.
+     *
+     * Lo llaman las dos vías por las que nace un votante —el flujo
+     * asistente→votante de la Spec 0022 y el alta manual— y el comando de
+     * backfill, para que la regla («solo si no tiene puesto, y solo si hay
+     * servicio») viva en un sitio y no en tres copias.
+     */
+    public static function despacharSiFalta(Voter $voter): void
+    {
+        // Sin servicio configurado la integración está apagada: llenar la cola de
+        // trabajos que solo pueden fallar no ayuda a nadie. Es también lo que
+        // mantiene la suite de pruebas —que corre la cola en `sync`— fuera de la red.
+        if (! app(RegistraduriaClient::class)->configurado()) {
+            return;
+        }
+
+        if (! $voter->exists || blank($voter->tenant_id) || blank($voter->cedula)) {
+            return;
+        }
+
+        if (self::tienePuesto($voter)) {
+            return;
+        }
+
+        self::dispatch($voter->id, (int) $voter->tenant_id);
     }
 
     public function handle(RegistraduriaClient $cliente, RegistraduriaSyncService $sync): void
     {
-        $enlaceAnterior = app()->bound('current_tenant_id') ? app('current_tenant_id') : null;
+        $habia = app()->bound('current_tenant_id');
+        $anterior = $habia ? app('current_tenant_id') : null;
+
         app()->instance('current_tenant_id', $this->tenantId);
 
         try {
-            $this->consultar($cliente, $sync);
+            $this->resolver($cliente, $sync);
         } finally {
-            // Se deja como estaba: el worker atiende Jobs de varias campañas.
-            app()->instance('current_tenant_id', $enlaceAnterior);
+            // El worker es un proceso largo: dejar el tenant puesto convertiría
+            // el ámbito de este trabajo en el del siguiente.
+            if ($habia) {
+                app()->instance('current_tenant_id', $anterior);
+            } else {
+                app()->forgetInstance('current_tenant_id');
+            }
         }
     }
 
-    private function consultar(RegistraduriaClient $cliente, RegistraduriaSyncService $sync): void
+    private function resolver(RegistraduriaClient $cliente, RegistraduriaSyncService $sync): void
     {
-        // Acotado por `TenantScope`: un id de otra campaña no aparece.
+        // Acotado por `TenantScope`: un votante de otra campaña no existe aquí.
         $voter = Voter::find($this->voterId);
 
         if (! $voter) {
-            Log::info('Consulta de Registraduría omitida: el votante ya no existe en la campaña', [
-                'voter_id' => $this->voterId,
-                'tenant_id' => $this->tenantId,
-            ]);
+            return;
+        }
+
+        // Guarda de idempotencia: entre que se encoló y se ejecutó, el puesto
+        // pudo llegar por otra vía (un acta, una edición, un Job gemelo de dos
+        // check-in simultáneos). Consultar de nuevo es pagar 2Captcha por un dato
+        // que ya tenemos.
+        if (self::tienePuesto($voter)) {
+            return;
+        }
+
+        if (blank($voter->cedula)) {
+            Log::warning('Votante sin cédula: no hay nada que consultar', ['voter_id' => $voter->id]);
 
             return;
         }
 
-        if ($this->yaTienePuesto($voter)) {
-            return;
-        }
-
-        $cedula = Cedula::normalizar($voter->cedula);
-
-        if ($cedula === '') {
-            Log::warning('Consulta de Registraduría omitida: el votante no tiene cédula utilizable', [
-                'voter_id' => $voter->id,
-            ]);
-
-            return;
-        }
-
-        $resultado = $cliente->consultar($cedula);
+        $resultado = $cliente->consultar($voter->cedula);
 
         if ($resultado->esNoEncontrado()) {
+            // No es un fallo: la Registraduría respondió que no tiene esa cédula.
+            // Reintentarlo es pagar por volver a oír lo mismo, así que el trabajo
+            // termina bien y el votante solo se reintenta si alguien corre el
+            // backfill.
             Log::info('La Registraduría no tiene puesto para este votante', [
                 'voter_id' => $voter->id,
                 'via' => $resultado->via,
@@ -116,37 +135,24 @@ class ConsultarPuestoVotacionJob implements ShouldQueue
             return;
         }
 
-        if ($resultado->haFallado()) {
-            // Se lanza a propósito: es lo que hace que la cola reintente con
-            // `backoff()`. Agotados los intentos queda en `failed_jobs` y lo
-            // recoge la próxima corrida de `voters:consultar-puestos`.
-            throw new RuntimeException('No se pudo consultar la Registraduría: '.$resultado->motivo);
+        if ($resultado->esFallo()) {
+            // Excepción y no `fail()`: es lo que hace que la cola reintente con
+            // el backoff de arriba. El motivo es un código corto; la cédula no
+            // entra en el mensaje (Art. VII).
+            throw new RuntimeException(
+                "No se pudo consultar el puesto del votante {$voter->id}: {$resultado->motivo}"
+            );
         }
 
-        $fila = $resultado->primerRegistro();
-        $datos = $fila === null ? [] : RegistraduriaSyncService::mapear($fila);
-
-        if ($datos === []) {
-            Log::warning('La Registraduría respondió sin un puesto utilizable', [
-                'voter_id' => $voter->id,
-                'via' => $resultado->via,
-            ]);
-
-            return;
-        }
-
-        $sync->aplicar($voter, $datos);
-
-        Log::info('Puesto de votación resuelto desde Registraduría', [
-            'voter_id' => $voter->id,
-            'via' => $resultado->via,
-        ]);
+        $sync->aplicar($voter, $resultado->datos);
     }
 
     /**
-     * Ya se sabe dónde vota: no hay nada que consultar.
+     * Un votante «tiene puesto» si sabemos dónde vota por nombre **o** si ya
+     * apunta a un renglón del catálogo. Con cualquiera de las dos, la consulta
+     * no aportaría nada.
      */
-    private function yaTienePuesto(Voter $voter): bool
+    private static function tienePuesto(Voter $voter): bool
     {
         return filled($voter->departamento_votacion) || $voter->voting_place_id !== null;
     }

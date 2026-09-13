@@ -5,98 +5,77 @@ namespace App\Services\Registraduria;
 use App\Models\Voter;
 use App\Models\VotingPlace;
 use App\Services\E14\PuestoResolver;
+use Illuminate\Support\Facades\Log;
 
 /**
- * Escribe en el votante lo que devolvió Registraduría (Spec 0091).
+ * Escribe en el votante el puesto que devolvió la Registraduría (Spec 0091).
  *
- * Es la lógica que vivía dentro de `VoterController@actualizarRegistraduria`
- * (Spec 0030), extraída para que la use la cola: el webhook de n8n desapareció,
- * pero **la forma de guardar no cambia**. Sigue siendo el lado autoritativo de
- * la Spec 0075: el mismo `PuestoResolver` del E-14 decide a qué renglón del
- * catálogo pertenece el puesto —alias del tenant → catálogo normalizado → alta
- * con departamento—, así que dos grafías del mismo colegio no vuelven a partir
- * el cruce en dos.
+ * Es la lógica que vivía dentro de `VoterController@actualizarRegistraduria`,
+ * extraída para que la use el Job en vez de duplicarla. Lo que se conserva —y es
+ * lo que importa— son los invariantes de la Spec 0075:
+ *
+ * - El puesto lo resuelve **el mismo `PuestoResolver` que el E-14**, no un
+ *   `firstOrCreate` sobre el texto crudo. Cuando el webhook tenía el suyo, dos
+ *   grafías del mismo colegio creaban dos renglones: el acta apuntaba a uno y el
+ *   votante al otro, y el cruce fallaba en silencio.
+ * - La consulta de Registraduría es el **censo oficial**, así que puede dar de
+ *   alta el renglón que falte (con departamento). El alta manual del formulario
+ *   no: eso sigue siendo solo-buscar.
+ * - La dirección del puesto se siembra **solo si estaba vacía**: el catálogo es
+ *   global y la que ya tenga pudo ponerla otra campaña o un acta.
  */
 class RegistraduriaSyncService
 {
-    /**
-     * El resolver va inyectado porque su gracia es cachear catálogo y alias del
-     * tenant una sola vez; instanciarlo por votante sería el N+1 que la 0075
-     * prohíbe.
-     */
+    /** La mesa vive en `voters.mesa_votacion`, que es `string(20)`. */
+    private const LARGO_MESA = 20;
+
     public function __construct(private readonly PuestoResolver $puestos) {}
 
     /**
-     * Traduce una fila del servicio Python a los campos del votante.
-     *
-     * El contrato de la Parte A viene en mayúsculas
-     * (`{NUIP, DEPARTAMENTO, MUNICIPIO, PUESTO, DIRECCION, MESA}`). Sin municipio
-     * o sin puesto no hay nada que guardar: son la llave del catálogo.
-     *
-     * @param  array<string, mixed>  $fila
-     * @return array<string, mixed> vacío si la fila no sirve
-     */
-    public static function mapear(array $fila): array
-    {
-        $municipio = trim((string) ($fila['MUNICIPIO'] ?? ''));
-        $puesto = trim((string) ($fila['PUESTO'] ?? ''));
-
-        if ($municipio === '' || $puesto === '') {
-            return [];
-        }
-
-        return [
-            'departamento_votacion' => trim((string) ($fila['DEPARTAMENTO'] ?? '')) ?: null,
-            'municipio_votacion' => $municipio,
-            'puesto_votacion' => $puesto,
-            'direccion_votacion' => trim((string) ($fila['DIRECCION'] ?? '')) ?: null,
-            // La columna es `string(20)`: una mesa «12A» se guarda tal cual.
-            'mesa_votacion' => mb_substr(trim((string) ($fila['MESA'] ?? '')), 0, 20) ?: null,
-        ];
-    }
-
-    /**
-     * Escribe los cinco campos y liga el votante al puesto canónico.
-     *
-     * `refrescar()` al entrar porque el catálogo pudo crecer —o alguien pudo
-     * fusionar dos grafías— desde que se cargó la instancia; y porque en la cola
-     * el proceso vive mucho más que una petición.
-     *
-     * @param  array<string, mixed>  $datos  ya mapeados por `mapear()`
+     * @param  array<string, mixed>  $datos  columnas de `voters`, tal como las
+     *                                       devuelve {@see RegistraduriaClient}
      */
     public function aplicar(Voter $voter, array $datos): void
     {
-        if ($datos === []) {
+        $departamento = self::texto($datos['departamento_votacion'] ?? null);
+        $municipio = self::texto($datos['municipio_votacion'] ?? null);
+        $puesto = self::texto($datos['puesto_votacion'] ?? null);
+
+        // Sin municipio o sin puesto no hay ubicación que escribir. Se sale sin
+        // tocar al votante: dejarle nulos encima sería peor que no saber.
+        if ($municipio === null || $puesto === null) {
+            Log::warning('La Registraduría devolvió una ubicación incompleta', [
+                'voter_id' => $voter->id,
+            ]);
+
             return;
         }
 
+        // El catálogo y los alias se cachean por instancia, y en la cola la
+        // instancia vive lo que viva el worker: sin refrescar, un Job resolvería
+        // con las fusiones que otro Job dejó cargadas —las de OTRA campaña—, que
+        // es exactamente lo que el Art. III prohíbe.
         $this->puestos->refrescar();
 
-        $puestoId = $this->puestos->resolverRegistraduria(
-            $datos['departamento_votacion'] ?? null,
-            $datos['municipio_votacion'] ?? null,
-            $datos['puesto_votacion'] ?? null,
-        );
+        $puestoId = $this->puestos->resolverRegistraduria($departamento, $municipio, $puesto);
 
-        $this->sembrarDireccionDelPuesto($puestoId, $datos['direccion_votacion'] ?? null);
+        $direccion = self::texto($datos['direccion_votacion'] ?? null);
+
+        $this->sembrarDireccionDelPuesto($puestoId, $direccion);
 
         $voter->update([
-            'departamento_votacion' => $datos['departamento_votacion'] ?? null,
-            'municipio_votacion' => $datos['municipio_votacion'] ?? null,
-            'puesto_votacion' => $datos['puesto_votacion'] ?? null,
-            'direccion_votacion' => $datos['direccion_votacion'] ?? null,
-            'mesa_votacion' => $datos['mesa_votacion'] ?? null,
+            'departamento_votacion' => $departamento,
+            'municipio_votacion' => $municipio,
+            'puesto_votacion' => $puesto,
+            'direccion_votacion' => $direccion,
+            'mesa_votacion' => self::mesa($datos['mesa_votacion'] ?? null),
             'voting_place_id' => $puestoId,
         ]);
     }
 
     /**
-     * Completa la dirección del renglón que acabó de resolverse (Spec 0075).
-     *
-     * El resolver decide **identidad** —a qué puesto pertenece este nombre— y no
-     * atributos, así que la dirección se rellena aquí. Solo si está vacía: el
-     * catálogo es global y la dirección que ya tenga pudo ponerla otra campaña o
-     * un acta.
+     * El resolver decide **identidad** —a qué renglón del catálogo pertenece
+     * este nombre—, no atributos, así que la dirección se rellena aquí.
      */
     private function sembrarDireccionDelPuesto(?int $puestoId, ?string $direccion): void
     {
@@ -107,5 +86,32 @@ class RegistraduriaSyncService
         VotingPlace::where('id', $puestoId)
             ->whereNull('direccion_votacion')
             ->update(['direccion_votacion' => $direccion]);
+    }
+
+    /**
+     * La mesa se guarda tal cual viene, recortada al ancho de la columna.
+     *
+     * El viejo webhook la validaba como entero (`nullable|integer`) mientras la
+     * columna es `string(20)`: una mesa «12A» se rechazaba entera. Al retirar el
+     * webhook se retira también esa validación, así que ahora entra —que es lo
+     * que la columna siempre permitió—. El recorte está para que una respuesta
+     * absurda del scraper no reviente el `INSERT`.
+     */
+    private static function mesa(mixed $valor): ?string
+    {
+        $mesa = self::texto($valor);
+
+        return $mesa === null ? null : mb_substr($mesa, 0, self::LARGO_MESA);
+    }
+
+    private static function texto(mixed $valor): ?string
+    {
+        if ($valor === null) {
+            return null;
+        }
+
+        $limpio = trim((string) $valor);
+
+        return $limpio === '' ? null : $limpio;
     }
 }
