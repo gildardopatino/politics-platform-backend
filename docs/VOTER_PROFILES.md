@@ -195,6 +195,22 @@ Sembrados en `RolesAndPermissionsSeeder` desde `App\Support\Permissions`
 (Art. VIII). Por rol: `admin` y `coordinator` los dos; `operator` los dos
 —quien atiende la reunión es quien captura—; `viewer` solo lectura.
 
+### Tenants que ya existían
+
+`RolesAndPermissionsSeeder` siembra las plantillas **globales** (`tenant_id`
+null), y `TenantProvisioningService` las clona al **crear** un tenant. Una
+campaña dada de alta antes de esta spec no vuelve a pasar por ese clonado, así
+que el permiso nuevo no le llega: el módulo quedaría invisible para todas las
+campañas existentes.
+
+El backfill es `VoterProfilePermissionsSeeder` — idempotente, cruza tenants a
+propósito con `withoutGlobalScope(TenantScope::class)`, y solo asigna lo que
+falta. No está en `DatabaseSeeder` porque una base limpia no lo necesita.
+
+```
+php artisan db:seed --class=VoterProfilePermissionsSeeder --force
+```
+
 ---
 
 ## 5. Datos personales y Ley 1581 (habeas data)
@@ -251,10 +267,16 @@ Orden en producción:
 
 ```
 1. psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/sql/0094-perfil-laboral.sql
-2. (opcional, el SQL ya lo hace) php artisan db:seed --class=OccupationsSeeder
-3. Redeploy del backend con RUN_MIGRATIONS=false
-4. Redeploy del frontend (Parte B)
+2. php artisan db:seed --class=RolesAndPermissionsSeeder --force
+3. php artisan db:seed --class=VoterProfilePermissionsSeeder --force
+4. (solo si NO se aplicó el SQL del paso 1) php artisan db:seed --class=OccupationsSeeder --force
+5. Redeploy del backend con RUN_MIGRATIONS=false
+6. Redeploy del frontend (Parte B)
 ```
+
+> **Nunca `php artisan db:seed` a secas** en producción: sin `--class` corre
+> `DatabaseSeeder`, que arrastra `DemoDataSeeder` y mete datos de demo en la base
+> de la campaña. Siempre con `--class`.
 
 Todo es aditivo: ninguna tabla existente cambia, así que el código viejo sigue
 funcionando entre el paso 1 y el 3.
