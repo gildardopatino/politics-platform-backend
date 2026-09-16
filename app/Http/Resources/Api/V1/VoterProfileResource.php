@@ -24,6 +24,12 @@ class VoterProfileResource extends JsonResource
             'autorizado_at' => $this->autorizado_at?->toISOString(),
             'oficios' => OccupationResource::collection($this->whenLoaded('occupations')),
 
+            // Hojas de vida (Spec 0096): el conteo viene del `withCount` del
+            // buscador, así que la bolsa sabe quién tiene papel sin pedirlo fila
+            // a fila. Los archivos se piden por su propio endpoint.
+            'hojas_vida_count' => $this->whenCounted('resumes'),
+            'tiene_hoja_vida' => $this->whenCounted('resumes', fn (int $total) => $total > 0),
+
             // Solo lo que la bolsa necesita para llamar a la persona; el resto del
             // votante se pide por su propio endpoint (Art. VII).
             'votante' => $this->whenLoaded('voter', fn () => [

@@ -280,3 +280,155 @@ Orden en producción:
 
 Todo es aditivo: ninguna tabla existente cambia, así que el código viejo sigue
 funcionando entre el paso 1 y el 3.
+
+---
+
+## 8. Hojas de vida (Spec 0096)
+
+La 0094 dejó el perfil estructurado; esta parte guarda **el papel**. Cuando sale
+una vacante el equipo no solo necesita saber que alguien «busca de vigilante»:
+necesita el documento que hay que enviar.
+
+### 8.1 Modelo
+
+**`voter_resumes`** — `HasTenant`, **varias por elector** (son versiones: la gente
+manda una nueva «ahora con el curso de alturas», y la anterior sigue siendo la
+que ya se envió a alguien).
+
+| Columna | Tipo | Notas |
+| --- | --- | --- |
+| `tenant_id` | FK `tenants` | cascade |
+| `voter_id` | FK `voters` | **cascadeOnDelete**: borrar al elector se lleva sus hojas |
+| `archivo_key` | string | ruta en el disco privado — **nunca sale en una respuesta** |
+| `nombre_original` | string | saneado y acotado a 180; solo para mostrar |
+| `mime` | string(100) | el real, no el declarado |
+| `tamano_bytes` | unsigned big | |
+| `subido_por` | FK `users`, null | `nullOnDelete` |
+
+Índice `(tenant_id, voter_id)`. `archivo_key` está en `$hidden`, así que tampoco
+aparece en un volcado accidental a logs (Art. VII).
+
+**Dónde viven los archivos:** disco `local` (`storage/app/private`, no servible
+por web), en `hojas-vida/{tenant_id}/{voter_id}/{ULID}.{ext}`. El nombre en disco
+lo **genera el servidor**: el que trae el usuario es dato de entrada, y usarlo
+como ruta es exactamente cómo se sale de la carpeta propia.
+
+### 8.2 Contrato
+
+| Método | Ruta | Permiso |
+| --- | --- | --- |
+| `GET` | `/voters/{voter}/hojas-vida` | `view_voter_profiles` |
+| `POST` | `/voters/{voter}/hojas-vida` (multipart `archivo`) | `manage_voter_profiles` |
+| `DELETE` | `/hojas-vida/{resume}` | `manage_voter_profiles` |
+| `GET` | `/hojas-vida/{resume}/archivo` | **ruta firmada** (sin sesión) |
+
+Sin permisos nuevos: son el adjunto del perfil laboral y se gobiernan con los
+mismos de la 0094.
+
+El listado va de la más reciente a la más antigua y **no** trae `archivo_key`.
+Cada fila incluye `url_descarga`, un enlace firmado que caduca en minutos
+(`voter_resumes.url_ttl_minutes`, 5 por defecto).
+
+```json
+{
+  "data": [
+    {
+      "id": 12,
+      "voter_id": 340,
+      "nombre_original": "hoja de vida ana.pdf",
+      "mime": "application/pdf",
+      "tamano_bytes": 2097152,
+      "url_descarga": "https://…/api/v1/hojas-vida/12/archivo?tenant=3&expires=…&signature=…",
+      "subido_por": 7,
+      "created_at": "2026-09-16T14:02:11.000000Z"
+    }
+  ]
+}
+```
+
+**La descarga**, igual que el archivo del acta E-14 (Spec 0071): ruta pública
+**por firma**, fuera del grupo con sesión, para que el navegador pueda abrirla en
+otra pestaña sin arrastrar el JWT. La firma cubre la hoja **y su tenant**, así que
+cambiarle el id al enlace no sirve para pedir otra, y el enlace muere en minutos.
+Una hoja de otro tenant responde **404, igual que una inexistente**: la respuesta
+no confirma que exista.
+
+**Validación del archivo:** `pdf, doc, docx, jpg, png`, máximo **8 MB**. Se valida
+con `mimetypes` (mira el contenido) **y** `mimes` (mira la extensión), porque cada
+regla atrapa un caso distinto: un `.exe` renombrado a `.pdf` pasa la segunda y no
+la primera.
+
+**Borrado:** quita la fila y el archivo. Si el archivo ya no estaba, la fila se
+borra igual — lo que se ve en el listado es la fila, y dejarla por eso sería
+dejar visible algo que ya no se puede descargar.
+
+**En la bolsa de empleo** cada perfil trae `hojas_vida_count` y
+`tiene_hoja_vida`, resueltos con un `withCount` dentro de la consulta de los
+perfiles: saber quién tiene papel no cuesta una consulta por fila (Art. VI).
+
+### 8.3 Por qué la subida exige la autorización
+
+Una hoja de vida es dato personal denso —cédula, dirección, teléfono, historia
+laboral, a veces la foto y el nombre de los hijos—. Guardarla sin autorización
+del titular no es un descuido de formulario: es tratar datos personales sin base
+legal (Ley 1581 de 2012).
+
+Por eso la subida se **bloquea**, no se advierte:
+
+- Elector **sin perfil laboral** → `422`, pidiendo registrar el perfil primero.
+- Perfil con `autoriza_tratamiento_datos = false` → `422`, pidiendo marcar la
+  autorización.
+
+La comprobación vive en `StoreVoterResumeRequest`, que corre **antes** que el
+controlador. Es deliberado: validarlo después dejaría el archivo escrito en disco
+para luego responder que no. Con el rechazo en el FormRequest no queda ni fila ni
+archivo, y hay una prueba que lo verifica mirando el disco.
+
+### 8.4 ⚠️ Volumen persistente — requisito de despliegue, no opcional
+
+> **Sin un volumen persistente montado en `/var/www/storage/app`, cada redeploy
+> borra todas las hojas de vida.** Sin aviso y sin forma de recuperarlas.
+
+`storage/` vive **dentro del contenedor**. Una imagen nueva es un sistema de
+archivos nuevo: lo que se subió antes del despliegue deja de existir. La base de
+datos sí sobrevive (tiene su volumen), así que el síntoma es el peor posible —
+filas en `voter_resumes` apuntando a archivos que ya no están, y descargas que
+responden 404 sin que nadie sepa por qué.
+
+Estado actual de los ficheros de despliegue:
+
+| Fichero | ¿Tiene el volumen? |
+| --- | --- |
+| `docker-compose.prod.yml` | **Sí** — `backend_storage:/var/www/storage/app` |
+| `docker-compose.coolify.yml` | **No** — el servicio `backend` no monta nada |
+
+Como el despliegue real va por Coolify, **hay que montarlo ahí** antes de subir la
+primera hoja de vida: o declarando el volumen en `docker-compose.coolify.yml`
+igual que en `prod.yml`, o añadiéndolo como *persistent storage* del servicio
+`backend` desde la interfaz de Coolify.
+
+```yaml
+  backend:
+    # …
+    volumes:
+      - backend_storage:/var/www/storage/app
+
+volumes:
+  pg_data:
+  redis_data:
+  backend_storage:
+```
+
+Y que el volumen tenga espacio y respaldo: cada hoja de vida son 1–5 MB, así que
+mil electores con hoja de vida son unos pocos GB.
+
+### 8.5 Despliegue
+
+Aditivo puro: tabla nueva, ninguna columna tocada, ningún permiso que sembrar.
+
+```
+1. Montar el volumen persistente (§8.4) — ANTES de la primera subida
+2. php artisan migrate --force        (php artisan migrate --pretend para ver el DDL)
+3. Redeploy del backend
+4. Redeploy del frontend (Parte B)
+```
