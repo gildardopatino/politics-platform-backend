@@ -104,6 +104,9 @@ class VoterProfileService
     {
         $query = VoterProfile::query()
             ->with(['voter', 'occupations'])
+            // Una sola consulta agregada para toda la página: saber quién tiene
+            // hoja de vida no puede costar una consulta por fila (Spec 0096).
+            ->withCount('resumes')
             // El votante borrado (soft delete) no sale en la bolsa: `whereHas`
             // sobre la relación ya excluye los `trashed`.
             ->whereHas('voter');

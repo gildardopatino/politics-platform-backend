@@ -117,6 +117,14 @@ class Voter extends Model implements Auditable
     }
 
     /**
+     * Hojas de vida (Spec 0096). Varias: son versiones, no reemplazos.
+     */
+    public function resumes(): HasMany
+    {
+        return $this->hasMany(VoterResume::class)->latest('id');
+    }
+
+    /**
      * Accessors
      */
     public function getFullNameAttribute(): string

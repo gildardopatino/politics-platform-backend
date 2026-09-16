@@ -66,6 +66,7 @@ use App\Http\Controllers\Api\V1\UserController;
 use App\Http\Controllers\Api\V1\VeredaController;
 use App\Http\Controllers\Api\V1\VoterController;
 use App\Http\Controllers\Api\V1\VoterProfileController;
+use App\Http\Controllers\Api\V1\VoterResumeController;
 use App\Http\Controllers\Api\V1\VotingPlaceController;
 use Illuminate\Support\Facades\Route;
 
@@ -131,6 +132,14 @@ Route::prefix('v1')->group(function () {
     Route::get('/e14/actas/{acta}/archivo', [E14WorkerController::class, 'archivo'])
         ->middleware('signed')
         ->name('e14.actas.archivo');
+
+    // Descarga de una hoja de vida (Spec 0096). Mismo patrón que la de arriba:
+    // pública **por firma**, para que el navegador pueda bajarla en otra pestaña
+    // sin arrastrar el JWT. La firma cubre la hoja y su tenant, y dura minutos
+    // (`voter_resumes.url_ttl_minutes`).
+    Route::get('/hojas-vida/{resume}/archivo', [VoterResumeController::class, 'archivo'])
+        ->middleware('signed')
+        ->name('hojas-vida.archivo');
 
     // Escrutinio E-14 (Spec 0061). Fuera del grupo `jwt.auth` porque uno de sus
     // dos clientes no tiene sesión: el lector de actas publica con un token de
@@ -509,6 +518,16 @@ Route::prefix('v1')->group(function () {
             Route::get('/voters/{voter}/perfil', [VoterProfileController::class, 'show'])
                 ->middleware('permission:view_voter_profiles');
             Route::put('/voters/{voter}/perfil', [VoterProfileController::class, 'update'])
+                ->middleware('permission:manage_voter_profiles');
+
+            // Hojas de vida (Spec 0096). Sin permisos propios: son el adjunto del
+            // perfil laboral y se gobiernan con los mismos. La descarga vive
+            // fuera de este grupo, firmada.
+            Route::get('/voters/{voter}/hojas-vida', [VoterResumeController::class, 'index'])
+                ->middleware('permission:view_voter_profiles');
+            Route::post('/voters/{voter}/hojas-vida', [VoterResumeController::class, 'store'])
+                ->middleware('permission:manage_voter_profiles');
+            Route::delete('/hojas-vida/{resume}', [VoterResumeController::class, 'destroy'])
                 ->middleware('permission:manage_voter_profiles');
 
             // Voters — módulo de permiso único: `view_voters` gatea todo.

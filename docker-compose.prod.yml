@@ -40,6 +40,10 @@ services:
       CACHE_STORE: redis
       QUEUE_CONNECTION: redis
       SESSION_DRIVER: redis
+    volumes:
+      # Hojas de vida y demás archivos subidos (Spec 0096): sin esto, cada
+      # redeploy los borra.
+      - backend_storage:/var/www/storage/app
     depends_on:
       db:
         condition: service_healthy
@@ -126,3 +130,4 @@ networks:
 volumes:
   pg_data:
   redis_data:
+  backend_storage:
