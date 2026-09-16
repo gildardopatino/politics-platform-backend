@@ -1,3 +1,96 @@
+# Variables compartidas por backend, queue y scheduler (Coolify solo inyecta las declaradas aquí)
+x-app-env: &app-env
+  APP_NAME: ${APP_NAME:-Politics Platform}
+  APP_ENV: production
+  APP_DEBUG: "false"
+  APP_KEY: ${APP_KEY:?set APP_KEY}
+  APP_URL: ${APP_URL:?set APP_URL}
+  APP_TIMEZONE: ${APP_TIMEZONE:-America/Bogota}
+  APP_LOCALE: ${APP_LOCALE:-es}
+  APP_FALLBACK_LOCALE: ${APP_FALLBACK_LOCALE:-es}
+  FRONTEND_URL: ${FRONTEND_URL:?set FRONTEND_URL}
+  BACKEND_URL: ${APP_URL}
+  LOG_CHANNEL: stderr
+  LOG_LEVEL: ${LOG_LEVEL:-warning}
+
+  DB_CONNECTION: pgsql
+  DB_HOST: db
+  DB_PORT: "5432"
+  DB_DATABASE: ${DB_DATABASE:-politics_platform}
+  DB_USERNAME: ${DB_USERNAME:-politics}
+  DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
+
+  REDIS_CLIENT: phpredis
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  CACHE_STORE: redis
+  QUEUE_CONNECTION: redis
+  SESSION_DRIVER: redis
+  SESSION_LIFETIME: ${SESSION_LIFETIME:-120}
+
+  JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+  JWT_TTL: ${JWT_TTL:-120}
+  JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-20160}
+  JWT_ALGO: ${JWT_ALGO:-HS256}
+  JWT_BLACKLIST_ENABLED: ${JWT_BLACKLIST_ENABLED:-true}
+  JWT_BLACKLIST_GRACE_PERIOD: ${JWT_BLACKLIST_GRACE_PERIOD:-30}
+
+  SUPERADMIN_NAME: ${SUPERADMIN_NAME:-Super Administrator}
+  SUPERADMIN_EMAIL: ${SUPERADMIN_EMAIL:?set SUPERADMIN_EMAIL}
+  SUPERADMIN_PASSWORD: ${SUPERADMIN_PASSWORD:?set SUPERADMIN_PASSWORD}
+  ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@appcore.com.co}
+
+  MAIL_MAILER: ${MAIL_MAILER:-log}
+  MAIL_HOST: ${MAIL_HOST:-email-smtp.us-east-2.amazonaws.com}
+  MAIL_PORT: ${MAIL_PORT:-587}
+  MAIL_USERNAME: ${MAIL_USERNAME:-}
+  MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+  MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-noreply@appcore.com.co}
+  MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Politics Platform}
+
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+  AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+  AWS_BUCKET: ${AWS_BUCKET:-politics-platform-default}
+  AWS_ENDPOINT: ${AWS_ENDPOINT:-https://s3.us-east-1.wasabisys.com}
+  AWS_URL: ${AWS_URL:-https://s3.us-east-1.wasabisys.com}
+  AWS_USE_PATH_STYLE_ENDPOINT: ${AWS_USE_PATH_STYLE_ENDPOINT:-false}
+
+  SMS_PROVIDER: ${SMS_PROVIDER:-log}
+  TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+  TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+  TWILIO_FROM: ${TWILIO_FROM:-}
+
+  CAMPAIGN_BATCH_SIZE: ${CAMPAIGN_BATCH_SIZE:-100}
+  CAMPAIGN_RATE_LIMIT: ${CAMPAIGN_RATE_LIMIT:-60}
+
+  N8N_WEBHOOK_URL: ${N8N_WEBHOOK_URL:-https://n8n.appcoresas.cloud/webhook/notifications/emails}
+  N8N_WHATSAPP_WEBHOOK_URL: ${N8N_WHATSAPP_WEBHOOK_URL:-https://n8n.appcoresas.cloud/webhook/notifications/whatsapp}
+  N8N_AUTH_TOKEN: ${N8N_AUTH_TOKEN:-}
+
+  # Vacía = integración apagada
+  REGISTRADURIA_SERVICE_URL: ${REGISTRADURIA_SERVICE_URL:-}
+  REGISTRADURIA_SERVICE_TOKEN: ${REGISTRADURIA_SERVICE_TOKEN:-}
+  REGISTRADURIA_SERVICE_TIMEOUT: ${REGISTRADURIA_SERVICE_TIMEOUT:-320}
+
+  SENTRY_LARAVEL_DSN: ${SENTRY_LARAVEL_DSN:-}
+  SENTRY_SEND_DEFAULT_PII: ${SENTRY_SEND_DEFAULT_PII:-true}
+  SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.2}
+
+  MERCADOPAGO_PUBLIC_KEY: ${MERCADOPAGO_PUBLIC_KEY:-}
+  MERCADOPAGO_ACCESS_TOKEN: ${MERCADOPAGO_ACCESS_TOKEN:-}
+
+  GEOCODING_PROVIDER: ${GEOCODING_PROVIDER:-nominatim}
+  GEOCODING_NOMINATIM_URL: ${GEOCODING_NOMINATIM_URL:-https://nominatim.openstreetmap.org}
+  GEOCODING_USER_AGENT: ${GEOCODING_USER_AGENT:-SuiteElectoral/1.0}
+  GEOCODING_CONTACT_EMAIL: ${GEOCODING_CONTACT_EMAIL:-}
+
+  # Binarios del postgresql-client instalado en la imagen
+  PG_DUMP_PATH: pg_dump
+  PSQL_PATH: psql
+
+  LANDING_HABILITADA: ${LANDING_HABILITADA:-false}
+
 services:
   db:
     image: postgres:16-alpine
@@ -30,22 +123,8 @@ services:
     image: politics-backend:latest
     restart: unless-stopped
     environment:
-      APP_ENV: production
-      APP_DEBUG: "false"
-      APP_KEY: ${APP_KEY}
-      APP_URL: ${APP_URL}
-      DB_CONNECTION: pgsql
-      DB_HOST: db
-      DB_PORT: "5432"
-      DB_DATABASE: ${DB_DATABASE:-politics_platform}
-      DB_USERNAME: ${DB_USERNAME:-politics}
-      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
-      REDIS_CLIENT: phpredis
-      REDIS_HOST: redis
-      REDIS_PORT: "6379"
-      CACHE_STORE: redis
-      QUEUE_CONNECTION: redis
-      SESSION_DRIVER: redis
+      <<: *app-env
+      RUN_MIGRATIONS: ${RUN_MIGRATIONS:-false}
     depends_on:
       db:
         condition: service_healthy
@@ -65,22 +144,7 @@ services:
   queue:
     image: politics-backend:latest
     restart: unless-stopped
-    environment:
-      APP_ENV: production
-      APP_KEY: ${APP_KEY}
-      APP_URL: ${APP_URL}
-      DB_CONNECTION: pgsql
-      DB_HOST: db
-      DB_PORT: "5432"
-      DB_DATABASE: ${DB_DATABASE:-politics_platform}
-      DB_USERNAME: ${DB_USERNAME:-politics}
-      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
-      REDIS_CLIENT: phpredis
-      REDIS_HOST: redis
-      REDIS_PORT: "6379"
-      CACHE_STORE: redis
-      QUEUE_CONNECTION: redis
-      SESSION_DRIVER: redis
+    environment: *app-env
     command: ["php", "artisan", "queue:work", "--tries=3", "--timeout=90"]
     depends_on:
       backend:
@@ -94,22 +158,7 @@ services:
   scheduler:
     image: politics-backend:latest
     restart: unless-stopped
-    environment:
-      APP_ENV: production
-      APP_KEY: ${APP_KEY}
-      APP_URL: ${APP_URL}
-      DB_CONNECTION: pgsql
-      DB_HOST: db
-      DB_PORT: "5432"
-      DB_DATABASE: ${DB_DATABASE:-politics_platform}
-      DB_USERNAME: ${DB_USERNAME:-politics}
-      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
-      REDIS_CLIENT: phpredis
-      REDIS_HOST: redis
-      REDIS_PORT: "6379"
-      CACHE_STORE: redis
-      QUEUE_CONNECTION: redis
-      SESSION_DRIVER: redis
+    environment: *app-env
     command: ["php", "artisan", "schedule:work"]
     depends_on:
       backend:

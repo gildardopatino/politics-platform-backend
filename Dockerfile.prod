@@ -7,7 +7,8 @@ RUN composer install \
     --optimize-autoloader \
     --no-interaction \
     --no-scripts \
-    --prefer-dist
+    --prefer-dist \
+    --ignore-platform-reqs
 
 FROM php:8.3-fpm
 
@@ -25,6 +26,10 @@ COPY docker/php/local.ini /usr/local/etc/php/conf.d/local.ini
 
 COPY . /var/www
 COPY --from=vendor /app/vendor /var/www/vendor
+COPY --from=vendor /usr/bin/composer /usr/bin/composer
+
+# Valida extensiones y versión de PHP contra la imagen real
+RUN composer check-platform-reqs --no-dev
 
 RUN chown -R www-data:www-data /var/www \
     && chmod -R 775 storage bootstrap/cache
