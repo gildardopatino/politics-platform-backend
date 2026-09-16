@@ -19,12 +19,12 @@ class LandingTestimonioResource extends JsonResource
         $fotoUrl = null;
         if ($this->foto) {
             $disk = config('filesystems.default');
-            
+
             if ($disk === 's3') {
                 $wasabi = app(WasabiStorageService::class);
                 $fotoUrl = $wasabi->getSignedUrl($this->foto, $this->tenant);
             } else {
-                $fotoUrl = asset('storage/' . $this->foto);
+                $fotoUrl = asset('storage/'.$this->foto);
             }
         }
 

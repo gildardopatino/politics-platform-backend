@@ -19,12 +19,12 @@ class LandingSocialFeedResource extends JsonResource
         $imageUrl = null;
         if ($this->imagen) {
             $disk = config('filesystems.default');
-            
+
             if ($disk === 's3') {
                 $wasabi = app(WasabiStorageService::class);
                 $imageUrl = $wasabi->getSignedUrl($this->imagen, $this->tenant);
             } else {
-                $imageUrl = asset('storage/' . $this->imagen);
+                $imageUrl = asset('storage/'.$this->imagen);
             }
         }
 

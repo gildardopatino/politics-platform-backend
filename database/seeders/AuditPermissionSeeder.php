@@ -16,7 +16,7 @@ class AuditPermissionSeeder extends Seeder
         // Crear el permiso view_audits si no existe
         $permission = Permission::firstOrCreate([
             'name' => 'view_audits',
-            'guard_name' => 'api'
+            'guard_name' => 'api',
         ]);
 
         $this->command->info('Permiso view_audits creado/verificado.');
@@ -25,7 +25,7 @@ class AuditPermissionSeeder extends Seeder
         $adminRoles = Role::where('name', 'admin')->get();
 
         foreach ($adminRoles as $role) {
-            if (!$role->hasPermissionTo('view_audits')) {
+            if (! $role->hasPermissionTo('view_audits')) {
                 $role->givePermissionTo('view_audits');
                 $this->command->info("Permiso asignado al rol admin (tenant_id: {$role->tenant_id})");
             } else {

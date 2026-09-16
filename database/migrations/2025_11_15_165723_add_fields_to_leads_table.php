@@ -12,9 +12,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('leads', function (Blueprint $table) {
-             $table->string('genero')->nullable();
-             $table->string('tipo_documento')->nullable();
-             $table->string('ips_primaria')->nullable();
+            $table->string('genero')->nullable();
+            $table->string('tipo_documento')->nullable();
+            $table->string('ips_primaria')->nullable();
         });
     }
 
@@ -24,9 +24,9 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('leads', function (Blueprint $table) {
-             $table->dropColumn('genero');
-             $table->dropColumn('tipo_documento');
-             $table->dropColumn('ips_primaria');
+            $table->dropColumn('genero');
+            $table->dropColumn('tipo_documento');
+            $table->dropColumn('ips_primaria');
         });
     }
 };

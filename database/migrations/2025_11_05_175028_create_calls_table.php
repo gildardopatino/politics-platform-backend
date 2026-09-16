@@ -13,15 +13,15 @@ return new class extends Migration
     {
         Schema::create('calls', function (Blueprint $table) {
             $table->id();
-            
+
             // Tenant
             $table->foreignId('tenant_id')->constrained()->onDelete('cascade');
-            
+
             // Relaciones
             $table->foreignId('voter_id')->constrained()->onDelete('cascade');
             $table->foreignId('survey_id')->nullable()->constrained()->onDelete('set null');
             $table->foreignId('user_id')->constrained()->onDelete('cascade'); // Quien hizo la llamada
-            
+
             // Información de la Llamada
             $table->timestamp('call_date');
             $table->integer('duration_seconds')->nullable();
@@ -31,13 +31,13 @@ return new class extends Migration
                 'busy',           // Ocupado
                 'rejected',       // Rechazó la llamada
                 'wrong_number',   // Número equivocado
-                'voicemail'       // Buzón de voz
+                'voicemail',       // Buzón de voz
             ])->default('completed');
-            
+
             $table->text('notes')->nullable();
-            
+
             $table->timestamps();
-            
+
             // Índices
             $table->index(['voter_id', 'call_date']);
             $table->index(['user_id', 'call_date']);

@@ -29,14 +29,14 @@ class MeetingAttendeeResource extends JsonResource
             'extra_fields' => $this->extra_fields,
             'checked_in' => $this->checked_in,
             'checked_in_at' => $this->checked_in_at?->toISOString(),
-            
+
             // Relación con reunión
-            'meeting' => $this->whenLoaded('meeting', fn() => new MeetingResource($this->meeting)),
-            
+            'meeting' => $this->whenLoaded('meeting', fn () => new MeetingResource($this->meeting)),
+
             // Relación con usuario creador
             'created_by' => $this->created_by,
-            'creator' => $this->whenLoaded('createdBy', fn() => new UserResource($this->createdBy)),
-            
+            'creator' => $this->whenLoaded('createdBy', fn () => new UserResource($this->createdBy)),
+
             // Timestamps
             'created_at' => $this->created_at?->toISOString(),
             'updated_at' => $this->updated_at?->toISOString(),

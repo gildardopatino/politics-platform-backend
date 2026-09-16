@@ -23,6 +23,7 @@ class MessagingConfig extends Model implements Auditable
 
     // Available config keys
     const KEY_EMAIL_PRICE = 'email_price';
+
     const KEY_WHATSAPP_PRICE = 'whatsapp_price';
 
     /**

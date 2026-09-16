@@ -13,10 +13,10 @@ return new class extends Migration
     {
         Schema::table('meetings', function (Blueprint $table) {
             $table->string('assigned_to_cedula')
-                  ->nullable()
-                  ->after('planner_id')
-                  ->comment('Cédula del asistente al que se asigna esta reunión para jerarquía');
-            
+                ->nullable()
+                ->after('planner_id')
+                ->comment('Cédula del asistente al que se asigna esta reunión para jerarquía');
+
             $table->index(['tenant_id', 'assigned_to_cedula']);
         });
     }

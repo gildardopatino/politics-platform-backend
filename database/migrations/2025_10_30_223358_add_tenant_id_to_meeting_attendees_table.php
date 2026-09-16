@@ -15,7 +15,7 @@ return new class extends Migration
         Schema::table('meeting_attendees', function (Blueprint $table) {
             $table->foreignId('tenant_id')->after('id')->nullable()->constrained('tenants')->onDelete('cascade');
         });
-        
+
         // Update existing records to have tenant_id from their meeting
         DB::statement('
             UPDATE meeting_attendees 
@@ -25,7 +25,7 @@ return new class extends Migration
                 WHERE meetings.id = meeting_attendees.meeting_id
             )
         ');
-        
+
         // Make the column NOT NULL after updating values
         Schema::table('meeting_attendees', function (Blueprint $table) {
             $table->foreignId('tenant_id')->nullable(false)->change();

@@ -24,7 +24,7 @@ return new class extends Migration
             $table->string('imagen')->nullable(); // S3/Wasabi key
             $table->boolean('is_active')->default(true);
             $table->timestamps();
-            
+
             $table->index(['tenant_id', 'is_active', 'fecha']);
         });
     }

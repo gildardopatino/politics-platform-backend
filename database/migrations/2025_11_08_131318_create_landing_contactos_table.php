@@ -19,7 +19,7 @@ return new class extends Migration
             $table->string('telefono')->nullable();
             $table->text('mensaje');
             $table->timestamps();
-            
+
             $table->index(['tenant_id', 'created_at']);
         });
     }

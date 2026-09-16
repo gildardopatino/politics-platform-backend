@@ -13,17 +13,17 @@ return new class extends Migration
     {
         Schema::create('survey_responses', function (Blueprint $table) {
             $table->id();
-            
+
             // Relaciones
             $table->foreignId('call_id')->constrained()->onDelete('cascade');
             $table->foreignId('survey_question_id')->constrained()->onDelete('cascade');
             $table->foreignId('voter_id')->constrained()->onDelete('cascade');
-            
+
             // Respuesta
             $table->text('answer_text');
-            
+
             $table->timestamps();
-            
+
             // Índices
             $table->index(['call_id', 'survey_question_id']);
             $table->index('voter_id');

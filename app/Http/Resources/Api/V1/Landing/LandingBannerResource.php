@@ -19,13 +19,13 @@ class LandingBannerResource extends JsonResource
         $imageUrl = null;
         if ($this->image) {
             $disk = config('filesystems.default');
-            
+
             if ($disk === 's3') {
                 $wasabi = app(WasabiStorageService::class);
                 $imageUrl = $wasabi->getSignedUrl($this->image, $this->tenant);
             } else {
                 // Local storage
-                $imageUrl = asset('storage/' . $this->image);
+                $imageUrl = asset('storage/'.$this->image);
             }
         }
 

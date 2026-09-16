@@ -92,6 +92,6 @@ class MessagingCreditOrder extends Model implements Auditable
      */
     public function canBeProcessed(): bool
     {
-        return $this->status === 'pending' && !$this->isExpired();
+        return $this->status === 'pending' && ! $this->isExpired();
     }
 }

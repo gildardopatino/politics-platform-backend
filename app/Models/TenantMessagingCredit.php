@@ -68,12 +68,13 @@ class TenantMessagingCredit extends Model implements Auditable
     {
         return DB::transaction(function () use ($quantity, $reference) {
             // Check availability
-            if (!$this->hasEmailCredits($quantity)) {
+            if (! $this->hasEmailCredits($quantity)) {
                 Log::warning('Insufficient email credits', [
                     'tenant_id' => $this->tenant_id,
                     'available' => $this->emails_available,
                     'requested' => $quantity,
                 ]);
+
                 return false;
             }
 
@@ -108,12 +109,13 @@ class TenantMessagingCredit extends Model implements Auditable
     {
         return DB::transaction(function () use ($quantity, $reference) {
             // Check availability
-            if (!$this->hasWhatsAppCredits($quantity)) {
+            if (! $this->hasWhatsAppCredits($quantity)) {
                 Log::warning('Insufficient WhatsApp credits', [
                     'tenant_id' => $this->tenant_id,
                     'available' => $this->whatsapp_available,
                     'requested' => $quantity,
                 ]);
+
                 return false;
             }
 

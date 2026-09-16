@@ -36,6 +36,9 @@ class PermissionCatalogTest extends TestCase
         // token del lector headless; consultarlo no implica poder escribirlo.
         'e14' => ['view_e14', 'manage_e14'],
         'voters' => ['view_voters'],
+        // Perfil laboral (Spec 0094): la situación laboral es dato personal y
+        // se gatea aparte del padrón.
+        'voter_profiles' => ['view_voter_profiles', 'manage_voter_profiles'],
         'calls' => ['view_calls'],
         'contacts' => ['view_contacts'],
         'events' => ['view_events'],

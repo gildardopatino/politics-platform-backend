@@ -51,11 +51,11 @@ class Barrio extends Model
         if ($this->municipality_id) {
             return $this->municipality;
         }
-        
+
         if ($this->commune_id && $this->commune) {
             return $this->commune->municipality;
         }
-        
+
         return null;
     }
 }

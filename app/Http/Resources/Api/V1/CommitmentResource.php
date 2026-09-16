@@ -22,21 +22,21 @@ class CommitmentResource extends JsonResource
             'due_date' => $this->due_date?->toDateString(),
             'status' => $this->status,
             'notes' => $this->notes,
-            
+
             // Relaciones con usuarios
             'assigned_user_id' => $this->assigned_user_id,
-            'assigned_user' => $this->whenLoaded('assignedUser', fn() => new UserResource($this->assignedUser)),
-            
+            'assigned_user' => $this->whenLoaded('assignedUser', fn () => new UserResource($this->assignedUser)),
+
             'created_by' => $this->created_by,
-            'creator' => $this->whenLoaded('createdBy', fn() => new UserResource($this->createdBy)),
-            
+            'creator' => $this->whenLoaded('createdBy', fn () => new UserResource($this->createdBy)),
+
             // Relación con reunión
-            'meeting' => $this->whenLoaded('meeting', fn() => new MeetingResource($this->meeting)),
-            
+            'meeting' => $this->whenLoaded('meeting', fn () => new MeetingResource($this->meeting)),
+
             // Relación con prioridad
             'priority_id' => $this->priority_id,
-            'priority' => $this->whenLoaded('priority', fn() => new PriorityResource($this->priority)),
-            
+            'priority' => $this->whenLoaded('priority', fn () => new PriorityResource($this->priority)),
+
             // Timestamps
             'created_at' => $this->created_at?->toISOString(),
             'updated_at' => $this->updated_at?->toISOString(),

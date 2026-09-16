@@ -2,7 +2,6 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
 class MessagingConfigSeeder extends Seeder
@@ -16,7 +15,7 @@ class MessagingConfigSeeder extends Seeder
             ['key' => 'email_price'],
             [
                 'value' => 50.00, // 50 COP por email
-                'description' => 'Price per email in COP'
+                'description' => 'Price per email in COP',
             ]
         );
 
@@ -24,7 +23,7 @@ class MessagingConfigSeeder extends Seeder
             ['key' => 'whatsapp_price'],
             [
                 'value' => 100.00, // 100 COP por WhatsApp
-                'description' => 'Price per WhatsApp message in COP'
+                'description' => 'Price per WhatsApp message in COP',
             ]
         );
 

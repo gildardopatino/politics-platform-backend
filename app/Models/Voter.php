@@ -6,7 +6,9 @@ use App\Traits\HasTenant;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use OwenIt\Auditing\Contracts\Auditable;
 
@@ -98,6 +100,20 @@ class Voter extends Model implements Auditable
     public function surveyResponses(): HasMany
     {
         return $this->hasMany(SurveyResponse::class);
+    }
+
+    /**
+     * Perfil laboral (Spec 0094). Uno como mucho: `voter_id` es único.
+     */
+    public function profile(): HasOne
+    {
+        return $this->hasOne(VoterProfile::class);
+    }
+
+    public function occupations(): BelongsToMany
+    {
+        return $this->belongsToMany(Occupation::class, 'voter_occupations')
+            ->withPivot('relacion');
     }
 
     /**

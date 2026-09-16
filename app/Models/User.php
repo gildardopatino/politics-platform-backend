@@ -2,24 +2,23 @@
 
 namespace App\Models;
 
+use App\Traits\HasTenant;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Foundation\Auth\User as Authenticatable;
-use Illuminate\Notifications\Notifiable;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\MorphToMany;
-use Illuminate\Database\Eloquent\Builder;
-use Spatie\Permission\Traits\HasRoles;
-use Spatie\Activitylog\Traits\LogsActivity;
-use Spatie\Activitylog\LogOptions;
-use Tymon\JWTAuth\Contracts\JWTSubject;
-use App\Traits\HasTenant;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Foundation\Auth\User as Authenticatable;
+use Illuminate\Notifications\Notifiable;
 use OwenIt\Auditing\Contracts\Auditable;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
+use Spatie\Permission\Traits\HasRoles;
+use Tymon\JWTAuth\Contracts\JWTSubject;
 
-class User extends Authenticatable implements JWTSubject, Auditable
+class User extends Authenticatable implements Auditable, JWTSubject
 {
-    use HasFactory, Notifiable, SoftDeletes, HasRoles, LogsActivity, HasTenant;
+    use HasFactory, HasRoles, HasTenant, LogsActivity, Notifiable, SoftDeletes;
     use \OwenIt\Auditing\Auditable;
 
     protected $fillable = [
@@ -122,7 +121,7 @@ class User extends Authenticatable implements JWTSubject, Auditable
     // NEW: Many-to-Many Geographic Relationships
     // Using manual polymorphic queries
     // ========================================
-    
+
     public function departments()
     {
         return $this->belongsToMany(
@@ -131,7 +130,7 @@ class User extends Authenticatable implements JWTSubject, Auditable
             'user_id',
             'assignable_id'
         )->wherePivot('assignable_type', 'App\\Models\\Department')
-        ->withTimestamps();
+            ->withTimestamps();
     }
 
     public function municipalities()
@@ -142,7 +141,7 @@ class User extends Authenticatable implements JWTSubject, Auditable
             'user_id',
             'assignable_id'
         )->wherePivot('assignable_type', 'App\\Models\\Municipality')
-        ->withTimestamps();
+            ->withTimestamps();
     }
 
     public function communes()
@@ -153,7 +152,7 @@ class User extends Authenticatable implements JWTSubject, Auditable
             'user_id',
             'assignable_id'
         )->wherePivot('assignable_type', 'App\\Models\\Commune')
-        ->withTimestamps();
+            ->withTimestamps();
     }
 
     public function barrios()
@@ -164,7 +163,7 @@ class User extends Authenticatable implements JWTSubject, Auditable
             'user_id',
             'assignable_id'
         )->wherePivot('assignable_type', 'App\\Models\\Barrio')
-        ->withTimestamps();
+            ->withTimestamps();
     }
 
     public function corregimientos()
@@ -175,7 +174,7 @@ class User extends Authenticatable implements JWTSubject, Auditable
             'user_id',
             'assignable_id'
         )->wherePivot('assignable_type', 'App\\Models\\Corregimiento')
-        ->withTimestamps();
+            ->withTimestamps();
     }
 
     public function veredas()
@@ -186,7 +185,7 @@ class User extends Authenticatable implements JWTSubject, Auditable
             'user_id',
             'assignable_id'
         )->wherePivot('assignable_type', 'App\\Models\\Vereda')
-        ->withTimestamps();
+            ->withTimestamps();
     }
 
     // ========================================
@@ -261,13 +260,13 @@ class User extends Authenticatable implements JWTSubject, Auditable
 
     public function isTenantSuperAdmin(): bool
     {
-        return $this->is_super_admin && !is_null($this->tenant_id);
+        return $this->is_super_admin && ! is_null($this->tenant_id);
     }
 
     public function getTeamHierarchy(): array
     {
         $subordinates = $this->subordinates()->with('subordinates')->get();
-        
+
         return $subordinates->map(function ($user) {
             return [
                 'id' => $user->id,

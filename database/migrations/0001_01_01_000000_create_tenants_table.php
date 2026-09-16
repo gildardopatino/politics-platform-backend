@@ -21,7 +21,7 @@ return new class extends Migration
                 'Concejo',
                 'Congresista',
                 'Diputado',
-                'Otro'
+                'Otro',
             ]);
             $table->string('identificacion')->unique();
             $table->string('email_contacto');

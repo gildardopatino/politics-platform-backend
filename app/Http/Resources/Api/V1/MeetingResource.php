@@ -43,54 +43,54 @@ class MeetingResource extends JsonResource
             'qr_data' => $qrData,
             'status' => $this->status,
             'metadata' => $this->metadata,
-            
+
             // Relaciones con usuarios
             'planner_user_id' => $this->planner_user_id,
-            'planner' => $this->whenLoaded('planner', fn() => new UserResource($this->planner)),
-            
+            'planner' => $this->whenLoaded('planner', fn () => new UserResource($this->planner)),
+
             'logistics_responsible_id' => $this->logistics_responsible_id,
-            'logistics_responsible' => $this->whenLoaded('logisticsResponsible', fn() => new UserResource($this->logisticsResponsible)),
-            
+            'logistics_responsible' => $this->whenLoaded('logisticsResponsible', fn () => new UserResource($this->logisticsResponsible)),
+
             // Relaciones geográficas
             'department_id' => $this->department_id,
-            'department' => $this->whenLoaded('department', fn() => new GeographyResource($this->department)),
-            
+            'department' => $this->whenLoaded('department', fn () => new GeographyResource($this->department)),
+
             'municipality_id' => $this->municipality_id,
-            'municipality' => $this->whenLoaded('municipality', fn() => new GeographyResource($this->municipality)),
-            
+            'municipality' => $this->whenLoaded('municipality', fn () => new GeographyResource($this->municipality)),
+
             'commune_id' => $this->commune_id,
-            'commune' => $this->whenLoaded('commune', fn() => new GeographyResource($this->commune)),
-            
+            'commune' => $this->whenLoaded('commune', fn () => new GeographyResource($this->commune)),
+
             'barrio_id' => $this->barrio_id,
-            'barrio' => $this->whenLoaded('barrio', fn() => new GeographyResource($this->barrio)),
-            
+            'barrio' => $this->whenLoaded('barrio', fn () => new GeographyResource($this->barrio)),
+
             'corregimiento_id' => $this->corregimiento_id,
-            'corregimiento' => $this->whenLoaded('corregimiento', fn() => new GeographyResource($this->corregimiento)),
-            
+            'corregimiento' => $this->whenLoaded('corregimiento', fn () => new GeographyResource($this->corregimiento)),
+
             'vereda_id' => $this->vereda_id,
-            'vereda' => $this->whenLoaded('vereda', fn() => new GeographyResource($this->vereda)),
-            
+            'vereda' => $this->whenLoaded('vereda', fn () => new GeographyResource($this->vereda)),
+
             // Relación con template
             'template_id' => $this->template_id,
-            'template' => $this->whenLoaded('template', fn() => new MeetingTemplateResource($this->template)),
-            
+            'template' => $this->whenLoaded('template', fn () => new MeetingTemplateResource($this->template)),
+
             // Colecciones relacionadas
-            'attendees' => $this->whenLoaded('attendees', fn() => MeetingAttendeeResource::collection($this->attendees)),
+            'attendees' => $this->whenLoaded('attendees', fn () => MeetingAttendeeResource::collection($this->attendees)),
             'attendees_count' => $this->whenCounted('attendees'),
-            
-            'commitments' => $this->whenLoaded('commitments', fn() => CommitmentResource::collection($this->commitments)),
+
+            'commitments' => $this->whenLoaded('commitments', fn () => CommitmentResource::collection($this->commitments)),
             'commitments_count' => $this->whenCounted('commitments'),
-            
+
             // Recursos asignados
-            'resource_allocations' => $this->whenLoaded('resourceAllocations', fn() => ResourceAllocationResource::collection($this->resourceAllocations)),
+            'resource_allocations' => $this->whenLoaded('resourceAllocations', fn () => ResourceAllocationResource::collection($this->resourceAllocations)),
             'resource_allocations_count' => $this->whenCounted('resourceAllocations'),
-            'has_resources' => $this->whenCounted('resourceAllocations', fn() => $this->resource_allocations_count > 0, false),
-            
+            'has_resources' => $this->whenCounted('resourceAllocations', fn () => $this->resource_allocations_count > 0, false),
+
             // Recordatorio activo
-            'active_reminder' => $this->whenLoaded('activeReminder', fn() => new MeetingReminderResource($this->activeReminder)),
-            
+            'active_reminder' => $this->whenLoaded('activeReminder', fn () => new MeetingReminderResource($this->activeReminder)),
+
             // Timestamps (en hora de Colombia)
-            'created_by' => $this->whenLoaded('creator', fn() => new UserResource($this->creator)),
+            'created_by' => $this->whenLoaded('creator', fn () => new UserResource($this->creator)),
             'created_at' => $this->created_at?->timezone('America/Bogota')->toIso8601String(),
             'updated_at' => $this->updated_at?->timezone('America/Bogota')->toIso8601String(),
             'deleted_at' => $this->deleted_at?->timezone('America/Bogota')->toIso8601String(),

@@ -32,7 +32,7 @@ class Lead extends Model
         'direccion_votacion',
         'latitud',
         'longitud',
-        'genero'
+        'genero',
     ];
 
     protected $casts = [
@@ -65,11 +65,11 @@ class Lead extends Model
 
     public function scopeSearchByName($query, $search)
     {
-        return $query->where(function($q) use ($search) {
+        return $query->where(function ($q) use ($search) {
             $q->where('nombre1', 'ILIKE', "%{$search}%")
-              ->orWhere('nombre2', 'ILIKE', "%{$search}%")
-              ->orWhere('apellido1', 'ILIKE', "%{$search}%")
-              ->orWhere('apellido2', 'ILIKE', "%{$search}%");
+                ->orWhere('nombre2', 'ILIKE', "%{$search}%")
+                ->orWhere('apellido1', 'ILIKE', "%{$search}%")
+                ->orWhere('apellido2', 'ILIKE', "%{$search}%");
         });
     }
 
@@ -80,26 +80,28 @@ class Lead extends Model
             $this->nombre1,
             $this->nombre2,
             $this->apellido1,
-            $this->apellido2
+            $this->apellido2,
         ]);
-        
+
         return implode(' ', $parts);
     }
 
     public function getNombresAttribute(): string
     {
         $parts = array_filter([$this->nombre1, $this->nombre2]);
+
         return implode(' ', $parts);
     }
 
     public function getApellidosAttribute(): string
     {
         $parts = array_filter([$this->apellido1, $this->apellido2]);
+
         return implode(' ', $parts);
     }
 
     public function getHasLocationAttribute(): bool
     {
-        return !is_null($this->latitud) && !is_null($this->longitud);
+        return ! is_null($this->latitud) && ! is_null($this->longitud);
     }
 }

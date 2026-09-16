@@ -40,6 +40,7 @@ use App\Http\Controllers\Api\V1\MeetingController;
 use App\Http\Controllers\Api\V1\MeetingTemplateController;
 use App\Http\Controllers\Api\V1\MercadoPagoController;
 use App\Http\Controllers\Api\V1\MunicipalityController;
+use App\Http\Controllers\Api\V1\OccupationController;
 use App\Http\Controllers\Api\V1\OrganizationController;
 use App\Http\Controllers\Api\V1\PasswordResetController;
 use App\Http\Controllers\Api\V1\PermissionController;
@@ -64,6 +65,7 @@ use App\Http\Controllers\Api\V1\TipoVotanteController;
 use App\Http\Controllers\Api\V1\UserController;
 use App\Http\Controllers\Api\V1\VeredaController;
 use App\Http\Controllers\Api\V1\VoterController;
+use App\Http\Controllers\Api\V1\VoterProfileController;
 use App\Http\Controllers\Api\V1\VotingPlaceController;
 use Illuminate\Support\Facades\Route;
 
@@ -493,6 +495,21 @@ Route::prefix('v1')->group(function () {
             Route::apiResource('voter-types', TipoVotanteController::class)
                 ->only(['index', 'store', 'show', 'update', 'destroy'])
                 ->middleware('permission:view_voters');
+
+            // Perfil laboral y bolsa de empleo (Spec 0094). Permisos propios:
+            // la situación laboral es dato personal y no se ve con `view_voters`.
+            //
+            // `/voters/perfiles` va **antes** del `apiResource('voters')`: es
+            // literal de un solo segmento, así que declarada después la comería
+            // el binding de `/voters/{voter}` (Spec 0006).
+            Route::get('/oficios', [OccupationController::class, 'index'])
+                ->middleware('permission:view_voter_profiles');
+            Route::get('/voters/perfiles', [VoterProfileController::class, 'index'])
+                ->middleware('permission:view_voter_profiles');
+            Route::get('/voters/{voter}/perfil', [VoterProfileController::class, 'show'])
+                ->middleware('permission:view_voter_profiles');
+            Route::put('/voters/{voter}/perfil', [VoterProfileController::class, 'update'])
+                ->middleware('permission:manage_voter_profiles');
 
             // Voters — módulo de permiso único: `view_voters` gatea todo.
             Route::apiResource('voters', VoterController::class)->middleware('permission:view_voters');

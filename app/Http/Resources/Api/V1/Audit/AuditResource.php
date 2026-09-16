@@ -41,24 +41,20 @@ class AuditResource extends JsonResource
 
     /**
      * Get a human-readable model name.
-     *
-     * @param string|null $fullClassName
-     * @return string
      */
     private function getModelName(?string $fullClassName): string
     {
-        if (!$fullClassName) {
+        if (! $fullClassName) {
             return 'Unknown';
         }
 
         $parts = explode('\\', $fullClassName);
+
         return end($parts);
     }
 
     /**
      * Get formatted changes showing before and after values.
-     *
-     * @return array
      */
     private function getChanges(): array
     {
@@ -88,9 +84,6 @@ class AuditResource extends JsonResource
 
     /**
      * Get a human-readable label for a field.
-     *
-     * @param string $field
-     * @return string
      */
     private function getFieldLabel(string $field): string
     {

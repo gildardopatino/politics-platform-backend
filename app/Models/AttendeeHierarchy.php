@@ -5,8 +5,8 @@ namespace App\Models;
 use App\Traits\HasTenant;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Spatie\Activitylog\Traits\LogsActivity;
 use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class AttendeeHierarchy extends Model
 {
@@ -79,6 +79,7 @@ class AttendeeHierarchy extends Model
         if ($context) {
             return $query->where('context', $context);
         }
+
         return $query->whereNull('context');
     }
 
@@ -86,25 +87,25 @@ class AttendeeHierarchy extends Model
     public function getSubordinates()
     {
         return self::where('tenant_id', $this->tenant_id)
-                  ->where('supervisor_cedula', $this->attendee_cedula)
-                  ->active()
-                  ->get();
+            ->where('supervisor_cedula', $this->attendee_cedula)
+            ->active()
+            ->get();
     }
 
     public function getSupervisors()
     {
         return self::where('tenant_id', $this->tenant_id)
-                  ->where('attendee_cedula', $this->attendee_cedula)
-                  ->active()
-                  ->get();
+            ->where('attendee_cedula', $this->attendee_cedula)
+            ->active()
+            ->get();
     }
 
     public function getPrimarySupervisor()
     {
         return self::where('tenant_id', $this->tenant_id)
-                  ->where('attendee_cedula', $this->attendee_cedula)
-                  ->primary()
-                  ->active()
-                  ->first();
+            ->where('attendee_cedula', $this->attendee_cedula)
+            ->primary()
+            ->active()
+            ->first();
     }
 }

@@ -26,7 +26,7 @@ return new class extends Migration
             $table->foreignId('approved_by_user_id')->nullable()->constrained('users')->onDelete('set null')->comment('Superadmin who approved');
             $table->timestamp('approved_at')->nullable();
             $table->timestamps();
-            
+
             // Indexes for queries
             $table->index(['tenant_id', 'type', 'created_at']);
             $table->index(['status', 'created_at']);

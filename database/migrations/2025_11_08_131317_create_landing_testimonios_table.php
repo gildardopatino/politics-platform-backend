@@ -22,7 +22,7 @@ return new class extends Migration
             $table->integer('calificacion')->default(5);
             $table->boolean('is_active')->default(true);
             $table->timestamps();
-            
+
             $table->index(['tenant_id', 'is_active']);
         });
     }

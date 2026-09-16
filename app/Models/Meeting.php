@@ -6,13 +6,13 @@ use App\Traits\HasTenant;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Spatie\Activitylog\Traits\LogsActivity;
-use Spatie\Activitylog\LogOptions;
 use OwenIt\Auditing\Contracts\Auditable;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class Meeting extends Model implements Auditable
 {
-    use HasFactory, HasTenant, SoftDeletes, LogsActivity;
+    use HasFactory, HasTenant, LogsActivity, SoftDeletes;
     use \OwenIt\Auditing\Auditable;
 
     protected $fillable = [
@@ -135,7 +135,7 @@ class Meeting extends Model implements Auditable
     public function scopeUpcoming($query)
     {
         return $query->where('starts_at', '>', now())
-                     ->where('status', 'scheduled');
+            ->where('status', 'scheduled');
     }
 
     public function scopeCompleted($query)

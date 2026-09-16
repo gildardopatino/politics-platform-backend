@@ -85,11 +85,12 @@ class MeetingReminder extends Model
      */
     public function cancel(): bool
     {
-        if (!$this->canBeCancelled()) {
+        if (! $this->canBeCancelled()) {
             return false;
         }
 
         $this->update(['status' => 'cancelled']);
+
         return true;
     }
 }

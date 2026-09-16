@@ -19,7 +19,7 @@ return new class extends Migration
             $table->string('telefono');
             $table->string('ciudad');
             $table->timestamps();
-            
+
             $table->index(['tenant_id', 'email']);
         });
     }

@@ -6,13 +6,13 @@ use App\Traits\HasTenant;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Spatie\Activitylog\Traits\LogsActivity;
-use Spatie\Activitylog\LogOptions;
 use OwenIt\Auditing\Contracts\Auditable;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class Commitment extends Model implements Auditable
 {
-    use HasFactory, HasTenant, SoftDeletes, LogsActivity;
+    use HasFactory, HasTenant, LogsActivity, SoftDeletes;
     use \OwenIt\Auditing\Auditable;
 
     protected $fillable = [
@@ -83,6 +83,6 @@ class Commitment extends Model implements Auditable
     public function scopeOverdue($query)
     {
         return $query->where('due_date', '<', now())
-                     ->whereIn('status', ['pending', 'in_progress']);
+            ->whereIn('status', ['pending', 'in_progress']);
     }
 }

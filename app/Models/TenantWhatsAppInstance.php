@@ -2,10 +2,10 @@
 
 namespace App\Models;
 
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Carbon\Carbon;
 
 class TenantWhatsAppInstance extends Model
 {
@@ -60,7 +60,7 @@ class TenantWhatsAppInstance extends Model
     {
         return $query->where(function ($q) {
             $q->whereRaw('messages_sent_today < daily_message_limit')
-              ->orWhereDate('last_reset_date', '<', Carbon::today());
+                ->orWhereDate('last_reset_date', '<', Carbon::today());
         });
     }
 
@@ -69,7 +69,7 @@ class TenantWhatsAppInstance extends Model
      */
     public function canSendMessage(): bool
     {
-        if (!$this->is_active) {
+        if (! $this->is_active) {
             return false;
         }
 
@@ -85,7 +85,7 @@ class TenantWhatsAppInstance extends Model
     public function getRemainingQuota(): int
     {
         $this->resetDailyCounterIfNeeded();
-        
+
         return max(0, $this->daily_message_limit - $this->messages_sent_today);
     }
 
@@ -95,7 +95,7 @@ class TenantWhatsAppInstance extends Model
     public function incrementSentCount(int $count = 1): void
     {
         $this->resetDailyCounterIfNeeded();
-        
+
         $this->increment('messages_sent_today', $count);
     }
 
@@ -104,12 +104,12 @@ class TenantWhatsAppInstance extends Model
      */
     public function resetDailyCounterIfNeeded(): void
     {
-        if (!$this->last_reset_date || $this->last_reset_date->lt(Carbon::today())) {
+        if (! $this->last_reset_date || $this->last_reset_date->lt(Carbon::today())) {
             $this->update([
                 'messages_sent_today' => 0,
                 'last_reset_date' => Carbon::today(),
             ]);
-            
+
             // Refresh model to get updated values
             $this->refresh();
         }

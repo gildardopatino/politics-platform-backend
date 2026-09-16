@@ -18,7 +18,7 @@ return new class extends Migration
             $table->foreignId('barrio_id')->nullable()->after('commune_id')->constrained('barrios')->onDelete('set null');
             $table->foreignId('corregimiento_id')->nullable()->after('barrio_id')->constrained('corregimientos')->onDelete('set null');
             $table->foreignId('vereda_id')->nullable()->after('corregimiento_id')->constrained('veredas')->onDelete('set null');
-            
+
             $table->index(['tenant_id', 'department_id']);
             $table->index(['tenant_id', 'municipality_id']);
         });
@@ -36,14 +36,14 @@ return new class extends Migration
             $table->dropForeign(['barrio_id']);
             $table->dropForeign(['corregimiento_id']);
             $table->dropForeign(['vereda_id']);
-            
+
             $table->dropColumn([
                 'department_id',
                 'municipality_id',
                 'commune_id',
                 'barrio_id',
                 'corregimiento_id',
-                'vereda_id'
+                'vereda_id',
             ]);
         });
     }

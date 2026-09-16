@@ -28,15 +28,15 @@ class CampaignResource extends JsonResource
             'sent_count' => $this->sent_count,
             'failed_count' => $this->failed_count,
             'progress_percentage' => $this->getProgressPercentage(),
-            
+
             // Relación con usuario creador
             'created_by' => $this->created_by,
-            'creator' => $this->whenLoaded('createdBy', fn() => new UserResource($this->createdBy)),
-            
+            'creator' => $this->whenLoaded('createdBy', fn () => new UserResource($this->createdBy)),
+
             // Colección de destinatarios
-            'recipients' => $this->whenLoaded('recipients', fn() => CampaignRecipientResource::collection($this->recipients)),
+            'recipients' => $this->whenLoaded('recipients', fn () => CampaignRecipientResource::collection($this->recipients)),
             'recipients_count' => $this->whenCounted('recipients'),
-            
+
             // Timestamps
             'created_at' => $this->created_at?->toISOString(),
             'updated_at' => $this->updated_at?->toISOString(),

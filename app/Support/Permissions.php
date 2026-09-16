@@ -84,6 +84,13 @@ final class Permissions
     // Voters
     public const VIEW_VOTERS = 'view_voters';
 
+    // Perfil laboral del votante (Spec 0094). Aparte de `view_voters` porque la
+    // situación laboral es dato personal de otra naturaleza: quien gestiona el
+    // padrón no tiene por qué ver quién de la campaña está buscando trabajo.
+    public const VIEW_VOTER_PROFILES = 'view_voter_profiles';
+
+    public const MANAGE_VOTER_PROFILES = 'manage_voter_profiles';
+
     // Call center
     public const VIEW_CALLS = 'view_calls';
 
@@ -126,6 +133,7 @@ final class Permissions
             'petty_cash' => [self::VIEW_PETTY_CASH, self::MANAGE_PETTY_CASH],
             'e14' => [self::VIEW_E14, self::MANAGE_E14],
             'voters' => [self::VIEW_VOTERS],
+            'voter_profiles' => [self::VIEW_VOTER_PROFILES, self::MANAGE_VOTER_PROFILES],
             'calls' => [self::VIEW_CALLS],
             'contacts' => [self::VIEW_CONTACTS],
             'events' => [self::VIEW_EVENTS],
@@ -172,6 +180,7 @@ final class Permissions
                 self::VIEW_PETTY_CASH, self::MANAGE_PETTY_CASH,
                 self::VIEW_E14, self::MANAGE_E14,
                 self::VIEW_VOTERS, self::VIEW_CALLS, self::VIEW_CONTACTS, self::VIEW_EVENTS,
+                self::VIEW_VOTER_PROFILES, self::MANAGE_VOTER_PROFILES,
                 self::MANAGE_LIAISONS, self::MANAGE_LANDINGPAGE,
                 self::VIEW_REPORTS, self::VIEW_PROGRESS, self::VIEW_DASHBOARD_MAP,
             ],
@@ -182,6 +191,8 @@ final class Permissions
                 self::VIEW_COMMITMENTS,
                 self::VIEW_RESOURCES,
                 self::VIEW_VOTERS, self::VIEW_CALLS, self::VIEW_CONTACTS, self::VIEW_EVENTS,
+                // Quien atiende la reunión es quien captura el perfil.
+                self::VIEW_VOTER_PROFILES, self::MANAGE_VOTER_PROFILES,
             ],
 
             'viewer' => [
@@ -190,6 +201,7 @@ final class Permissions
                 self::VIEW_COMMITMENTS,
                 self::VIEW_RESOURCES, self::VIEW_PETTY_CASH, self::VIEW_E14,
                 self::VIEW_VOTERS, self::VIEW_CALLS, self::VIEW_CONTACTS, self::VIEW_EVENTS,
+                self::VIEW_VOTER_PROFILES,
                 self::VIEW_REPORTS, self::VIEW_PROGRESS,
             ],
         ];
